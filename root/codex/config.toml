@@ -1,0 +1,15 @@
+# preemdeck — user-scope Codex config (installed as ~/.codex/config.toml).
+# Shell-command policy is enforced by sandbox_mode + approval_policy, not a
+# per-command denylist. Project-local hooks live in .codex/config.toml.
+
+approval_policy        = "on-request"
+sandbox_mode           = "workspace-write"
+model_reasoning_effort = "high"
+
+[features]
+plugin_hooks = true
+memories     = false
+
+[agents]
+max_threads = 6
+max_depth   = 1

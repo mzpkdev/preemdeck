@@ -1,0 +1,17 @@
+{
+  "model": "opus",
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "(Edit|Write|MultiEdit)",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "${CLAUDE_PROJECT_DIR}/scripts/format_on_edit.py",
+            "timeout": 30
+          }
+        ]
+      }
+    ]
+  }
+}

@@ -1,0 +1,13 @@
+# preemdeck — project-local Codex config.
+# Loads only when the project is trusted. First run prompts; accept it, or add
+# [projects."/abs/path/to/preemdeck"] trust_level = "trusted" to ~/.codex/config.toml.
+
+model = "gpt-5.5"
+
+[[hooks.PostToolUse]]
+matcher = "(apply_patch|Edit|Write)"
+
+[[hooks.PostToolUse.hooks]]
+type = "command"
+command = '"$(git rev-parse --show-toplevel)/scripts/format_on_edit.py"'
+timeout = 30

@@ -1,0 +1,32 @@
+{
+  "name": "imprint",
+  "version": "0.1.0",
+  "description": "Per-prompt behavioral imprints. Wetware burn-in for cross-host agents.",
+  "contextFileName": "AGENTS.md",
+  "hooks": {
+    "BeforeAgent": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "${extensionPath}/scripts/inject_hook.py IMPRINT.md hosts/host_gemini.md",
+            "timeout": 5
+          }
+        ]
+      }
+    ],
+    "SessionStart": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "${extensionPath}/scripts/inject_hook.py --file visuals",
+            "timeout": 5
+          }
+        ]
+      }
+    ]
+  }
+}

@@ -1,0 +1,19 @@
+{
+  "model": {
+    "name": "gemini-2.5-pro"
+  },
+  "hooks": {
+    "AfterTool": [
+      {
+        "matcher": "(write_.*|replace|edit)",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "${GEMINI_PROJECT_DIR}/scripts/format_on_edit.py",
+            "timeout": 30
+          }
+        ]
+      }
+    ]
+  }
+}

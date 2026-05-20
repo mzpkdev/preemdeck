@@ -1,0 +1,195 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 840 190" width="840" height="190">
+  <defs>
+    <pattern id="grid" width="40" height="40" patternUnits="userSpaceOnUse">
+      <path d="M40 0 L0 0 0 40" fill="none" stroke="#888" stroke-width="0.3" opacity="0.12"/>
+    </pattern>
+    <clipPath id="glitch1">
+      <rect x="0" y="108" width="840" height="5"/>
+    </clipPath>
+    <clipPath id="glitch2">
+      <rect x="0" y="126" width="840" height="3"/>
+    </clipPath>
+    <filter id="glow">
+      <feGaussianBlur stdDeviation="4" result="blur"/>
+      <feMerge>
+        <feMergeNode in="blur"/>
+        <feMergeNode in="blur"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+    <filter id="softglow">
+      <feGaussianBlur stdDeviation="8" result="blur"/>
+      <feMerge>
+        <feMergeNode in="blur"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+  </defs>
+
+  <!-- ██ GRID ██ -->
+  <rect width="840" height="190" fill="url(#grid)"/>
+
+  <!-- ██ DATA RAIN ██ -->
+  <g stroke-width="1" opacity="0.09">
+    <line x1="67"  y1="0" x2="67"  y2="85"  stroke="#00bcd4"/>
+    <line x1="134" y1="0" x2="134" y2="55"  stroke="#e0294a"/>
+    <line x1="201" y1="0" x2="201" y2="100" stroke="#00bcd4"/>
+    <line x1="268" y1="0" x2="268" y2="40"  stroke="#c8a000"/>
+    <line x1="335" y1="0" x2="335" y2="70"  stroke="#e0294a"/>
+    <line x1="402" y1="0" x2="402" y2="45"  stroke="#00bcd4"/>
+    <line x1="469" y1="0" x2="469" y2="80"  stroke="#c8a000"/>
+    <line x1="510" y1="0" x2="510" y2="85"  stroke="#e0294a"/>
+    <line x1="577" y1="0" x2="577" y2="35"  stroke="#00bcd4"/>
+    <line x1="603" y1="0" x2="603" y2="65"  stroke="#e0294a"/>
+    <line x1="670" y1="0" x2="670" y2="95"  stroke="#00bcd4"/>
+    <line x1="737" y1="0" x2="737" y2="50"  stroke="#c8a000"/>
+    <line x1="770" y1="0" x2="770" y2="60"  stroke="#e0294a"/>
+  </g>
+
+  <!-- ██ CITY SKYLINE (background layer) ██ -->
+  <path opacity="0.08" fill="#333355" d="
+    M0,190 L0,168
+    L12,168 L12,160 L24,160 L24,164 L34,164 L34,152 L48,152 L48,158
+    L56,158 L56,145 L68,145 L68,155 L80,155 L80,138 L94,138 L94,145
+    L104,145 L104,130 L120,130 L120,142 L132,142 L132,125 L146,125
+    L146,136 L156,136 L156,118 L170,118 L170,130 L182,130 L182,112
+    L196,112 L196,124 L210,124 L210,108 L222,108 L222,118 L236,118 L236,102
+    L250,102 L250,114 L262,114 L262,98 L276,98 L276,110
+    L290,110 L290,95 L304,95 L304,108 L316,108 L316,92 L330,92 L330,105
+    L344,105 L344,90 L358,90 L358,102 L370,102 L370,88 L386,88 L386,100
+    L398,100 L398,86 L414,86 L414,98 L426,98 L426,84 L442,84 L442,96
+    L454,96 L454,88 L468,88 L468,100 L480,100 L480,86 L496,86 L496,98
+    L508,98 L508,90 L522,90 L522,104 L536,104 L536,92 L548,92 L548,106
+    L562,106 L562,96 L576,96 L576,110 L588,110 L588,100 L602,100 L602,114
+    L616,114 L616,106 L630,106 L630,118 L644,118 L644,128
+    L658,128 L658,120 L672,120 L672,132 L686,132 L686,140
+    L700,140 L700,134 L714,134 L714,145 L728,145 L728,152
+    L742,152 L742,146 L756,146 L756,156 L768,156 L768,162
+    L782,162 L782,155 L796,155 L796,164 L810,164 L810,170
+    L826,170 L826,162 L840,162 L840,190 Z
+  "/>
+
+  <!-- Neon windows -->
+  <g opacity="0.45">
+    <rect x="84"  y="142" width="2" height="2" fill="#ff003c"/>
+    <rect x="108" y="136" width="2" height="2" fill="#00e0ff"/>
+    <rect x="136" y="130" width="2" height="2" fill="#dda000"/>
+    <rect x="160" y="124" width="2" height="2" fill="#ff003c"/>
+    <rect x="200" y="116" width="2" height="2" fill="#00e0ff"/>
+    <rect x="240" y="108" width="2" height="2" fill="#dda000"/>
+    <rect x="280" y="104" width="2" height="2" fill="#ff003c"/>
+    <rect x="308" y="100" width="2" height="2" fill="#00e0ff"/>
+    <rect x="348" y="96"  width="2" height="2" fill="#ff003c"/>
+    <rect x="390" y="94"  width="2" height="2" fill="#dda000"/>
+    <rect x="418" y="92"  width="2" height="2" fill="#00e0ff"/>
+    <rect x="458" y="92"  width="2" height="2" fill="#ff003c"/>
+    <rect x="500" y="94"  width="2" height="2" fill="#dda000"/>
+    <rect x="540" y="98"  width="2" height="2" fill="#00e0ff"/>
+    <rect x="580" y="104" width="2" height="2" fill="#ff003c"/>
+    <rect x="618" y="110" width="2" height="2" fill="#dda000"/>
+    <rect x="660" y="124" width="2" height="2" fill="#00e0ff"/>
+    <rect x="704" y="138" width="2" height="2" fill="#ff003c"/>
+    <rect x="746" y="150" width="2" height="2" fill="#dda000"/>
+    <rect x="786" y="160" width="2" height="2" fill="#00e0ff"/>
+  </g>
+
+  <!-- ██ CIRCUIT TRACES ██ -->
+  <g fill="none" stroke-width="1">
+    <path d="M0,68 L22,68 L36,54 L100,54" stroke="#00bcd4" opacity="0.16"/>
+    <path d="M0,78 L12,78 L26,64 L68,64" stroke="#e0294a" opacity="0.16"/>
+    <path d="M0,152 L18,152 L32,164 L62,164" stroke="#c8a000" opacity="0.10"/>
+    <circle cx="100" cy="54" r="2.5" fill="#00bcd4" opacity="0.30"/>
+    <circle cx="68"  cy="64" r="2.5" fill="#e0294a" opacity="0.30"/>
+    <circle cx="62"  cy="164" r="2"  fill="#c8a000" opacity="0.20"/>
+    <path d="M840,68 L818,68 L804,54 L740,54" stroke="#00bcd4" opacity="0.16"/>
+    <path d="M840,78 L828,78 L814,64 L776,64" stroke="#e0294a" opacity="0.16"/>
+    <path d="M840,152 L822,152 L808,164 L778,164" stroke="#c8a000" opacity="0.10"/>
+    <circle cx="740" cy="54" r="2.5" fill="#00bcd4" opacity="0.30"/>
+    <circle cx="776" cy="64" r="2.5" fill="#e0294a" opacity="0.30"/>
+    <circle cx="778" cy="164" r="2"  fill="#c8a000" opacity="0.20"/>
+  </g>
+
+  <!-- ██ GLITCH ARTIFACTS ██ -->
+  <rect x="0"   y="88"  width="78"  height="2" fill="#e0294a" opacity="0.30"/>
+  <rect x="80"  y="86"  width="10"  height="5" fill="#e0294a" opacity="0.12"/>
+  <rect x="92"  y="87"  width="4"   height="3" fill="#e0294a" opacity="0.08"/>
+  <rect x="762" y="138" width="78"  height="2" fill="#00bcd4" opacity="0.22"/>
+  <rect x="750" y="136" width="10"  height="5" fill="#00bcd4" opacity="0.10"/>
+  <rect x="0"   y="172" width="30"  height="1" fill="#c8a000" opacity="0.18"/>
+  <rect x="810" y="98"  width="30"  height="1" fill="#c8a000" opacity="0.18"/>
+  <rect x="42"  y="100" width="4"   height="3" fill="#e0294a" opacity="0.10"/>
+  <rect x="48"  y="104" width="3"   height="3" fill="#00bcd4" opacity="0.07"/>
+  <rect x="794" y="122" width="4"   height="3" fill="#e0294a" opacity="0.08"/>
+  <rect x="789" y="126" width="3"   height="3" fill="#c8a000" opacity="0.06"/>
+
+  <!-- ██ HUD FRAME ██ -->
+  <path d="M10,12 L10,30 M10,12 L30,12" fill="none" stroke="#c8a000" stroke-width="1.5" opacity="0.50"/>
+  <text x="18" y="25" font-family="'Courier New',monospace" font-size="9" fill="#c8a000" opacity="0.60" letter-spacing="1">SYS://OVERRIDE</text>
+
+  <path d="M830,12 L830,30 M830,12 L810,12" fill="none" stroke="#e0294a" stroke-width="1.5" opacity="0.50"/>
+  <text x="822" y="25" text-anchor="end" font-family="'Courier New',monospace" font-size="9" fill="#e0294a" opacity="0.60" letter-spacing="1">ICE://BROKEN</text>
+
+  <line x1="0" y1="33" x2="840" y2="33" stroke="#888" stroke-width="0.3" opacity="0.12"/>
+
+  <!-- ██ JAPANESE DECORATION ██ -->
+  <text x="18"  y="48" font-family="'Courier New',monospace" font-size="11" fill="#e0294a" opacity="0.25" letter-spacing="2">サイバーデッキ</text>
+  <text x="822" y="48" text-anchor="end" font-family="'Courier New',monospace" font-size="11" fill="#00bcd4" opacity="0.25" letter-spacing="2">リッパードック</text>
+
+  <!-- ██ MAIN TITLE ██ -->
+
+  <!-- Chromatic aberration — red -->
+  <text x="416" y="128" text-anchor="middle"
+        font-family="Impact,'Arial Black','Helvetica Neue',sans-serif"
+        font-size="88" font-weight="900" letter-spacing="10"
+        fill="#ff003c" opacity="0.5">
+    PREEMDECK
+  </text>
+
+  <!-- Chromatic aberration — cyan -->
+  <text x="424" y="132" text-anchor="middle"
+        font-family="Impact,'Arial Black','Helvetica Neue',sans-serif"
+        font-size="88" font-weight="900" letter-spacing="10"
+        fill="#00f0ff" opacity="0.5">
+    PREEMDECK
+  </text>
+
+  <!-- Glitch slice 1 -->
+  <text x="430" y="130" text-anchor="middle"
+        font-family="Impact,'Arial Black','Helvetica Neue',sans-serif"
+        font-size="88" font-weight="900" letter-spacing="10"
+        fill="#b0b0b0" opacity="0.8"
+        clip-path="url(#glitch1)">
+    PREEMDECK
+  </text>
+
+  <!-- Glitch slice 2 -->
+  <text x="412" y="130" text-anchor="middle"
+        font-family="Impact,'Arial Black','Helvetica Neue',sans-serif"
+        font-size="88" font-weight="900" letter-spacing="10"
+        fill="#b0b0b0" opacity="0.6"
+        clip-path="url(#glitch2)">
+    PREEMDECK
+  </text>
+
+  <!-- Main text -->
+  <text x="420" y="130" text-anchor="middle"
+        font-family="Impact,'Arial Black','Helvetica Neue',sans-serif"
+        font-size="88" font-weight="900" letter-spacing="10"
+        fill="#b0b0b0" filter="url(#glow)">
+    PREEMDECK
+  </text>
+
+  <!-- Underline neon -->
+  <line x1="150" y1="142" x2="690" y2="142" stroke="#ff003c" stroke-width="2.5" opacity="0.5" filter="url(#softglow)"/>
+  <line x1="168" y1="146" x2="672" y2="146" stroke="#00f0ff" stroke-width="1" opacity="0.25"/>
+
+  <!-- ██ BOTTOM HUD ██ -->
+  <line x1="0" y1="172" x2="840" y2="172" stroke="#888" stroke-width="0.3" opacity="0.10"/>
+
+  <path d="M10,182 L10,172 M10,182 L28,182" fill="none" stroke="#e0294a" stroke-width="1" opacity="0.35"/>
+  <text x="18" y="183" font-family="'Courier New',monospace" font-size="8" fill="#e0294a" opacity="0.40" letter-spacing="1">NET://JACKED_IN</text>
+
+  <path d="M830,182 L830,172 M830,182 L812,182" fill="none" stroke="#00bcd4" stroke-width="1" opacity="0.35"/>
+  <text x="822" y="183" text-anchor="end" font-family="'Courier New',monospace" font-size="8" fill="#00bcd4" opacity="0.40" letter-spacing="1">v1 // mzpkdev</text>
+
+</svg>

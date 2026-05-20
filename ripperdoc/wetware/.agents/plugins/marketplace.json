@@ -1,0 +1,20 @@
+{
+  "name": "wetware",
+  "interface": {
+    "displayName": "preemdeck • wetware"
+  },
+  "plugins": [
+    {
+      "name": "imprint",
+      "source": "./imprint",
+      "policy": "allow",
+      "category": "wetware"
+    },
+    {
+      "name": "ghost",
+      "source": "./ghost",
+      "policy": "allow",
+      "category": "wetware"
+    }
+  ]
+}

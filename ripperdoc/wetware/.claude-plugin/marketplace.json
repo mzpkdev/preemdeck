@@ -1,0 +1,24 @@
+{
+  "name": "wetware",
+  "description": "preemdeck • wetware",
+  "owner": {
+    "name": "preemdeck",
+    "email": "preemdeck"
+  },
+  "plugins": [
+    {
+      "name": "imprint",
+      "description": "Per-prompt behavioral imprints. Wetware burn-in for cross-host agents.",
+      "source": "./imprint",
+      "version": "0.1.0",
+      "category": "wetware"
+    },
+    {
+      "name": "ghost",
+      "description": "Persona engine. Injects engram, firmware, and pulse context on session start and each prompt.",
+      "source": "./ghost",
+      "version": "0.1.0",
+      "category": "wetware"
+    }
+  ]
+}

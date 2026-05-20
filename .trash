@@ -1,0 +1,25 @@
+# Docs
+AGENTS.md
+CLAUDE.md
+README.md
+llm-docs/
+
+# Installer
+boot.sh
+scripts/
+root/
+
+# Dev Tools
+tests/
+pyproject.toml
+uv.lock
+.mdformat.toml
+
+# CI
+.github/
+
+# Cache
+.mypy_cache/
+.pytest_cache/
+.ruff_cache/
+**/__pycache__/

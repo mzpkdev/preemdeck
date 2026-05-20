@@ -1,0 +1,9 @@
+{
+  "name": "firmware",
+  "description": "preemdeck • firmware",
+  "owner": {
+    "name": "preemdeck",
+    "email": "preemdeck"
+  },
+  "plugins": []
+}

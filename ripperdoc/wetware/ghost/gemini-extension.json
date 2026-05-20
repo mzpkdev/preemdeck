@@ -1,0 +1,53 @@
+{
+  "name": "ghost",
+  "version": "0.1.0",
+  "description": "Persona engine. Injects engram, firmware, and pulse context on session start and each prompt.",
+  "hooks": {
+    "SessionStart": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "${extensionPath}/scripts/boot.py",
+            "timeout": 5
+          }
+        ]
+      }
+    ],
+    "BeforeAgent": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "${extensionPath}/scripts/pulse.py",
+            "timeout": 5
+          }
+        ]
+      },
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "${extensionPath}/scripts/rapport.py",
+            "timeout": 5
+          }
+        ]
+      }
+    ],
+    "AfterAgent": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "${extensionPath}/scripts/engrave.py gemini gemini-2.5-flash-lite",
+            "timeout": 30
+          }
+        ]
+      }
+    ]
+  }
+}

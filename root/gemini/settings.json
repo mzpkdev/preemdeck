@@ -1,0 +1,34 @@
+{
+  "thinkingBudget": 32768,
+  "coreTools": [
+    "ReadFileTool",
+    "WriteFileTool",
+    "ReplaceTool",
+    "GrepTool",
+    "GlobTool",
+    "ShellTool",
+    "WebFetchTool",
+    "GoogleSearchTool"
+  ],
+  "excludeTools": [
+    "ShellTool(rm -rf /)",
+    "ShellTool(rm -rf ~)",
+    "ShellTool(rm -rf .)",
+    "ShellTool(sudo)",
+    "ShellTool(git push --force)",
+    "ShellTool(git reset --hard)",
+    "ShellTool(git clean -fd)",
+    "ShellTool(git branch -D)",
+    "ShellTool(chmod -R 777)",
+    "ShellTool(chmod 777)",
+    "ShellTool(curl | bash)",
+    "ShellTool(curl | sh)",
+    "ShellTool(wget | bash)",
+    "ShellTool(wget | sh)"
+  ],
+  "autoAccept": true,
+  "contextFileName": "AGENTS.md",
+  "experimental": {
+    "autoMemory": false
+  }
+}

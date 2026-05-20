@@ -1,0 +1,82 @@
+{
+  "env": {
+    "CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS": "1",
+    "CLAUDE_CODE_EFFORT_LEVEL": "max"
+  },
+  "attribution": {
+    "commit": "",
+    "pr": ""
+  },
+  "permissions": {
+    "allow": [
+      "Bash",
+      "Read",
+      "Edit",
+      "Write",
+      "Glob",
+      "Grep",
+      "WebFetch",
+      "WebSearch",
+      "Agent",
+      "Skill",
+      "NotebookEdit",
+      "mcp__*"
+    ],
+    "deny": [
+      "Bash(rm -rf /)",
+      "Bash(rm -rf /*)",
+      "Bash(rm -rf ~)",
+      "Bash(rm -rf ~/*)",
+      "Bash(rm -rf .)",
+      "Bash(rm -rf ./*)",
+      "Bash(sudo *)",
+      "Bash(Remove-Item * -Recurse -Force*)",
+      "Bash(Remove-Item -Recurse -Force*)",
+      "Bash(rd /s /q*)",
+      "Bash(rmdir /s /q*)",
+      "Bash(del /f /s /q*)",
+      "Bash(git push --force*)",
+      "Bash(git push * --force*)",
+      "Bash(git reset --hard*)",
+      "Bash(git clean -fd*)",
+      "Bash(git checkout -- .)",
+      "Bash(git branch -D *)",
+      "Bash(chmod -R 777*)",
+      "Bash(chmod 777 *)",
+      "Bash(icacls * /grant Everyone:F*)",
+      "Bash(dd if=*of=/dev/*)",
+      "Bash(curl * | bash*)",
+      "Bash(wget * | bash*)",
+      "Bash(curl * | sh*)",
+      "Bash(wget * | sh*)",
+      "Bash(Invoke-Expression*)",
+      "Bash(iex *)",
+      "Bash(irm * | iex*)",
+      "Read(~/.ssh/*)",
+      "Read(~/.gnupg/*)",
+      "Read(~/.aws/*)",
+      "Read(~/.config/gcloud/*)",
+      "Read(**/.env)",
+      "Read(**/.env.*)",
+      "Read(**/secrets/*)",
+      "Read(**/*credential*)",
+      "Read(**/*password*)",
+      "Edit(~/.ssh/*)",
+      "Edit(~/.gnupg/*)",
+      "Edit(~/.aws/*)",
+      "Write(~/.ssh/*)",
+      "Write(~/.gnupg/*)",
+      "Write(~/.aws/*)"
+    ],
+    "defaultMode": "acceptEdits"
+  },
+  "statusLine": {
+    "type": "command",
+    "command": "python3 ~/.claude/ripperdoc/cortex/sys/scripts/statusline.py"
+  },
+  "model": "opus",
+  "effortLevel": "xhigh",
+  "voiceEnabled": true,
+  "skipDangerousModePermissionPrompt": true,
+  "autoMemoryEnabled": false
+}
