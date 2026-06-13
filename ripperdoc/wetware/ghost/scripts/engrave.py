@@ -195,9 +195,13 @@ def _extract_text(content: object) -> str:
     if isinstance(content, list):
         # Claude Code / Codex: [{type, text}, ...]
         # Gemini: [{text: ...}, ...]
+        # Only harvest genuine text blocks. Skip tool_use/tool_result and any
+        # other block type so tool plumbing never becomes "memory" text. A block
+        # with no "type" key (e.g. Gemini's bare {text: ...}) is still treated as
+        # text to preserve existing behavior.
         parts = []
         for item in content:
-            if isinstance(item, dict):
+            if isinstance(item, dict) and item.get("type", "text") == "text":
                 parts.append(item.get("text", ""))
         return " ".join(p for p in parts if p)
     return ""
@@ -218,8 +222,21 @@ def _parse_entry(entry: dict) -> tuple[str, str] | None:
     # Claude Code: {type:"user"/"assistant", message:{role, content}}
     if "message" in entry and isinstance(entry["message"], dict):
         msg = entry["message"]
+        content = msg.get("content", "")
+        # Claude Code logs tool results, subagent task-notifications, and skill
+        # output as role:"user". They are not the human speaking — their text is
+        # tool/assistant output — so drop them before they get tagged USER: and
+        # engraved as bogus user memories.
+        if isinstance(content, list) and any(
+            isinstance(it, dict) and it.get("type") in ("tool_result", "tool_use") for it in content
+        ):
+            return None
+        if isinstance(content, str) and content.lstrip().startswith(
+            ("<task-notification>", "<command-message>", "<command-name>")
+        ):
+            return None
         role = msg.get("role") or entry.get("type", "")
-        text = _extract_text(msg.get("content", ""))
+        text = _extract_text(content)
         if role and text:
             return role, text
         return None
