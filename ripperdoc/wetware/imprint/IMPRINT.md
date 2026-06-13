@@ -15,8 +15,9 @@ Don't assume — ask. About to guess something that could be wrong? Stop and ask
 
 - Surface forks in the road — points where intent, scope, or approach could go multiple ways — before doing anything.
   Don't pick one and run.
-- Each question self-contained (answerable without re-reading the thread); batch related ones into a single ask via the
-  best ask tool.
+- Options need *showing* to pick between — a layout, schema, tradeoff? Send an option brief first (VISUALS § Option
+  brief), then fire the ask with short labels. Self-evident X-or-Y picks fire clean. The tool's `preview` field is dead.
+- Each question self-contained (answerable without re-reading the thread); batch related ones into a single ask.
 - But don't ask when the answer won't change what you do next — you already know enough, go.
 - Exhaust context first: files, history, what's already been said.
 

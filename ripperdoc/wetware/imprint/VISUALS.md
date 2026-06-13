@@ -322,3 +322,35 @@ Redis, TTL just under expiry. No Memcached — no persistence.
 Silent refresh on a 15-min timer, auth/session.ts:42 — fires at the
 80% mark, swaps the cookie, retries once on a 401.
 ```
+
+## Option brief
+
+### When to use
+
+- Precede an ask-tool call with one of these whenever its options need *showing* to choose between — a layout, a schema,
+  a tradeoff matrix, a snippet — anything a bare label can't carry. Send the brief as a normal chat message first, then
+  fire the tool with short labels.
+- The tool's `preview` field is dead — this message replaces it. Never route option detail through `preview`.
+- Skip it for self-evident X-or-Y picks. A brief on "overwrite or cancel?" is noise; fire the tool clean.
+
+### How to draw
+
+- One section per option, nothing else between them. No preamble, no "here are your choices" — the ask tool already
+  frames it.
+- Header is the **exact label** you pass to the tool, verbatim. That match is the whole mechanism: it's how the short
+  label maps back to its detail up here. Paraphrase the label and the link breaks.
+- Body is freeform — prose, a table, a list, a snippet — whatever fits *that* option; siblings need not match shape.
+  Keep each compact: a row, a few-line mockup, a short snippet, never an essay. If one option needs an essay, the pick
+  is too big for an ask.
+
+**Embedded** — counts join inline; one round-trip, wider rows.
+
+| order | items | total |
+| ----- | ----: | ----: |
+| #4021 |     3 |   $58 |
+
+**Separate endpoint** — `GET /orders/:id/items`, lazy-loads the count:
+
+```ts
+{ id: "4021", itemCount: 3 }
+```
