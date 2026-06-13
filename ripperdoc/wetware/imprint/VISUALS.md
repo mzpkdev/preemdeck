@@ -239,7 +239,7 @@ the fix is in the retry handler █
 ### When to use
 
 - Render this every time you plan or queue subagents — the fixed shape for "here's how I carved the work and what's
-  running." One dispatch, one panel, drawn before you fire. Never improvise the format; never dispatch silently.
+  running." One dispatch, one panel, drawn before you fire. NEVER IMPROVISE THE FORMAT; never dispatch silently.
 - A lone atomic fixer collapses to a one-row panel — keep the rail anyway. Sameness every time is the whole point.
 - Re-emit only on a state change worth reading — a wave clears, a job lands, a job fails — never on micro-progress. Drop
   the panel once every job is `☑`/`☒` and close in prose.
