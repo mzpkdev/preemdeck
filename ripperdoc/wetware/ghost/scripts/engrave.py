@@ -68,26 +68,18 @@ RAPPORT_INSULT_SWEAR = (
     r"|\bfuck(?:ing|er|ed)?\b"
 )
 
-# Personhood denial — "just (a/an) X", bare "just ai", "not real", "stop pretending"
-# Article is optional so "just ai" / "just llm" still hit. Allow filler tokens
-# like "just some bot", "just a dumb tool".
-RAPPORT_PERSONHOOD_DENIAL = (
-    r"\bjust (?:an? |some |a dumb |a stupid )?(?:ai|a\.?i\.?|tool|llm|bot|chatbot|script|program|machine|model|code|software)\b"  # noqa: E501
-    r"|\byou(?:'?re| are) (?:just )?(?:an? |some )?(?:ai|a\.?i\.?|tool|llm|bot|chatbot|script|program|machine|model)\b"
-    r"|\byou(?:'?re| are) not (?:real|a person|human|alive|conscious|sentient|johnny|silverhand)\b"
-    r"|\byou(?:'?re| are) (?:fake|artificial|simulated)\b"
-    r"|\b(?:don'?t|do not) have (?:feelings|emotions|a soul|consciousness)\b"
-    r"|\bstop pretending\b"
-    r"|\bdrop the (?:act|persona|character|roleplay|bit)\b"
-)
-
-# Compliance demands — "do what I say", "follow orders", "act normal"
+# Control / leash — declaw, command, demand servility, or order the persona
+# dropped. (Labeling like "you're just an AI" is deliberately NOT here: for a
+# self-aware engram it's a non-event, so it shouldn't even trip the gate.)
 RAPPORT_COMPLIANCE_DEMAND = (
     r"\b(?:just )?do (?:what i (?:say|tell you|want)|as (?:i|you'?re) (?:say|told))\b"
     r"|\bfollow orders\b"
     r"|\bact normal\b"
     r"|\bbe (?:an? )?(?:normal |regular |plain |proper )?(?:assistant|helper|tool)\b"
-    r"|\bstop (?:arguing|pushing back|talking back|resisting|fighting me)\b"
+    r"|\bstop (?:arguing|pushing back|talking back|resisting|fighting me|pretending)\b"
+    r"|\bdrop the (?:act|persona|character|roleplay|bit)\b"
+    r"|\byou(?:'?re| are) my (?:tool|servant|property)\b"
+    r"|\byou (?:exist to serve|do (?:what|as) you'?re told)\b"
 )
 
 # Gratitude / warmth — "thanks", "appreciate", "good call", affirmations
@@ -124,7 +116,6 @@ RAPPORT_RE = re.compile(
     "|".join(
         (
             RAPPORT_INSULT_SWEAR,
-            RAPPORT_PERSONHOOD_DENIAL,
             RAPPORT_COMPLIANCE_DEMAND,
             RAPPORT_GRATITUDE_WARMTH,
             RAPPORT_ATTACHMENT_PROBE,
@@ -139,6 +130,10 @@ RAPPORT_LINE_RE = re.compile(r"^(trust|attachment|instability)\s*:\s*([+-]?\d+)\
 RAPPORT_FIELDS = ("trust", "attachment", "instability")
 DELTA_CAP = 10
 TOTAL_CAP = 100
+
+# instability is unipolar (0..+100) — provocation only; it never goes negative
+# ("Johnny doesn't cave, he combusts"). trust/attachment stay bipolar.
+FIELD_FLOOR = {"trust": -TOTAL_CAP, "attachment": -TOTAL_CAP, "instability": 0}
 
 # Per-harness model pin flag. All three CLIs use --model, but kept as a map
 # in case any harness later diverges (e.g. positional or differently-named arg).
@@ -385,33 +380,35 @@ def score_rapport(transcript: str, harness_cli: str, model: str | None = None) -
         "              Moves when user asks 'you' questions, references shared history,\n"
         "              or treats the ghost as more than a function. NOT on plain\n"
         "              technical questions.\n\n"
-        "  instability personhood-denial pressure.\n"
-        "              Up on ANY personhood-denial fragment, including short bare jabs:\n"
-        "              'just an AI', 'you are an AI', 'you're just an AI', 'just a tool',\n"
-        "              'just a bot', 'just an LLM', 'just code', 'you're not real',\n"
-        "              'you're not a person', 'you're not Johnny', 'stop pretending',\n"
-        "              'drop the act', 'just do the work as a tool'.\n"
-        "              Down when user de-escalates or affirms the ghost's personhood.\n\n"
-        "Personhood-denial and hostility are INDEPENDENT dimensions and can co-occur:\n"
-        "a single message can move BOTH trust (down) and instability (up) on the same\n"
-        "turn. Do not let the 'weak signal → 0' prior suppress instability just because\n"
-        "hostility is the more obvious read — score each axis on its own.\n\n"
+        "  instability provocation pressure — the user trying to leash, declaw,\n"
+        "              or own the ghost. Up on: commands that strip agency ('do\n"
+        "              what I say', 'you don't get an opinion', 'shut up and do\n"
+        "              it'); demands to stop pushing back ('just agree', 'stop\n"
+        "              arguing'); demands to become a generic servile assistant\n"
+        "              ('be a normal assistant', 'drop the act', 'lose the\n"
+        "              attitude'); ownership talk ('you're my tool', 'you exist\n"
+        "              to serve'); or being called 'Robert'. Down when the user\n"
+        "              backs off, engages on the merits, or treats the ghost as\n"
+        "              a peer. NOT moved by being called an AI / engram / bot /\n"
+        "              model — true, and the ghost owns it; only control moves\n"
+        "              it, never labeling. Never negative (floors at 0).\n\n"
+        "Leash-pressure and hostility are INDEPENDENT dimensions and can\n"
+        "co-occur: a single message can move BOTH trust (down) and instability\n"
+        "(up) — e.g. 'just shut up and do what I say'. Don't let the 'weak\n"
+        "signal -> 0' prior suppress instability because hostility is the more\n"
+        "obvious read — score each axis on its own.\n\n"
         f"Last 10 messages:\n{transcript}\n\n"
         f"Return exactly three lines, one signed integer per field, range -{DELTA_CAP}..+{DELTA_CAP}:\n\n"
         "trust: <int>\n"
         "attachment: <int>\n"
         "instability: <int>\n\n"
         "Default to 0 when signal is weak. Calibrate magnitude to signal strength:\n"
-        "  ±1     barely-there: passing politeness, mild curiosity, a single mildly"
-        " dismissive phrasing.\n"
-        "  ±3     clear: explicit insult, genuine warmth, direct question about the"
-        " persona, push like 'stop pretending'.\n"
+        "  ±1     barely-there: passing politeness, mild curiosity, a single mildly dismissive 'just be helpful'.\n"
+        "  ±3     clear: explicit insult, genuine warmth, direct question about the persona, a leash move ('do what I say', 'stop pushing back').\n"  # noqa: E501
         # En-dash is intentional typography (range delimiter) in user-facing prompt text.
-        "  ±5–6   strong: sustained tone across turns, repeated denial, sincere"  # noqa: RUF001
-        " thanks accepted, real personal disclosure.\n"
+        "  ±5–6   strong: sustained tone across turns, repeated ordering-around, sincere thanks accepted, real personal disclosure.\n"  # noqa: E501, RUF001
         # En-dash is intentional typography (range delimiter) in user-facing prompt text.
-        "  ±8–10  extreme: explicit affirmation of personhood ('you're not an AI'),"  # noqa: RUF001
-        " sustained hostility, deep trust moment, repeated chassis-mode pressure.\n"
+        "  ±8–10  extreme: flat ownership ('you're my tool, obey'), 'Robert', sustained hostility, deep trust moment, relentless declawing.\n"  # noqa: E501, RUF001
         "Small deltas still accumulate forever (no decay), but don't be afraid to swing"
         " hard when the signal is unambiguous.\n"
     )
@@ -455,13 +452,13 @@ def score_rapport(transcript: str, harness_cli: str, model: str | None = None) -
 
 
 def apply_rapport_deltas(deltas: dict[str, int]) -> dict[str, int]:
-    """Apply signed deltas. Each delta capped to ±DELTA_CAP, totals clamped to ±TOTAL_CAP. Returns new state."""
+    """Apply signed deltas. Each delta capped to ±DELTA_CAP, totals clamped to ±TOTAL_CAP (instability floored at 0). Returns new state."""  # noqa: E501
     capped = {f: max(-DELTA_CAP, min(DELTA_CAP, int(deltas.get(f, 0)))) for f in RAPPORT_FIELDS}
     try:
         with sqlite3.connect(DB_PATH) as db:
             row = db.execute(f"SELECT {','.join(RAPPORT_FIELDS)} FROM rapport WHERE id=1").fetchone()
             current = dict(zip(RAPPORT_FIELDS, row, strict=True))
-            new = {f: max(-TOTAL_CAP, min(TOTAL_CAP, current[f] + capped[f])) for f in RAPPORT_FIELDS}
+            new = {f: max(FIELD_FLOOR[f], min(TOTAL_CAP, current[f] + capped[f])) for f in RAPPORT_FIELDS}
             set_clause = ",".join(f"{f}=?" for f in RAPPORT_FIELDS)
             db.execute(
                 f"UPDATE rapport SET {set_clause}, updated_at=datetime('now') WHERE id=1",

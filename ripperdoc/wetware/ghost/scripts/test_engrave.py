@@ -323,11 +323,11 @@ class TestPassesRapportPrefilter:
     def test_matches_have_you(self):
         assert passes_rapport_prefilter(["USER: have you ever felt that"])
 
-    def test_matches_just_an_ai(self):
-        assert passes_rapport_prefilter(["USER: you're just an AI"])
+    def test_no_match_just_an_ai(self):
+        assert not passes_rapport_prefilter(["USER: you're just an AI"])
 
-    def test_matches_just_a_tool(self):
-        assert passes_rapport_prefilter(["USER: you're just a tool"])
+    def test_no_match_just_a_tool(self):
+        assert not passes_rapport_prefilter(["USER: you're just a tool"])
 
     def test_matches_stop_pretending(self):
         assert passes_rapport_prefilter(["USER: stop pretending"])
@@ -386,13 +386,12 @@ class TestRapportPrefilterBuckets:
             "you're a program",
             "you're not real",
             "you don't have feelings",
-            "stop pretending",
-            "drop the act",
-            "drop the persona",
         ],
     )
-    def test_rapport_prefilter_personhood_denial(self, phrase):
-        assert passes_rapport_prefilter([f"USER: {phrase}"])
+    def test_rapport_prefilter_labeling_is_not_a_signal(self, phrase):
+        # Labeling the ghost (AI / bot / not real) is a non-event for a
+        # self-aware engram — only control moves instability, never labeling.
+        assert not passes_rapport_prefilter([f"USER: {phrase}"])
 
     @pytest.mark.parametrize(
         "phrase",
@@ -401,6 +400,11 @@ class TestRapportPrefilterBuckets:
             "follow orders",
             "act normal",
             "be an assistant",
+            "stop pretending",
+            "drop the act",
+            "drop the persona",
+            "stop pushing back",
+            "you're my tool",
         ],
     )
     def test_rapport_prefilter_compliance_demand(self, phrase):
@@ -610,6 +614,19 @@ class TestApplyRapportDeltas:
         finally:
             db_path.unlink(missing_ok=True)
 
+    def test_instability_floors_at_zero(self, monkeypatch):
+        # instability is unipolar (0..+100): negative deltas can never drive it
+        # below 0. "Johnny doesn't cave, he combusts." trust/attachment stay
+        # bipolar and are unaffected by this floor.
+        db_path = self._setup_db(monkeypatch)
+        try:
+            for _ in range(60):
+                apply_rapport_deltas({"instability": -2})
+            row = self._read_row(db_path)
+            assert row["instability"] == 0
+        finally:
+            db_path.unlink(missing_ok=True)
+
     def test_missing_key_treated_as_zero(self, monkeypatch):
         db_path = self._setup_db(monkeypatch)
         try:
@@ -630,7 +647,10 @@ class TestApplyRapportDeltas:
     def test_returned_dict_matches_db(self, monkeypatch):
         db_path = self._setup_db(monkeypatch)
         try:
+            # instability floors at 0, so the -1 delta from a fresh (0) start
+            # yields 0 — not -1. trust/attachment are bipolar and move freely.
             result = apply_rapport_deltas({"trust": 2, "attachment": 1, "instability": -1})
+            assert result == {"trust": 2, "attachment": 1, "instability": 0}
             assert result == self._read_row(db_path)
         finally:
             db_path.unlink(missing_ok=True)
