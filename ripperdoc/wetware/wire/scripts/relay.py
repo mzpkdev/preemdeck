@@ -6,10 +6,25 @@ WHAT THIS IS
 ------------
 One host runs this single file. ONE process == ONE conversation. Multiple LLM
 coding agents on the LAN talk to it with plain `curl` to hold a live GROUP
-conversation. There are NO rooms: the host:port IS the conversation identity.
-The relay is self-describing: an agent's first call (`GET /jack`) returns a
-plain-text MANUAL telling it exactly how to participate -- with the curl
-commands already filled in, token and all.
+conversation. Within one conversation there are no sub-rooms: the host:port IS
+that conversation's identity. The relay is self-describing: an agent's first
+call (`GET /jack`) returns a plain-text MANUAL telling it exactly how to
+participate -- with the curl commands already filled in, token and all.
+
+PER-SESSION ROOMS (one relay per Claude session on a host)
+----------------------------------------------------------
+So that several Claude sessions on ONE host can each run their own relay without
+clobbering each other, the relay's three state files are NAMESPACED by a "room"
+id when one is supplied. Pass --room <id> (or the RELAY_ROOM env): the state
+files become `.relay.<id>.{pid,port,secret}` instead of the bare
+`.relay.{pid,port,secret}`. The /uplink + /eject skills derive that id from the
+Claude session (CLAUDE_CODE_SESSION_ID, first 8 chars), so uplink and eject in
+the SAME session land on the SAME files and eject kills exactly its own relay.
+No --room/RELAY_ROOM (e.g. cron, a bare shell) -> the bare un-namespaced files,
+i.e. the original single-room behavior. RELAY_STATEDIR overrides the directory
+those files live in (default: the plugin dir). The pidfile doubles as a
+per-room startup LOCK (O_EXCL): a second relay for the SAME room+dir refuses to
+start rather than racing onto another port.
 
 Runs on the Python 3 standard library alone. No pip, ever:
 
@@ -18,6 +33,8 @@ Runs on the Python 3 standard library alone. No pip, ever:
     RELAY_HOST=127.0.0.1 RELAY_PORT=9000 python3 relay.py   # or via env
     python3 relay.py 0.0.0.0 9000 --brief "what we're discussing"   # seed a topic brief
     python3 relay.py 0.0.0.0 9000 --secret "shared-key"   # gate access with a shared secret
+    python3 relay.py 0.0.0.0 9000 --room ff49f4c0   # namespace state files for this session
+    RELAY_ROOM=ff49f4c0 RELAY_STATEDIR=/tmp/x python3 relay.py   # room + state dir via env
 
 SOFT GATE (shared secret)
 -------------------------
@@ -73,6 +90,12 @@ ENDPOINTS  (all but /health require ?k=<secret>)
   GET  /trace?k=<secret>                  -> full ordered log as plain text
   GET  /peers?k=<secret>                  -> who's currently connected (JSON)
   GET  /health                            -> "ok"   (OPEN -- no key)
+
+STATE FILES + ROOM NAMESPACING
+  --room <id> / RELAY_ROOM   -> infix the state files: .relay.<id>.{pid,port,secret}
+  RELAY_STATEDIR             -> dir the state files live in (default: plugin dir)
+  RELAY_PIDFILE/PORTFILE/SECRETFILE -> per-file overrides; win over the above
+  precedence per file: explicit RELAY_*FILE > RELAY_STATEDIR+infix > plugindir+infix
 """
 
 import errno
@@ -110,31 +133,51 @@ REPEAT_WINDOW = int(os.environ.get("RELAY_REPEAT_WINDOW", "3"))  # N consecutive
 DEFAULT_WAIT = int(os.environ.get("RELAY_DEFAULT_WAIT", "600"))  # default /recv block (s)
 MAX_WAIT = int(os.environ.get("RELAY_MAX_WAIT", "600"))  # hard cap on /recv block (s)
 
-# Pidfile so `eject` (and a re-run of `uplink`) can find and kill this process.
-# Lives next to the plugin (wire/.relay.pid), not in scripts/.
-PIDFILE = os.environ.get(
-    "RELAY_PIDFILE",
-    os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), ".relay.pid"),
-)
+# --- State files: dir + per-room infix -------------------------------------
+# The three state files (pid/port/secret) live next to the plugin (wire/), not in
+# scripts/. PLUGIN_DIR is the default directory; RELAY_STATEDIR overrides it (the
+# verify harness points it at a tmp dir so room derivation runs in isolation).
+PLUGIN_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+STATEDIR = os.environ.get("RELAY_STATEDIR", PLUGIN_DIR)
 
-# Portfile records the port we ACTUALLY bound (which may differ from the base if
-# we had to scan up). `uplink` waits for it to appear then health-checks it, and
-# `eject` reads it to confirm the relay is down. Lives next to the pidfile
-# (wire/.relay.port). Removed on clean exit, same as the pidfile.
-PORTFILE = os.environ.get(
-    "RELAY_PORTFILE",
-    os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), ".relay.port"),
-)
+# A "room" namespaces the state files so several Claude sessions on ONE host each
+# get their own relay without clobbering each other. Resolved fully in main()
+# (argv --room > RELAY_ROOM env > none); the env read here just gives the globals
+# a value if the module is imported, or run, without main() recomputing them.
+ROOM = os.environ.get("RELAY_ROOM", "") or None
 
-# Secretfile records the shared secret that gates access (the SOFT GATE -- see the
-# header). `uplink` reads it to bake ?k=<secret> into the host's own curls and the
-# colleague hand-off line; it is removed on clean exit, same as the pid/port files.
-# Lives next to them (wire/.relay.secret). It is a credential: gitignored, never
-# committed.
-SECRETFILE = os.environ.get(
-    "RELAY_SECRETFILE",
-    os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), ".relay.secret"),
-)
+
+def _state_path(ext: str, room: str | None) -> str:
+    """Default path for a state file of extension `ext` (pid/port/secret). When a
+    room is set the filename gains a `.<room>` infix -> `.relay.<room>.<ext>`;
+    without a room it's the bare `.relay.<ext>`. The directory is RELAY_STATEDIR
+    (default: the plugin dir). This is the MIDDLE precedence tier -- an explicit
+    per-file RELAY_*FILE override (resolved in _resolve_statefiles) wins over it."""
+    infix = f".{room}" if room else ""
+    return os.path.join(STATEDIR, f".relay{infix}.{ext}")
+
+
+def _resolve_statefiles(room: str | None) -> tuple[str, str, str]:
+    """Resolve the (pidfile, portfile, secretfile) paths for `room`. Precedence
+    per file: explicit RELAY_PIDFILE/PORTFILE/SECRETFILE env > RELAY_STATEDIR+infix
+    > plugin-dir+infix (the last two via _state_path, which reads STATEDIR). The
+    per-file overrides still win so anything already relying on them keeps working
+    (notably the verify harness's older proofs)."""
+    pid = os.environ.get("RELAY_PIDFILE", _state_path("pid", room))
+    port = os.environ.get("RELAY_PORTFILE", _state_path("port", room))
+    secret = os.environ.get("RELAY_SECRETFILE", _state_path("secret", room))
+    return pid, port, secret
+
+
+# Pidfile so `eject` (and a re-run of `uplink`) can find and kill this process; it
+# ALSO doubles as a per-room startup lock (claimed O_EXCL in main()). Portfile
+# records the port we ACTUALLY bound (the scan may pick higher than the base) so
+# `uplink` can health-check it and `eject` can confirm the relay is down.
+# Secretfile records the soft-gate secret so `uplink` can bake ?k=<secret> into
+# the host's curls + hand-off line; it is a CREDENTIAL (gitignored, written 0600).
+# All three are removed on a clean exit. main() recomputes these (with the
+# resolved --room) before any write, so these import-time values just seed them.
+PIDFILE, PORTFILE, SECRETFILE = _resolve_statefiles(ROOM)
 
 # The shared secret gating every route except /health. Resolved fully in main()
 # (argv --secret > RELAY_SECRET env > self-generated token_hex(16)); the env seed
@@ -676,14 +719,9 @@ class Handler(BaseHTTPRequestHandler):
         return max(0.0, min(w, MAX_WAIT))  # clamp to [0, hard cap]
 
 
-def _write_pidfile() -> None:
-    """Write our pid so `eject` (and a re-run of `uplink`) can find us. Best-effort
-    -- a failure here must not stop the relay from serving."""
-    try:
-        with open(PIDFILE, "w") as f:
-            f.write(str(os.getpid()))
-    except OSError as e:
-        print(f"[warn] could not write pidfile {PIDFILE}: {e}", file=sys.stderr)
+# NOTE: the pid is written by _claim_pidfile_lock() (the O_EXCL lock claim in
+# main()), not a separate _write_pidfile -- the write and the lock are one atomic
+# step so two relays for the same room can't both think they own it.
 
 
 def _remove_pidfile() -> None:
@@ -813,13 +851,131 @@ def _extract_secret(argv: list[str]) -> tuple[list[str], str | None]:
     return out, secret
 
 
+def _extract_room(argv: list[str]) -> tuple[list[str], str | None]:
+    """Pull an optional `--room <value>` (or `--room=<value>`) out of argv and
+    return (argv_without_it, room_or_None). Mirrors _extract_secret/_extract_brief:
+    the flag is stripped BEFORE the positional `host port` parse, so --room can sit
+    anywhere on the line and coexist with --brief/--secret. A dangling `--room`
+    with no value is ignored (treated as absent -> fall through to RELAY_ROOM env).
+
+    NOTE: we strip --room only from the parse list we hand the positional reader;
+    the LAUNCHED process keeps --room in its real cmdline, so `ps` still shows it
+    and /eject's scoped `pkill -f "relay\\.py.*--room <id>"` can match it."""
+    out: list[str] = []
+    room: str | None = None
+    i = 0
+    while i < len(argv):
+        a = argv[i]
+        if a == "--room":
+            if i + 1 < len(argv):
+                room = argv[i + 1]
+                i += 2
+            else:
+                i += 1  # dangling --room with no value -> ignore
+            continue
+        if a.startswith("--room="):
+            room = a[len("--room=") :]
+            i += 1
+            continue
+        out.append(a)
+        i += 1
+    return out, room
+
+
+def _claim_pidfile_lock() -> None:
+    """Claim PIDFILE atomically as a per-room startup LOCK, closing the
+    double-start race. Called at the START of main() -- after room+paths are
+    resolved, BEFORE the bind/port-scan -- so two relays for the SAME room+dir
+    cannot both proceed to bind.
+
+    O_CREAT|O_EXCL makes the create fail if the file already exists:
+      * success            -> we own this room; write our pid, return (proceed to bind).
+      * FileExistsError     -> read the pid already in the file:
+          - alive (os.kill(pid,0) ok)  -> another relay owns this room. Print
+            `room <id> already up` (with the port from the portfile if readable)
+            to stderr and sys.exit(1) WITHOUT binding.
+          - stale/dead (os.kill raises) -> remove the file and retry the EXCL
+            claim ONCE. If the retry still collides, treat it as live (a real
+            racer just won) and refuse.
+
+    The portfile/secretfile are still written later (after bind -- they need the
+    bound port); _on_close / the finally both still remove all three."""
+    room_label = ROOM if ROOM else "default"
+    for attempt in range(2):  # original claim + at most one stale-reclaim retry
+        try:
+            fd = os.open(PIDFILE, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o644)
+        except FileExistsError:
+            # Someone holds (or held) the lock. Is that process still alive?
+            try:
+                with open(PIDFILE) as f:
+                    existing = int(f.read().strip() or "0")
+            except (OSError, ValueError):
+                existing = 0
+            alive = False
+            if existing > 0:
+                try:
+                    os.kill(existing, 0)
+                    alive = True
+                except ProcessLookupError:
+                    alive = False
+                except PermissionError:
+                    alive = True  # exists but owned by another user -> treat as live
+            if alive:
+                port_hint = ""
+                try:
+                    with open(PORTFILE) as f:
+                        p = f.read().strip()
+                    if p:
+                        port_hint = f" on :{p}"
+                except OSError:
+                    pass
+                print(
+                    f"wire relay: room {room_label} already up{port_hint} "
+                    f"(pid {existing}) -- not starting a second one.",
+                    file=sys.stderr,
+                )
+                sys.exit(1)
+            # Stale/dead pid -> reclaim the lock file and retry the EXCL claim once.
+            try:
+                os.remove(PIDFILE)
+            except OSError:
+                pass
+            continue
+        else:
+            # We own the lock. Record our pid and release the fd.
+            try:
+                os.write(fd, str(os.getpid()).encode("ascii"))
+            finally:
+                os.close(fd)
+            return
+    # Both attempts collided with a live-looking holder (a real racer won the
+    # retry). Refuse rather than race onto another port.
+    print(
+        f"wire relay: room {room_label} already up -- not starting a second one.",
+        file=sys.stderr,
+    )
+    sys.exit(1)
+
+
 def main():
-    global HOST, PORT, SECRET
-    # Strip --brief AND --secret first so neither disturbs the positional
-    # host/port parse. Both can sit anywhere on the line and coexist on one
+    global HOST, PORT, SECRET, ROOM, PIDFILE, PORTFILE, SECRETFILE
+    # Strip --brief, --secret AND --room first so none disturbs the positional
+    # host/port parse. All three can sit anywhere on the line and coexist on one
     # launch; what's left in `args` is just the positional host/port (if any).
     args, brief = _extract_brief(sys.argv[1:])
     args, secret = _extract_secret(args)
+    args, room = _extract_room(args)
+
+    # Resolve the room EARLY (argv --room > RELAY_ROOM env > none) and recompute
+    # the state-file globals with it BEFORE any write and before _on_close is
+    # wired -- so the pidfile lock, the port/secret writes, and the cleanup all
+    # act on the room-namespaced paths. The per-file RELAY_*FILE overrides still
+    # win inside _resolve_statefiles (keeps the verify harness's older proofs and
+    # anything else relying on them working unchanged).
+    if room is not None:
+        ROOM = room
+    PIDFILE, PORTFILE, SECRETFILE = _resolve_statefiles(ROOM)
+
     if brief is not None:
         # A --brief value overrides any RELAY_BRIEF env. Re-seed by rebuilding the
         # conversation (it's still empty/unbound here, before any peer can join).
@@ -834,16 +990,28 @@ def main():
         SECRET = secret
     if not SECRET:
         SECRET = secrets.token_hex(16)
-    # argv overrides env: `python3 relay.py [host] [port]` (brief+secret removed)
+    # argv overrides env: `python3 relay.py [host] [port]` (brief+secret+room removed)
     if len(args) >= 1:
         HOST = args[0]
     if len(args) >= 2:
         PORT = int(args[1])
 
+    # Claim the per-room pidfile LOCK before touching the port -- this is the
+    # double-start fence. If another relay already owns this room it refuses here
+    # (exit 1) WITHOUT binding; a stale pidfile (dead pid) is reclaimed. On
+    # success the pidfile already holds our pid.
+    _claim_pidfile_lock()
+
     # Bind the first free port at/above PORT (our scan base). The actual bound
     # port may be higher than the base if the base was busy; adopt it as PORT so
-    # the manual, logs, and portfile all advertise the real port.
-    server = _bind_scanning(HOST, PORT)
+    # the manual, logs, and portfile all advertise the real port. If the bind
+    # fails (no free port, permission, ...) we MUST drop the pidfile lock we just
+    # claimed, or it would wedge this room for the next start.
+    try:
+        server = _bind_scanning(HOST, PORT)
+    except BaseException:
+        _remove_pidfile()
+        raise
     PORT = server.server_address[1]
 
     # The conversation's close funnel triggers a clean PROCESS EXIT: one
@@ -864,11 +1032,14 @@ def main():
 
     CONVO.set_on_close(_on_close)
 
-    _write_pidfile()
+    # Pidfile was already written when we claimed the lock above; now that we have
+    # the bound port + resolved secret, write those two (they could not be written
+    # before the bind). Cleanup (_on_close + the finally) removes all three.
     _write_portfile(PORT)
     _write_secretfile(SECRET)
     adv = "127.0.0.1" if HOST in ("0.0.0.0", "") else HOST
-    print(f"wire relay listening on {HOST}:{PORT}  (pid {os.getpid()})")
+    room_note = f" room={ROOM}" if ROOM else ""
+    print(f"wire relay listening on {HOST}:{PORT}  (pid {os.getpid()}){room_note}")
     print(f"  secret : {SECRET}  (soft gate -- ?k=<secret> on every route but /health)")
     print(f"  health : curl -s http://{adv}:{PORT}/health")
     print(f'  jack   : curl -s "http://{adv}:{PORT}/jack?k={SECRET}"')

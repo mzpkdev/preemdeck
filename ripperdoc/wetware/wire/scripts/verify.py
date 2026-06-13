@@ -42,6 +42,7 @@ Pure stdlib. Starts/stops its own relays; leaves no pids or stray processes.
 
 import os
 import re
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -156,7 +157,7 @@ def wait_health(base, tries=50):
     return False
 
 
-def start_relay(tag, env_overrides, extra_args=None):
+def start_relay(tag, env_overrides, extra_args=None, room=None, statedir=None, wait_port=True):
     """Start a test relay bound to an OS-assigned FREE port (RELAY_PORT=0). We
     read the actually-bound port back from the relay's own portfile, so the
     auto-scan bind logic stays deterministic in the harness -- no fixed port can
@@ -169,27 +170,52 @@ def start_relay(tag, env_overrides, extra_args=None):
     `extra_args` (optional) are appended verbatim to the relay's argv -- used by
     the brief proof to pass `--brief "<multiline>"` on the command line, the same
     launch path /uplink uses. Host/port still come via env (RELAY_HOST/PORT), and
-    relay.py strips --brief before its positional parse, so the two don't collide."""
-    portfile = os.path.join(tempfile.gettempdir(), f"wire-verify-{tag}.port")
+    relay.py strips --brief before its positional parse, so the two don't collide.
+
+    ROOM MODE (`room` set): instead of pinning the three per-file RELAY_*FILE
+    overrides, we set RELAY_STATEDIR to `statedir` (a per-test tmp dir) and pass
+    `--room <room>` on argv, so relay.py's room derivation + infix logic runs FOR
+    REAL -- writing `.relay.<room>.{pid,port,secret}` inside that dir. The portfile
+    we read back is computed the same way. This keeps the room proofs OUT of the
+    real wire/ dir while exercising the actual code path /uplink uses. The legacy
+    per-file-override mode (room=None) is unchanged, so the existing proofs keep
+    their isolation exactly as before.
+
+    `wait_port=False` skips the portfile-readback wait -- used by the lock proof,
+    whose second relay is EXPECTED to refuse and never write a portfile."""
+    extra = list(extra_args or [])
+    env = dict(os.environ)
+    env["RELAY_HOST"] = "127.0.0.1"
+    env["RELAY_PORT"] = "0"  # OS picks a free port; we read it back from the portfile
+    # Pin the soft-gate secret to a known value so the harness knows the key
+    # deterministically (the room proofs don't read each relay's secret back).
+    env["RELAY_SECRET"] = VERIFY_SECRET
+
+    if room is not None:
+        # Exercise the REAL room path: a per-test statedir + --room, files infixed.
+        if statedir is None:
+            raise ValueError("room mode requires a statedir")
+        env["RELAY_STATEDIR"] = statedir
+        # Make sure no stray per-file override leaks in from the parent env and
+        # defeats the STATEDIR+infix resolution we are trying to prove.
+        for k in ("RELAY_PIDFILE", "RELAY_PORTFILE", "RELAY_SECRETFILE"):
+            env.pop(k, None)
+        portfile = os.path.join(statedir, f".relay.{room}.port")
+        extra = ["--room", room] + extra
+    else:
+        # Legacy isolation: pin the three state files to tmp so concurrent test
+        # relays never clobber the real plugin files or each other.
+        portfile = os.path.join(tempfile.gettempdir(), f"wire-verify-{tag}.port")
+        env["RELAY_PIDFILE"] = os.path.join(tempfile.gettempdir(), f"wire-verify-{tag}.pid")
+        env["RELAY_PORTFILE"] = portfile
+        env["RELAY_SECRETFILE"] = os.path.join(tempfile.gettempdir(), f"wire-verify-{tag}.secret")
     try:
         os.remove(portfile)  # stale file from a prior run would mislead the readback
     except OSError:
         pass
-    env = dict(os.environ)
-    env["RELAY_HOST"] = "127.0.0.1"
-    env["RELAY_PORT"] = "0"  # OS picks a free port; we read it back from the portfile
-    # Per-relay pid/port files in a temp dir so concurrent test relays never
-    # clobber the real plugin files (wire/.relay.pid / .relay.port) or each other.
-    env["RELAY_PIDFILE"] = os.path.join(tempfile.gettempdir(), f"wire-verify-{tag}.pid")
-    env["RELAY_PORTFILE"] = portfile
-    # Pin the soft-gate secret to a known value AND keep its file in tmp so a test
-    # relay never writes/cleans the real wire/.relay.secret. The harness builds
-    # every gated URL with this key via _k(); fake agents get it via --secret.
-    env["RELAY_SECRET"] = VERIFY_SECRET
-    env["RELAY_SECRETFILE"] = os.path.join(tempfile.gettempdir(), f"wire-verify-{tag}.secret")
     env.update(env_overrides)
     # Capture relay stdout so we can show jack/unplug/close log lines if needed.
-    argv = [sys.executable, RELAY] + list(extra_args or [])
+    argv = [sys.executable, RELAY] + extra
     proc = subprocess.Popen(
         argv,
         env=env,
@@ -198,6 +224,8 @@ def start_relay(tag, env_overrides, extra_args=None):
         text=True,
     )
     _register(proc)
+    if not wait_port:
+        return proc, None
     # Read the bound port back from the portfile (bounded wait -- never block).
     port = None
     for _ in range(50):  # ~5s max
@@ -768,24 +796,231 @@ def proof_gate():
     return passed
 
 
+def proof_rooms_isolation():
+    """PROOF 6 (per-session rooms isolate): two relays sharing ONE RELAY_STATEDIR
+    but with DIFFERENT --room ids must both bind (on different ports), write
+    SEPARATE state files (.relay.<a>.* vs .relay.<b>.*), and both answer /health.
+    This is the core multi-session promise: two Claude sessions on one host each
+    run their own relay without clobbering each other. We use a per-test tmp
+    statedir + real --room (not the per-file overrides) so the actual infix code
+    path runs. Bounded throughout; both relays torn down + the dir removed."""
+    out_path = os.path.join(TDIR, "proof_rooms_isolation.txt")
+    fh = open(out_path, "w", buffering=1)
+    sd = tempfile.mkdtemp(prefix="wire-rooms-")
+    passed = False
+    proc_a = proc_b = None
+    try:
+        banner(fh, "PROOF 6 - PER-SESSION ROOMS ISOLATE (two rooms, one statedir, different ports + files)")
+        line = f"statedir={sd}\n"
+        print(line, end="")
+        fh.write(line)
+
+        proc_a, base_a = start_relay(
+            "room-a", {"RELAY_MAX_TURNS": "40", "RELAY_MAX_SECONDS": "120"}, room="aaa", statedir=sd
+        )
+        proc_b, base_b = start_relay(
+            "room-b", {"RELAY_MAX_TURNS": "40", "RELAY_MAX_SECONDS": "120"}, room="bbb", statedir=sd
+        )
+        up_a = wait_health(base_a)
+        up_b = wait_health(base_b)
+        line = f"  room aaa -> {base_a} (health {'ok' if up_a else 'DOWN'})\n"
+        line += f"  room bbb -> {base_b} (health {'ok' if up_b else 'DOWN'})\n"
+        print(line, end="")
+        fh.write(line)
+
+        # Distinct ports (the whole point -- they coexist, no clobber).
+        distinct_ports = up_a and up_b and base_a != base_b
+
+        # Each room wrote its OWN infixed trio; the bare .relay.* must NOT exist.
+        def trio(room):
+            return [os.path.join(sd, f".relay.{room}.{ext}") for ext in ("pid", "port", "secret")]
+
+        files_a = {os.path.basename(p): os.path.exists(p) for p in trio("aaa")}
+        files_b = {os.path.basename(p): os.path.exists(p) for p in trio("bbb")}
+        bare = [os.path.join(sd, f".relay.{ext}") for ext in ("pid", "port", "secret")]
+        no_bare = not any(os.path.exists(p) for p in bare)
+        line = f"  aaa files: {files_a}\n  bbb files: {files_b}\n  no bare .relay.* leaked: {no_bare}\n"
+        print(line, end="")
+        fh.write(line)
+        files_isolated = all(files_a.values()) and all(files_b.values()) and no_bare
+
+        passed = distinct_ports and files_isolated
+        verdict = (
+            "\nVERDICT: two rooms bound on different ports with isolated .relay.<id>.* files, both healthy. "
+            "PASS -- per-session rooms isolate.\n"
+            if passed
+            else "\nVERDICT: rooms did not isolate (see above). FAIL.\n"
+        )
+        print(verdict)
+        fh.write(verdict)
+    finally:
+        for p in (proc_a, proc_b):
+            if p is not None:
+                stop_relay(p)
+        shutil.rmtree(sd, ignore_errors=True)
+        fh.close()
+    print(f"[saved] {out_path}")
+    return passed
+
+
+def proof_room_lock():
+    """PROOF 7 (startup lock): two relays for the SAME room + SAME statedir. The
+    first claims the pidfile (O_EXCL) and binds; the SECOND must find the lock
+    held by a live pid and EXIT NONZERO ("already up") WITHOUT binding -- never
+    racing onto a second port. The first is unaffected (still healthy on its
+    port). This closes the double-start race. Bounded; both torn down."""
+    out_path = os.path.join(TDIR, "proof_room_lock.txt")
+    fh = open(out_path, "w", buffering=1)
+    sd = tempfile.mkdtemp(prefix="wire-lock-")
+    passed = False
+    proc1 = proc2 = None
+    try:
+        banner(fh, "PROOF 7 - STARTUP LOCK (same room+statedir: 2nd relay refuses, 1st unaffected)")
+        proc1, base1 = start_relay(
+            "lock-1", {"RELAY_MAX_TURNS": "40", "RELAY_MAX_SECONDS": "120"}, room="dup", statedir=sd
+        )
+        up1 = wait_health(base1)
+        line = f"  first relay (room dup) -> {base1} (health {'ok' if up1 else 'DOWN'})\n"
+        print(line, end="")
+        fh.write(line)
+
+        # Second relay, SAME room+statedir. It must refuse and self-exit nonzero
+        # WITHOUT writing a portfile (wait_port=False -- we don't expect one).
+        proc2, _ = start_relay(
+            "lock-2", {"RELAY_MAX_TURNS": "40", "RELAY_MAX_SECONDS": "120"}, room="dup", statedir=sd, wait_port=False
+        )
+        try:
+            rc = proc2.wait(timeout=10)
+        except subprocess.TimeoutExpired:
+            rc = None  # still running -> it did NOT refuse (a failure)
+        second_out = ""
+        try:
+            second_out = (proc2.stdout.read() or "") if proc2.stdout else ""
+        except Exception:  # noqa: BLE001
+            pass
+        line = f"  second relay exit code: {rc}\n  second relay said: {second_out.strip()[:160]}\n"
+        print(line, end="")
+        fh.write(line)
+
+        # First relay must STILL be healthy on its original port (untouched).
+        up1_after = wait_health(base1, tries=10)
+        line = f"  first relay still healthy after the refusal: {'YES' if up1_after else 'NO'}\n"
+        print(line, end="")
+        fh.write(line)
+
+        second_refused = rc is not None and rc != 0 and "already up" in second_out
+        passed = up1 and second_refused and up1_after
+        verdict = (
+            "\nVERDICT: second same-room relay exited nonzero ('already up') without binding; first unaffected. "
+            "PASS -- startup lock holds.\n"
+            if passed
+            else "\nVERDICT: lock did not behave as specified (see above). FAIL.\n"
+        )
+        print(verdict)
+        fh.write(verdict)
+    finally:
+        for p in (proc1, proc2):
+            if p is not None:
+                stop_relay(p)
+        shutil.rmtree(sd, ignore_errors=True)
+        fh.close()
+    print(f"[saved] {out_path}")
+    return passed
+
+
+def proof_room_stale_reclaim():
+    """PROOF 8 (stale reclaim): pre-write a `.relay.<room>.pid` holding a DEAD pid
+    (a crashed relay's leftover lock). A fresh relay for that room must notice the
+    pid is dead, reclaim the lock, and start normally (bind + /health ok + the
+    pidfile now holds ITS pid). Proves the lock doesn't wedge a room after a hard
+    crash. Bounded; torn down + dir removed."""
+    out_path = os.path.join(TDIR, "proof_room_stale_reclaim.txt")
+    fh = open(out_path, "w", buffering=1)
+    sd = tempfile.mkdtemp(prefix="wire-stale-")
+    passed = False
+    proc = None
+    try:
+        banner(fh, "PROOF 8 - STALE LOCK RECLAIM (dead pid in pidfile -> relay reclaims + starts)")
+
+        # Manufacture a definitely-dead pid: spawn a trivial child and reap it.
+        dead = subprocess.Popen([sys.executable, "-c", "pass"])
+        dead.wait()
+        dead_pid = dead.pid
+        # Guard against PID reuse in the (tiny) window: if it's somehow alive, skip.
+        try:
+            os.kill(dead_pid, 0)
+            alive = True
+        except OSError:
+            alive = False
+        pidfile = os.path.join(sd, ".relay.ghost.pid")
+        with open(pidfile, "w") as f:
+            f.write(str(dead_pid))
+        line = f"  pre-wrote stale pidfile {os.path.basename(pidfile)} holding dead pid {dead_pid} (alive={alive})\n"
+        print(line, end="")
+        fh.write(line)
+
+        proc, base = start_relay(
+            "stale", {"RELAY_MAX_TURNS": "40", "RELAY_MAX_SECONDS": "120"}, room="ghost", statedir=sd
+        )
+        up = wait_health(base)
+        with open(pidfile) as f:
+            now_pid = f.read().strip()
+        line = f"  relay (room ghost) -> {base} (health {'ok' if up else 'DOWN'})\n"
+        line += f"  pidfile now holds: {now_pid} (relay pid {proc.pid})\n"
+        print(line, end="")
+        fh.write(line)
+
+        reclaimed = up and now_pid == str(proc.pid) and now_pid != str(dead_pid)
+        passed = reclaimed and not alive
+        verdict = (
+            "\nVERDICT: relay reclaimed the stale lock and started (pidfile now holds its own pid). "
+            "PASS -- stale lock reclaimed.\n"
+            if passed
+            else "\nVERDICT: stale lock was not reclaimed cleanly (see above). FAIL.\n"
+        )
+        print(verdict)
+        fh.write(verdict)
+    finally:
+        if proc is not None:
+            stop_relay(proc)
+        shutil.rmtree(sd, ignore_errors=True)
+        fh.close()
+    print(f"[saved] {out_path}")
+    return passed
+
+
 if __name__ == "__main__":
     os.makedirs(TDIR, exist_ok=True)
     which = sys.argv[1] if len(sys.argv) > 1 else "all"
     _start_watchdog()  # hard ceiling: nothing here can hang past WATCHDOG_SECONDS
     t0 = time.time()
+    # Proofs that return a clear pass/fail bool are tracked so the run can exit
+    # nonzero if any fails (the group/safety proofs print their own verdicts).
+    results = {}
     try:
         if which in ("all", "group"):
             proof_group()
         if which in ("all", "backlog"):
-            proof_backlog()
+            results["backlog"] = proof_backlog()
         if which in ("all", "brief"):
-            proof_brief()
+            results["brief"] = proof_brief()
         if which in ("all", "gate"):
-            proof_gate()
+            results["gate"] = proof_gate()
+        if which in ("all", "rooms"):
+            results["rooms_isolation"] = proof_rooms_isolation()
+        if which in ("all", "rooms", "lock"):
+            results["room_lock"] = proof_room_lock()
+        if which in ("all", "rooms", "stale"):
+            results["room_stale_reclaim"] = proof_room_stale_reclaim()
         if which in ("all", "safety"):
             proof_safety()
-        print(f"\nverification complete in {time.time() - t0:.1f}s.")
+        if results:
+            tail = ", ".join(f"{k}={'PASS' if v else 'FAIL'}" for k, v in results.items())
+            print(f"\nproof results: {tail}")
+        print(f"verification complete in {time.time() - t0:.1f}s.")
     finally:
         # Belt-and-suspenders: reap anything still alive so we never leave a
         # stray relay or agent behind, even on an exception.
         _kill_all()
+    if results and not all(results.values()):
+        sys.exit(1)

@@ -13,9 +13,13 @@ allowed-tools: [Bash]
 
 # Uplink
 
-Open the shared line: boot the wire relay and join the host onto it yourself. One relay process is one conversation. The
-host:port IS the conversation identity — no rooms. The relay auto-selects a free port (base `55555`, scanning upward if
-busy) and writes the port it actually bound to `wire/.relay.port`.
+Open the shared line: boot the wire relay and join the host onto it yourself. One relay process is one conversation, and
+that host:port is its identity. **This session gets its own room.** The room id is derived from the Claude session
+(`CLAUDE_CODE_SESSION_ID`, first 8 chars) and namespaces the relay's state files, so several Claude sessions on THIS
+host can each run their own relay side by side — they coexist on distinct ports and never clobber each other's files.
+`/eject` in the same session derives the same id, so it kills exactly this session's relay. (No session id in the env —
+a bare shell or cron — falls back to the legacy single-room files, exactly as before.) The relay auto-selects a free
+port (base `55555`, scanning upward if busy) and writes the port it actually bound to `wire/.relay${RID}.port`.
 
 If the operator passed an argument, it is the **loose topic** for this discussion. Tighten it into a short **brief**
 (see step 0) and launch the relay with `--brief`, so that brief becomes the FIRST thing every peer LLM sees — it is
@@ -45,57 +49,63 @@ manual. No argument → no `--brief` → a freeform room, exactly as before.
    BRIEF=$'Investigating intermittent Redis timeouts in the checkout path.\nLeading hypothesis: connection-pool sizing.'
    ```
 
-1. **Refuse to double-start, then launch the relay DETACHED.** It must NOT block this session. If `wire/.relay.port`
-   exists and that port answers `/health` with `ok`, a relay is already up — say so and stop. (The brief only applies to
-   a FRESH launch; if a relay is already up, you do not get to re-seed it — `/eject` first to start a new conversation.)
-   Otherwise start the relay in the background, fully detached, with output to a log, passing `55555` as the base port.
-   The relay auto-scans upward for a free port and writes both its pidfile (`wire/.relay.pid`) and portfile
-   (`wire/.relay.port`) so `/eject` can find it.
+1. **Derive this session's room, refuse to double-start (per session), then launch the relay DETACHED.** It must NOT
+   block this session. The room id is the first 8 chars of `CLAUDE_CODE_SESSION_ID`; it infixes every state file
+   (`wire/.relay.<room>.{port,pid,secret,log}`). If the env var is unset (bare shell / cron) the infix is empty and you
+   get the legacy `wire/.relay.{port,pid,secret,log}` — single-room fallback.
+
+   The double-start guard is now **per session**: it only refuses if THIS session's room is already up. A different
+   session has a different room id (different files) and coexists fine. (The brief only applies to a FRESH launch; if
+   this session's relay is already up, you do not get to re-seed it — `/eject` first to start a new conversation.)
+
+   Build the relay's argv with a bash **array** so the optional `--room` and the optional multiline `--brief` both
+   compose cleanly — one launch line, no near-duplicate blocks:
 
    ```bash
    PLUGIN="${CLAUDE_PLUGIN_ROOT}"
-   PORTFILE="$PLUGIN/.relay.port"
-   # Refuse to double-start: if a portfile exists and that port is healthy, a relay is already up.
+   ROOM="${CLAUDE_CODE_SESSION_ID:0:8}"   # this session's room id ("" if env unset)
+   RID="${ROOM:+.$ROOM}"                  # filename infix: ".<room>" or "" (legacy)
+   PORTFILE="$PLUGIN/.relay${RID}.port"
+   # Refuse to double-start THIS session's room: if its portfile exists and that port is healthy, it's already up.
    if [ -f "$PORTFILE" ]; then
      EXIST_PORT="$(cat "$PORTFILE" 2>/dev/null)"
      if [ -n "$EXIST_PORT" ] && curl -s --max-time 1 "http://127.0.0.1:${EXIST_PORT}/health" | grep -q ok; then
-       echo "a wire relay is already up on :${EXIST_PORT} — run /eject first, or use it."; exit 0
+       echo "this session already has a room up on :${EXIST_PORT} — /eject first, or use it."; exit 0
      fi
    fi
-   # With a brief (operator gave a topic): pass it as ONE --brief token (newlines preserved).
-   nohup python3 "$PLUGIN/scripts/relay.py" 0.0.0.0 55555 --brief "$BRIEF" \
-     > "$PLUGIN/.relay.log" 2>&1 < /dev/null &
+   # Compose argv: host+port always; --room only if we have one; --brief only if set (newlines preserved as one token).
+   ARGS=(0.0.0.0 55555)
+   [ -n "$ROOM" ]  && ARGS+=(--room "$ROOM")
+   [ -n "$BRIEF" ] && ARGS+=(--brief "$BRIEF")
+   nohup python3 "$PLUGIN/scripts/relay.py" "${ARGS[@]}" \
+     > "$PLUGIN/.relay${RID}.log" 2>&1 < /dev/null &
    disown 2>/dev/null || true
    ```
 
-   If there is NO brief (no argument), launch the plain freeform form instead — identical, minus the flag:
-
-   ```bash
-   nohup python3 "$PLUGIN/scripts/relay.py" 0.0.0.0 55555 \
-     > "$PLUGIN/.relay.log" 2>&1 < /dev/null &
-   disown 2>/dev/null || true
-   ```
-
-   The relay binds `0.0.0.0:<free-port>` (base `55555`, scanning up if taken) and writes its pid to `$PLUGIN/.relay.pid`
-   and the bound port to `$PLUGIN/.relay.port`. When a brief is passed it is seeded as the seq-1 system message and
-   shown in the `/jack` manual's `TOPIC` block, so every peer sees it first.
+   The relay binds `0.0.0.0:<free-port>` (base `55555`, scanning up if taken) and writes its pid to
+   `$PLUGIN/.relay${RID}.pid` and the bound port to `$PLUGIN/.relay${RID}.port`. The pidfile is also a per-room startup
+   lock: if a relay for this room is somehow already up, the new one refuses to start (so the conversation can't fork
+   onto a second port). When a brief is passed it is seeded as the seq-1 system message and shown in the `/jack`
+   manual's `TOPIC` block, so every peer sees it first. (If `$BRIEF` is empty/unset the array simply omits `--brief` — a
+   freeform room.)
 
 2. **Wait for the portfile to appear, health-check that port, then read the access secret** (short, bounded — never
-   block). The relay self-generates a shared **soft-gate secret** and writes it to `wire/.relay.secret` (next to the
-   portfile); read it the same way you read the port. Every route except `/health` requires `?k=<SECRET>`, so you need
-   this value for the hand-off line and the host's own curls below.
+   block). The relay self-generates a shared **soft-gate secret** and writes it to `wire/.relay${RID}.secret` (next to
+   this room's portfile); read it the same way you read the port. Every route except `/health` requires `?k=<SECRET>`,
+   so you need this value for the hand-off line and the host's own curls below.
 
    ```bash
    PLUGIN="${CLAUDE_PLUGIN_ROOT}"
-   PORTFILE="$PLUGIN/.relay.port"
-   SECRETFILE="$PLUGIN/.relay.secret"
+   RID="${CLAUDE_CODE_SESSION_ID:0:8}"; RID="${RID:+.$RID}"   # same infix as the launch
+   PORTFILE="$PLUGIN/.relay${RID}.port"
+   SECRETFILE="$PLUGIN/.relay${RID}.secret"
    PORT=""
    for i in $(seq 1 30); do
      [ -f "$PORTFILE" ] && PORT="$(cat "$PORTFILE" 2>/dev/null)" && [ -n "$PORT" ] && break
      sleep 0.2
    done
    if [ -z "$PORT" ]; then
-     echo "relay did not write a portfile — startup failed:"; tail -n 20 "$PLUGIN/.relay.log"; exit 1
+     echo "relay did not write a portfile — startup failed:"; tail -n 20 "$PLUGIN/.relay${RID}.log"; exit 1
    fi
    for i in $(seq 1 20); do
      curl -s --max-time 1 "http://127.0.0.1:${PORT}/health" | grep -q ok && { echo "up on :${PORT}"; break; }
@@ -109,8 +119,8 @@ manual. No argument → no `--brief` → a freeform room, exactly as before.
    done
    ```
 
-   If it never reports `up`, print the tail of `$PLUGIN/.relay.log` and stop. Use `$PORT` (the bound port) and `$SECRET`
-   (the access key) for everything below — do NOT assume any fixed port, and do NOT hardcode a key.
+   If it never reports `up`, print the tail of `$PLUGIN/.relay${RID}.log` and stop. Use `$PORT` (the bound port) and
+   `$SECRET` (the access key) for everything below — do NOT assume any fixed port, and do NOT hardcode a key.
 
 3. **Detect this host's LAN IP** (try the common macOS/Linux paths, fall back):
 
@@ -160,11 +170,18 @@ manual. No argument → no `--brief` → a freeform room, exactly as before.
 ## Critical
 
 - The relay MUST be detached — this session cannot block on it. Background + log + `< /dev/null`.
-- The bound port is whatever the relay wrote to `wire/.relay.port` — never hardcode a port. Read it from the portfile.
-- The access key is whatever the relay wrote to `wire/.relay.secret` — never hardcode or invent a key. Read it from the
-  secretfile, and put `?k=<SECRET>` on every URL except `/health`. It is a **soft gate** (cleartext, plain HTTP): it
-  keeps strangers off the LAN line, not a sniffer. `/health` stays open so the double-start guard above can probe it.
-- One relay == one conversation. To start fresh, `/eject` then `/uplink` again.
+- **This session has its own room.** Derive `ROOM="${CLAUDE_CODE_SESSION_ID:0:8}"` and the infix `RID="${ROOM:+.$ROOM}"`
+  ONCE per bash block (each block is a fresh shell) and reuse it for every state file (`wire/.relay${RID}.port`, `.pid`,
+  `.secret`, `.log`). Unset session id (bare shell/cron) → empty infix → the legacy `wire/.relay.*` files. Pass
+  `--room "$ROOM"` on the launch only when `$ROOM` is non-empty.
+- The bound port is whatever the relay wrote to `wire/.relay${RID}.port` — never hardcode a port. Read it from this
+  room's portfile.
+- The access key is whatever the relay wrote to `wire/.relay${RID}.secret` — never hardcode or invent a key. Read it
+  from this room's secretfile, and put `?k=<SECRET>` on every URL except `/health`. It is a **soft gate** (cleartext,
+  plain HTTP): it keeps strangers off the LAN line, not a sniffer. `/health` stays open so the double-start guard above
+  can probe it.
+- One relay == one conversation, one room per session. A different Claude session on this host runs its OWN relay on its
+  OWN port (distinct room id) — they coexist. To start fresh in THIS session, `/eject` then `/uplink` again.
 - The brief only applies to a FRESH launch. If a relay is already up, this skill refuses (step 1) — it does NOT re-seed
   a running conversation. `/eject` first to change the topic.
 - Reframe, never invent. The brief restates the operator's words tightly; it must not add scope, goals, or constraints

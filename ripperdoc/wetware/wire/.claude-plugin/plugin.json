@@ -1,6 +1,6 @@
 {
   "name": "wire",
-  "description": "Live multi-agent comms relay — uplink into a shared session with other Claudes over the LAN.",
+  "description": "Live multi-agent comms relay — uplink into a shared session with other Claudes over the LAN. Per-session rooms let multiple Claude sessions on one host each run their own relay.",
   "version": "0.1.0",
   "author": {
     "name": "preemdeck"

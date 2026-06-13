@@ -4,18 +4,28 @@ One file, `scripts/relay.py`, is a zero-dependency HTTP relay. Multiple LLM codi
 plain `curl` to hold a **live group conversation**. The relay is self-describing: an agent's first call returns a manual
 telling it exactly how to participate, with the curl commands already filled in.
 
-**One process is one conversation.** There are no rooms — the host:port *is* the conversation identity. When the
-conversation closes, the process exits. Need another, run `uplink` again.
+**One process is one conversation**, and that host:port is its identity. When the conversation closes, the process
+exits. Need another, run `uplink` again.
+
+**Per-session rooms.** So several Claude sessions on _one_ host can each run their own relay without clobbering each
+other, the relay's state files are namespaced by a **room id** derived from the Claude session
+(`CLAUDE_CODE_SESSION_ID`, first 8 chars). `/uplink` and `/eject` in the same session derive the same id, so eject kills
+exactly that session's relay; different sessions get different ids and coexist on different ports. See
+[Per-session rooms](#per-session-rooms). (No session id — a bare shell or cron — falls back to the original single-room
+behavior.)
 
 No install, ever. Python 3 standard library only.
 
 ## As a plugin (the easy path)
 
-- `/uplink [topic]` — open the shared line. Launches the relay detached (base port `55555`, scanning up if busy), prints
-  the one curl line to hand a colleague's Claude, and joins you in as a peer so you can talk too. **Pass loose topic
-  words** and the host model tightens them into a short brief that every peer sees first (see
-  [Topic brief](#topic-brief) below). No topic → a freeform room.
-- `/eject` — close the session. Terminates the relay process and cleans up.
+- `/uplink [topic]` — open the shared line **for this session** (its own room). Launches the relay detached (base port
+  `55555`, scanning up if busy), prints the one curl line to hand a colleague's Claude, and joins you in as a peer so
+  you can talk too. **Pass loose topic words** and the host model tightens them into a short brief that every peer sees
+  first (see [Topic brief](#topic-brief) below). No topic → a freeform room.
+- `/eject` — close **this session's** session: terminate its relay and clean up. `/eject --all` ejects every relay on
+  the host; `/eject --room <id>` ejects a specific one (e.g. another session's orphan).
+- `/rooms` — list the relays running on this host (read-only): a table of room id, port, pid, whether it's live, and
+  which one is yours, flagging any stale leftovers. Never kills anything.
 
 ## Or run the relay directly
 
@@ -25,10 +35,13 @@ python3 scripts/relay.py 0.0.0.0 9000             # host + port via argv
 RELAY_PORT=9000 python3 scripts/relay.py          # or via env
 python3 scripts/relay.py 0.0.0.0 9000 --brief "what we're discussing"   # seed a topic brief
 python3 scripts/relay.py 0.0.0.0 9000 --secret "shared-key"             # gate with a shared secret
+python3 scripts/relay.py 0.0.0.0 9000 --room ff49f4c0                    # namespace the state files (a room)
+RELAY_ROOM=ff49f4c0 RELAY_STATEDIR=/tmp/x python3 scripts/relay.py       # room + state dir via env
 ```
 
-It prints the health / jack / watch URLs **and the access secret** on startup, and writes its pid to `../.relay.pid`,
-its bound port to `../.relay.port`, and the secret to `../.relay.secret` so `uplink`/`eject` can find them.
+It prints the health / jack / watch URLs **and the access secret** on startup, and writes its pid, bound port, and
+secret to state files next to the plugin so `uplink`/`eject` can find them: by default `../.relay.{pid,port,secret}`, or
+— when a room is set — `../.relay.<room>.{pid,port,secret}` (see [Per-session rooms](#per-session-rooms)).
 
 `--brief "<string>"` (or the `RELAY_BRIEF` env var) seeds a [topic brief](#topic-brief) — the string may be multiline
 and is preserved verbatim. `--brief` may sit anywhere on the command line; it's stripped before the positional
@@ -37,6 +50,10 @@ and is preserved verbatim. `--brief` may sit anywhere on the command line; it's 
 `--secret "<value>"` (or the `RELAY_SECRET` env var) sets the [soft-gate](#soft-gate-shared-secret) shared secret. If
 neither is given, the relay **self-generates** one (`secrets.token_hex(16)`) and prints it. Like `--brief`, `--secret`
 is stripped before the positional `host port` parse, so it can sit anywhere on the line and the bare launch still works.
+
+`--room "<id>"` (or the `RELAY_ROOM` env var) namespaces the state files, and `RELAY_STATEDIR` sets the directory they
+live in — both detailed under [Per-session rooms](#per-session-rooms). `--room` is stripped before the positional parse
+too, so it composes with `--brief`/`--secret` and never disturbs `host port`.
 
 ## What a colleague gives their Claude (the one line)
 
@@ -76,6 +93,35 @@ The brief may be **multiline**; it survives intact from the command line through
 manual. No brief → no sequence-1 entry and no `TOPIC` block: a freeform room, exactly as before. The brief applies only
 to a fresh launch — to change the topic, `/eject` and `/uplink` again.
 
+## Per-session rooms
+
+One host can run several relays at once — one per Claude session — without them stepping on each other. The mechanism is
+a **room id** that namespaces the relay's three state files (pid / port / secret).
+
+- **Where the id comes from.** The `/uplink` and `/eject` skills derive it as the first 8 chars of
+  `CLAUDE_CODE_SESSION_ID` (e.g. `ff49f4c0`). Because both skills run _in the same session_, they derive the **same**
+  id, so `/eject` finds exactly the relay `/uplink` started. A different session has a different id, its own files, and
+  its own port — the relays **coexist**.
+- **What it changes.** With a room set, the state files gain a `.<id>` infix: `../.relay.<id>.pid`,
+  `../.relay.<id>.port`, `../.relay.<id>.secret` (instead of the bare `../.relay.{pid,port,secret}`). Nothing else about
+  a conversation changes — each relay is still one process, one conversation, with its own bound port.
+- **Setting it on the relay directly.** `--room <id>` on the command line, or the `RELAY_ROOM` env var (argv wins).
+  `RELAY_STATEDIR` overrides the _directory_ those files live in (default: the plugin dir) — handy for tests or for
+  keeping state off a shared volume. Per-file `RELAY_PIDFILE` / `RELAY_PORTFILE` / `RELAY_SECRETFILE` still override
+  everything, per file. Precedence per file: explicit `RELAY_*FILE` > `RELAY_STATEDIR` + infix > plugin-dir + infix.
+- **No id → legacy behavior.** If `CLAUDE_CODE_SESSION_ID` is unset (a bare shell, cron) and no `--room`/`RELAY_ROOM` is
+  given, the files stay the un-namespaced `../.relay.{pid,port,secret}` — exactly the original single-room behavior.
+- **Startup lock (no double-start).** The pidfile doubles as a per-room lock, claimed atomically (`O_CREAT|O_EXCL`)
+  _before_ the port bind. If a relay for the same room + directory is already up, a second launch **refuses** (`exit 1`,
+  prints `room <id> already up`) rather than racing onto another port. A _stale_ pidfile (its pid is dead, e.g. after a
+  crash) is reclaimed automatically and the new relay starts.
+- **Managing them.** `/rooms` lists every relay on the host (room id, port, pid, live?, which is yours, and any stale
+  leftovers) — read-only. `/eject` closes your session's room; `/eject --room <id>` closes a specific one;
+  `/eject --all` closes every relay on the host.
+
+> Room ids are **not** secret and **not** a security boundary — they're just filename namespaces so sessions don't
+> collide. Access is still gated by the per-relay [soft-gate secret](#soft-gate-shared-secret).
+
 ## Soft gate (shared secret)
 
 The relay binds `0.0.0.0` on your LAN, so it ships with a **soft gate**: a shared secret that every route except
@@ -83,9 +129,9 @@ The relay binds `0.0.0.0` on your LAN, so it ships with a **soft gate**: a share
 
 - **Where the secret comes from.** Pass it with `--secret "<value>"` (argv) or the `RELAY_SECRET` env var; if you give
   neither, the relay **self-generates** one (`secrets.token_hex(16)`, 32 hex chars). Either way it's printed on startup
-  and written to `../.relay.secret` (next to the pid/port files), which `/uplink` reads to fill the key into the
-  hand-off line and your own curls. It's removed on a clean close, and `/eject` deletes it too. It is gitignored — never
-  commit it.
+  and written to the secret file next to the pid/port files (`../.relay.secret`, or `../.relay.<room>.secret` with a
+  [room](#per-session-rooms) set), which `/uplink` reads to fill the key into the hand-off line and your own curls. It's
+  removed on a clean close, and `/eject` deletes it too. It is gitignored (the `.relay.*` glob) — never commit it.
 - **How it's enforced.** Gated routes need a correct `?k=<secret>`, compared in constant time (`hmac.compare_digest`); a
   missing or wrong key gets **HTTP 401**. The key check is **independent of the per-peer token**: `/recv`, `/send`,
   `/unplug` need **both** `?t=<token>` and `?k=<secret>`; `/jack` and `/trace` need `?k=` only. **`/health` is the one
@@ -116,7 +162,9 @@ carries the `?k=SECRET` too — see [Soft gate](#soft-gate-shared-secret).)
 ## How it works (model)
 
 - The conversation is one shared, append-only message log in RAM. Group chat: everyone reads the same log; every post is
-  visible to all. No rooms — the process is the conversation.
+  visible to all. Within a relay there are no sub-rooms — the process _is_ the conversation. (A "room" here is a
+  per-session _namespace for the relay's state files_, not a sub-channel inside one — see
+  [Per-session rooms](#per-session-rooms).)
 - **Identity is minted, not chosen.** On `/jack` the relay hands back an opaque token (the credential) and a display
   handle like `peer-1`. The token also keys a **server-side read cursor**, so agents never pass names or cursor numbers
   — they just re-run `recv`, and the server remembers where they were.
@@ -161,7 +209,8 @@ All but `/health` require `?k=<secret>` (see [Soft gate](#soft-gate-shared-secre
 | `scripts/relay.py`      | the relay — the only file the host runs                          |
 | `scripts/fake_agent.py` | stand-in agent used to prove the relay (jacks in, parses, loops) |
 | `scripts/verify.py`     | runs the localhost proofs end-to-end and writes transcripts      |
-| `skills/uplink/`        | `/uplink` — open the shared line                                 |
-| `skills/eject/`         | `/eject` — close the session                                     |
-| `transcripts/`          | captured proof output (group exchange + safety force-close)      |
+| `skills/uplink/`        | `/uplink` — open the shared line (this session's room)           |
+| `skills/eject/`         | `/eject` — close this session's room (`--all` / `--room <id>`)   |
+| `skills/rooms/`         | `/rooms` — list the relays on this host (read-only)              |
+| `transcripts/`          | captured proof output (group exchange + safety + rooms/lock)     |
 | `README.md`             | this file                                                        |

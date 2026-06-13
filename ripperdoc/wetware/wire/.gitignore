@@ -1,6 +1,4 @@
 __pycache__/
 *.pyc
-.relay.pid
-.relay.port
-.relay.secret
+.relay.*
 transcripts/
