@@ -31,12 +31,14 @@ Editing this repo does **not** update a running harness. `~/.claude` is its own 
 **pinned copy** under `~/.claude/plugins/cache/`, not a symlink — so an edit here stays invisible until that clone is
 pulled and the CLI restarts.
 
-**User-gated: after modifying preemdeck, never apply it to ~/.claude yourself — surface it and ask the user to run it.**
-Both installers are destructive by design: `update.py` does `git reset --hard` (discards uncommitted work in the
-target), and `install.py`'s `.trash` step deletes `AGENTS.md`, `scripts/`, `tests/`, `pyproject.toml`, etc. — it's a
-one-shot bootstrap for a throwaway clone, not the dev repo.
+**Apply on explicit request only. When the user asks to update their local copy / apply to `~/.claude`, run `update.py`
+against it yourself — you know the command, don't bounce it back. But only when asked: never apply unprompted after an
+edit, and never run `install.py` yourself — that one stays the user's call.** Both installers are destructive by design:
+`update.py` does `git reset --hard` (discards uncommitted work in the target), and `install.py`'s `.trash` step deletes
+`AGENTS.md`, `scripts/`, `tests/`, `pyproject.toml`, etc. — it's a one-shot bootstrap for a throwaway clone, not the dev
+repo.
 
-Canonical flow — hand these to the user, don't run them:
+Canonical flow — run on request (step 2 is yours now; `install.py` never is):
 
 ```bash
 git -C ~/preemdeck add -A && git commit -m "…" && git push   # 1. dev repo: commit + push
