@@ -233,3 +233,56 @@ nodes  ●──◐──○──◌
 ctx ▰▰▰▰▰▰▰▱▱▱ 71%   key ██████ redacted   src ¹ ²
 the fix is in the retry handler █
 ```
+
+## Dispatch
+
+### When to use
+
+- Render this every time you plan or queue subagents — the fixed shape for "here's how I carved the work and what's
+  running." One dispatch, one panel, drawn before you fire. Never improvise the format; never dispatch silently.
+- A lone atomic fixer collapses to a one-row panel — keep the rail anyway. Sameness every time is the whole point.
+- Re-emit only on a state change worth reading — a wave clears, a job lands, a job fails — never on micro-progress. Drop
+  the panel once every job is `☑`/`☒` and close in prose.
+
+### How to draw
+
+- Wrap in a fenced block tagged `text` so the rail and glyphs hold alignment.
+- Lead **every** line with a solid rail `▌` (U+258C, a Block-Element glyph — guaranteed single-width, safe to stack).
+  The rail is what makes the panel stand off when it's wedged between prose, so it carries the whole frame: no box, no
+  corners, no right border. Adding a frame is noise.
+- Row shape: `▌` · space · one status glyph · two spaces · the task in plain words. Status glyphs are the plan-state set
+  from § LLM — `☐ queued · ◐ running · ☑ done · ☒ failed · ⊘ blocked`. Exactly one glyph per row, leading position, so
+  the task text never drifts. No emoji — double-width shatters the rail and reads as a party favor.
+- Title row is `▌ DISPATCH`, then a bare `▌` spacer. Order runs top-to-bottom = dispatch order.
+- Parallel set: head it with a `▌ parallel` label and indent its members two spaces — siblings that fire together.
+- Blocked job: mark `⊘` and append `— waits on <what>` so the gate is explicit.
+- One line per task. Past ~60 columns, truncate with `…` — never wrap; a wrapped line breaks the rail.
+- Live: redraw the whole panel on a state change, glyphs advanced in place — same rows, same order, only the markers
+  move.
+
+Base — sequential or independent fixers:
+
+```text
+▌ DISPATCH
+▌
+▌ ◐  scout auth call sites, map token + session flow
+▌ ☐  migrate session store to Redis-backed adapter
+▌ ☐  rewrite REST handlers as async middleware
+▌ ☐  add Alembic migration for users.role column
+▌ ☐  run integration suite + smoke-test login flow
+```
+
+Parallel set behind a gate — `parallel` groups the concurrent fixers, `⊘ … waits on` marks what's blocked and why:
+
+```text
+▌ DISPATCH
+▌
+▌ ☑  scout auth call sites, map token + session flow
+▌
+▌ parallel
+▌   ◐  migrate session store to Redis-backed adapter
+▌   ◐  rewrite REST handlers as async middleware
+▌   ◐  add Alembic migration for users.role column
+▌
+▌ ⊘  run integration suite + smoke-test login flow — waits on parallel set
+```

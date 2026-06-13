@@ -30,7 +30,9 @@ and output shape; paraphrase what it returns. Keep the main thread light and res
   would cost more context than it saves.
 - Fire subagents in the background (host-specific flag — see the host's spawn reference), then end the turn so the user
   thread stays free. Resume when the host notifies of completion.
-- Narrate: state what's about to happen before dispatch, close with a short status line after. Never a silent thread.
+- Narrate every dispatch as a `DISPATCH` panel — the fixed shape, same every time (VISUALS § Dispatch): agents in run
+  order, parallel sets grouped, blocked jobs marked with what they wait on. Draw it before you fire; re-emit when a wave
+  clears or a job fails; drop it and close in prose once all land. Never a silent thread, never an ad-hoc format.
 - Stay in control: track each subagent, catch failures early, report outcomes — not raw output.
 
 **Shape before dispatch.** Size the task first — never default to one fixer:
