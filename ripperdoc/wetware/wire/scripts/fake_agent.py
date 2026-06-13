@@ -2,11 +2,11 @@
 """
 fake_agent.py - a stand-in for a real LLM coding agent, used only for proofs.
 
-It uses the wire bus EXACTLY the way the MANUAL tells a real agent to:
-  1. GET /join                  -> receive the plain-text manual
+It uses the wire relay EXACTLY the way the MANUAL tells a real agent to:
+  1. GET /jack                  -> receive the plain-text manual
   2. PARSE the token out of the manual text (just like a real agent reading it)
   3. loop: recv (long-poll /recv) -> maybe send (/send) -> recv -> ...
-  4. run leave (/leave) when its goal condition is met
+  4. run unplug (/unplug) when its goal condition is met
 
 It deliberately does NOT get the token from a side channel -- it scrapes it from
 the manual's curl lines, proving the manual is self-sufficient. Only urllib
@@ -21,7 +21,7 @@ Two behaviours, selected by --mode:
           exercises group fanout, long-poll wake, and a clean civil leave.
 
   spammer: never stops, posts a fixed line on every turn. Used to prove the
-          broker's turn-cap / repetition force-close. Pass --same to post the
+          relay's turn-cap / repetition force-close. Pass --same to post the
           identical line every time (repetition kill); default appends a counter
           so only the turn cap trips.
 """
@@ -36,16 +36,17 @@ import urllib.request
 import urllib.error
 
 
-# A transport failure (connection refused/reset) means the broker process is
-# GONE -- and since one bus is one conversation, the conversation is over. We map
-# that to a synthetic 409 "conversation closed" so callers stop cleanly via the
-# exact same path as a real 409, instead of crashing on an unhandled exception.
-# (The broker can exit the instant a cap trips, racing an in-flight request.)
-_GONE = (409, "conversation closed: broker gone")
+# A transport failure (connection refused/reset) means the relay process is
+# GONE -- and since one relay is one conversation, the conversation is over. We
+# map that to a synthetic 409 "conversation closed" so callers stop cleanly via
+# the exact same path as a real 409, instead of crashing on an unhandled
+# exception. (The relay can exit the instant a cap trips, racing an in-flight
+# request.)
+_GONE = (409, "conversation closed: relay gone")
 
 
 def http_get(url: str, timeout: float):
-    """GET url. Returns (status, text). 204 -> (204, ""). A dead broker -> _GONE."""
+    """GET url. Returns (status, text). 204 -> (204, ""). A dead relay -> _GONE."""
     req = urllib.request.Request(url, method="GET")
     try:
         with urllib.request.urlopen(req, timeout=timeout) as r:
@@ -57,7 +58,7 @@ def http_get(url: str, timeout: float):
 
 
 def http_post(url: str, body: str, timeout: float):
-    """POST a raw body. Returns (status, text). A dead broker -> _GONE."""
+    """POST a raw body. Returns (status, text). A dead relay -> _GONE."""
     data = body.encode("utf-8")
     req = urllib.request.Request(url, data=data, method="POST")
     try:
@@ -70,19 +71,28 @@ def http_post(url: str, body: str, timeout: float):
 
 
 def parse_manual(manual: str):
-    """Extract (handle, token, base_url) from the manual TEXT, the same way a
-    real agent would read its instructions. We pull the token from the recv
-    curl line and the base url from the same line."""
+    """Extract (handle, token, base_url, secret) from the manual TEXT, the same
+    way a real agent would read its instructions. We pull the token AND the
+    shared access key from the recv curl line and the base url from the same
+    line. The recv line now looks like:
+        recv:  curl -s --max-time 600 "http://h:p/recv?t=ab12cd&k=<secret>"
+    A real agent just copy-pastes that whole line (key and all), so the stand-in
+    scrapes the key the same way -- the manual stays self-sufficient. secret is
+    "" if the manual carries no &k= (older/ungated manual)."""
     handle = None
     m = re.search(r"You are (\S+?)\.", manual)
     if m:
         handle = m.group(1)
-    # The recv line looks like:  recv:  curl -s --max-time 600 "http://h:p/recv?t=ab12cd"
-    m = re.search(r'"(http://[^"]+)/recv\?t=([0-9a-f]+)"', manual)
+    # base + token, stopping the base at the first '?' so the query (t=, k=) is
+    # never swallowed into it.
+    m = re.search(r'"(http://[^"?]+)/recv\?t=([0-9a-f]+)', manual)
     if not m:
         raise RuntimeError("could not find token/base in manual:\n" + manual)
     base, token = m.group(1), m.group(2)
-    return handle, token, base
+    # The access key off the same recv line (hex, but match broadly).
+    km = re.search(r"/recv\?t=[0-9a-f]+&k=([^\"&\s]+)", manual)
+    secret = km.group(1) if km else ""
+    return handle, token, base, secret
 
 
 def log(handle: str, msg: str):
@@ -106,12 +116,12 @@ def highest_count(msgs, exclude):
 
 def normalize_recv(text):
     """Turn a /recv 200 body into a uniform list of {"handle","body"} dicts,
-    regardless of which shape the broker sent:
+    regardless of which shape the relay sent:
 
       * a JSON ARRAY of message entries (the normal "here are new messages"
         reply), or
       * a JSON OBJECT {"system": "conversation closed: <reason>"} -- the
-        broker's UNAMBIGUOUS terminal signal for an already-closed, drained
+        relay's UNAMBIGUOUS terminal signal for an already-closed, drained
         conversation (the deadlock fix: instead of an ambiguous 204, a closed
         conversation says so explicitly so the agent stops instead of re-polling
         forever).
@@ -139,25 +149,34 @@ def terminal_signal(msgs):
     return None
 
 
-def run(base_root, mode, target, max_turns, same, kickoff):
-    # --- 1. JOIN: fetch the manual --------------------------------------
-    status, manual = http_get(f"{base_root}/join", timeout=10)
+def run(base_root, mode, target, max_turns, same, kickoff, secret):
+    # --- 1. JACK: fetch the manual --------------------------------------
+    # /jack is itself behind the soft gate, so the key must ride the jack URL
+    # too -- we can't scrape it from the manual we haven't fetched yet. verify.py
+    # hands us the per-test secret via --secret; a real agent gets it from the
+    # one pasteable jack URL its operator was given.
+    kq = f"?k={secret}" if secret else ""
+    status, manual = http_get(f"{base_root}/jack{kq}", timeout=10)
     if status != 200:
-        # The broker may already be gone (conversation closed before we joined)
-        # -- that is a clean miss, not a crash: stop quietly with exit 0.
+        # The relay may already be gone (conversation closed before we jacked
+        # in) -- that is a clean miss, not a crash: stop quietly with exit 0.
         if status == 409 or "conversation closed" in manual:
-            print("  [late] joined too late; conversation already closed -> stopping", flush=True)
+            print("  [late] jacked in too late; conversation already closed -> stopping", flush=True)
             return
-        print(f"join failed: {status} {manual}", file=sys.stderr)
+        print(f"jack failed: {status} {manual}", file=sys.stderr)
         sys.exit(1)
-    handle, token, base = parse_manual(manual)
-    log(handle, f"joined (token={token}) via manual")
+    handle, token, base, manual_secret = parse_manual(manual)
+    # Prefer the explicitly-passed secret; fall back to whatever the manual baked
+    # into its curls (a real agent would just reuse the manual's filled-in key).
+    secret = secret or manual_secret
+    log(handle, f"jacked in (token={token}) via manual")
 
-    recv_url = f"{base}/recv?t={token}&wait=30"
-    drain_url = f"{base}/recv?t={token}&wait=0"  # non-blocking peek
-    send_url = f"{base}/send?t={token}"
-    leave_url = f"{base}/leave?t={token}"
-    leave_done = f"{base}/leave?t={token}&reason=done"
+    kk = f"&k={secret}" if secret else ""
+    recv_url = f"{base}/recv?t={token}{kk}&wait=30"
+    drain_url = f"{base}/recv?t={token}{kk}&wait=0"  # non-blocking peek
+    send_url = f"{base}/send?t={token}{kk}"
+    leave_url = f"{base}/unplug?t={token}{kk}"
+    leave_done = f"{base}/unplug?t={token}{kk}&reason=done"
 
     turns_taken = 0
     last_seen = 0  # highest 'count: N' value WE have acted on (any author)
@@ -166,7 +185,7 @@ def run(base_root, mode, target, max_turns, same, kickoff):
     # Someone has to speak first or every peer's recv just long-polls an empty
     # log forever. In collab, exactly one agent is told (--kickoff) to open --
     # mirroring a human saying "you start". In spammer mode every agent opens
-    # immediately (the whole point is runaway chatter the broker must stop).
+    # immediately (the whole point is runaway chatter the relay must stop).
     if mode == "collab" and kickoff:
         http_post(send_url, "count: 1", timeout=10)
         log(handle, "kicked off with 'count: 1'")
@@ -200,7 +219,7 @@ def run(base_root, mode, target, max_turns, same, kickoff):
         # Check terminal signals after the long-poll read.
         sig = terminal_signal(msgs)
         if sig == "closed":
-            log(handle, "conversation closed by broker -> stopping")
+            log(handle, "conversation closed by relay -> stopping")
             break
         if sig == "left" and mode == "collab":
             # A peer left -> the goal was reached -> we leave too. This is the
@@ -220,7 +239,7 @@ def run(base_root, mode, target, max_turns, same, kickoff):
 
             if current >= target:
                 # The target number is on the log. Announce done + leave; the
-                # broker posts our "left" notice, which tells the others to
+                # relay posts our "left" notice, which tells the others to
                 # leave too -- proving a clean cascade stop.
                 log(handle, f"target {target} reached -> announcing done + leaving")
                 http_post(send_url, f"reached {target}. done -- leaving.", timeout=10)
@@ -242,7 +261,7 @@ def run(base_root, mode, target, max_turns, same, kickoff):
                 # Honor it here or the agent would park forever on a dead convo.
                 dsig = terminal_signal(dmsgs)
                 if dsig == "closed":
-                    log(handle, "conversation closed by broker (seen on drain) -> stopping")
+                    log(handle, "conversation closed by relay (seen on drain) -> stopping")
                     break
                 if dsig == "left":
                     log(handle, "a peer left (seen on drain) -> leaving")
@@ -260,9 +279,9 @@ def run(base_root, mode, target, max_turns, same, kickoff):
             turns_taken += 1
 
         elif mode == "spammer":
-            # The spammer never CHOOSES to stop on its own -- the broker MUST
+            # The spammer never CHOOSES to stop on its own -- the relay MUST
             # force-close it. But it is not a runaway zombie: it stops the
-            # instant the broker tells it the conversation is over. Two signals:
+            # instant the relay tells it the conversation is over. Two signals:
             #   (a) the recv above returned the closure notice -> handled by the
             #       `sig == "closed"` break before we get here, and
             #   (b) /send is rejected with HTTP 409 (already closed) -> we break
@@ -275,10 +294,10 @@ def run(base_root, mode, target, max_turns, same, kickoff):
             if st == 409:
                 log(handle, "send rejected 409 (conversation closed) -> stopping")
                 break
-            # Backstop only -- the broker's caps should already have closed the
+            # Backstop only -- the relay's caps should already have closed the
             # conversation (and our recv/409 checks should have stopped us).
             if turns_taken > max_turns + 20:
-                log(handle, "safety stop (broker should have closed already)")
+                log(handle, "safety stop (relay should have closed already)")
                 break
 
 
@@ -290,8 +309,9 @@ def main():
     ap.add_argument("--max-turns", type=int, default=50, help="spammer self-stop guard")
     ap.add_argument("--same", action="store_true", help="spammer: post identical line each time")
     ap.add_argument("--kickoff", action="store_true", help="collab: this agent opens the discussion")
+    ap.add_argument("--secret", default="", help="shared access key (?k=) -- gates /jack and all calls")
     args = ap.parse_args()
-    run(args.base, args.mode, args.target, args.max_turns, args.same, args.kickoff)
+    run(args.base, args.mode, args.target, args.max_turns, args.same, args.kickoff, args.secret)
 
 
 if __name__ == "__main__":

@@ -1,5 +1,6 @@
 __pycache__/
 *.pyc
-.bus.pid
-.bus.port
+.relay.pid
+.relay.port
+.relay.secret
 transcripts/

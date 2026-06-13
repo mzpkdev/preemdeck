@@ -1,27 +1,56 @@
 #!/usr/bin/env python3
 """
-bus.py - a zero-dependency HTTP "wire" broker for live multi-agent group chat.
+relay.py - a zero-dependency HTTP "wire" relay for live multi-agent group chat.
 
 WHAT THIS IS
 ------------
 One host runs this single file. ONE process == ONE conversation. Multiple LLM
 coding agents on the LAN talk to it with plain `curl` to hold a live GROUP
 conversation. There are NO rooms: the host:port IS the conversation identity.
-The broker is self-describing: an agent's first call (`GET /join`) returns a
+The relay is self-describing: an agent's first call (`GET /jack`) returns a
 plain-text MANUAL telling it exactly how to participate -- with the curl
 commands already filled in, token and all.
 
 Runs on the Python 3 standard library alone. No pip, ever:
 
-    python3 bus.py                  # binds 0.0.0.0:8765
-    python3 bus.py 0.0.0.0 9000     # host + port via argv
-    BUS_HOST=127.0.0.1 BUS_PORT=9000 python3 bus.py   # or via env
+    python3 relay.py                  # binds 0.0.0.0:55555 (scans up if busy)
+    python3 relay.py 0.0.0.0 9000     # host + port via argv
+    RELAY_HOST=127.0.0.1 RELAY_PORT=9000 python3 relay.py   # or via env
+    python3 relay.py 0.0.0.0 9000 --brief "what we're discussing"   # seed a topic brief
+    python3 relay.py 0.0.0.0 9000 --secret "shared-key"   # gate access with a shared secret
+
+SOFT GATE (shared secret)
+-------------------------
+The relay binds 0.0.0.0 on the LAN, so a shared secret gates access. Pass it
+with --secret "<value>" (or the RELAY_SECRET env); if neither is given the relay
+self-generates one (secrets.token_hex(16)) and prints it. The secret is written
+to .relay.secret next to the pid/port files and removed on clean close. Gated
+routes require a correct ?k=<secret> query param, compared in constant time
+(hmac.compare_digest); a missing/wrong key gets HTTP 401. /jack /recv /send
+/unplug /trace /peers are gated; /health stays OPEN (the uplink double-start
+guard and the eject down-check probe it without knowing the secret). The key
+check is INDEPENDENT of the per-peer token: /recv needs BOTH ?t= (token) and
+?k= (secret); /trace and /jack need ?k= only -- which is what closes the old
+/trace-reads-everything hole. THIS IS A SOFT GATE: it is plain HTTP and the key
+rides in cleartext, so it keeps strangers out, NOT a network sniffer. For real
+protection put it behind TLS or bind localhost + an SSH/tunnel.
+
+TOPIC BRIEF
+-----------
+--brief "<string>" (or RELAY_BRIEF env) seeds the conversation with a topic up
+front. The brief becomes the FIRST log entry (seq 1, authored "system"), so it
+tops every joiner's first /recv backlog and shows in /trace; it is also rendered
+as a TOPIC block in the /jack manual, since a remote peer reads the manual
+BEFORE its first /recv. The string may be multiline; it survives intact through
+argv -> log entry -> /recv JSON -> manual. No --brief == freeform room (no seq-1
+entry, no TOPIC block), exactly as before. The relay stays a dumb broker: it
+never paraphrases the brief -- the wording is whatever the launcher passed.
 
 CORE MODEL
 ----------
 * The conversation is ONE shared append-only message log, kept in RAM. It is
   group chat: everyone reads the same log, and any post is visible to all.
-* Identity is NOT human-chosen. On join the broker mints an opaque hidden
+* Identity is NOT human-chosen. On jack the relay mints an opaque hidden
   *token* (6 hex chars) and a short display *handle* ("peer-1"). The token is
   the agent's credential AND it keys a server-side read *cursor*. Agents never
   pass names or cursor numbers -- the server tracks each token's cursor.
@@ -29,24 +58,25 @@ CORE MODEL
 LIFECYCLE == PROCESS
 --------------------
 Agents are assumed to misbehave: they may yap forever, loop, or refuse to stop.
-So the broker -- not the agents -- owns the conversation lifecycle and
+So the relay -- not the agents -- owns the conversation lifecycle and
 force-closes when a cap trips (turn cap, wall-clock cap, repetition stall) or
-when the last peer leaves. On close the broker releases every parked /recv with
+when the last peer leaves. On close the relay releases every parked /recv with
 the explicit closed signal, then THE PROCESS EXITS CLEANLY. There is no reuse:
-need another conversation, run `jack` again.
+need another conversation, run `uplink` again.
 
-ENDPOINTS
+ENDPOINTS  (all but /health require ?k=<secret>)
 ---------
-  GET  /join                        -> mint token+handle, return MANUAL (text)
-  GET  /recv?t=<token>&wait=<secs>  -> LONG-POLL for new messages (JSON / 204)
-  POST /send?t=<token>              -> append a message to the shared log
-  GET  /leave?t=<token>&reason=...  -> this peer leaves (others continue)
-  GET  /history                     -> full ordered log as plain text
-  GET  /peers                       -> who's currently connected (JSON)
-  GET  /health                      -> "ok"
+  GET  /jack?k=<secret>                   -> mint token+handle, return MANUAL (text)
+  GET  /recv?t=<token>&k=<secret>&wait=<s> -> LONG-POLL for new messages (JSON / 204)
+  POST /send?t=<token>&k=<secret>         -> append a message to the shared log
+  GET  /unplug?t=<token>&k=<secret>&reason=... -> this peer leaves (others continue)
+  GET  /trace?k=<secret>                  -> full ordered log as plain text
+  GET  /peers?k=<secret>                  -> who's currently connected (JSON)
+  GET  /health                            -> "ok"   (OPEN -- no key)
 """
 
 import errno
+import hmac
 import json
 import os
 import sys
@@ -60,41 +90,56 @@ from urllib.parse import urlparse, parse_qs
 # Configuration. Everything is overridable via env (and host/port via argv too)
 # so the host can tune safety caps without editing code.
 # ---------------------------------------------------------------------------
-HOST = os.environ.get("BUS_HOST", "0.0.0.0")
+HOST = os.environ.get("RELAY_HOST", "0.0.0.0")
 # Default port lives high in the IANA dynamic range (49152-65535) to stay clear
 # of common dev ports. It is the BASE: if it's taken we scan upward (see
-# _bind_scanning) for the first free port. Override via BUS_PORT/argv to change
+# _bind_scanning) for the first free port. Override via RELAY_PORT/argv to change
 # the base -- we still scan up from there if it's busy.
-PORT = int(os.environ.get("BUS_PORT", "55555"))
+PORT = int(os.environ.get("RELAY_PORT", "55555"))
 
 # How many consecutive ports to try (base, base+1, ... base+PORT_SCAN-1) before
 # giving up when the base is busy.
 PORT_SCAN = 50
 
-# Lifecycle caps -- broker-enforced, agents cannot opt out.
-MAX_TURNS = int(os.environ.get("BUS_MAX_TURNS", "40"))  # total accepted posts
-MAX_SECONDS = int(os.environ.get("BUS_MAX_SECONDS", "1800"))  # wall clock from 1st post
-REPEAT_WINDOW = int(os.environ.get("BUS_REPEAT_WINDOW", "3"))  # N consecutive near-dupes -> stall
+# Lifecycle caps -- relay-enforced, agents cannot opt out.
+MAX_TURNS = int(os.environ.get("RELAY_MAX_TURNS", "40"))  # total accepted posts
+MAX_SECONDS = int(os.environ.get("RELAY_MAX_SECONDS", "1800"))  # wall clock from 1st post
+REPEAT_WINDOW = int(os.environ.get("RELAY_REPEAT_WINDOW", "3"))  # N consecutive near-dupes -> stall
 
 # Long-poll bounds. A client may ask for a shorter wait; we clamp to the cap.
-DEFAULT_WAIT = int(os.environ.get("BUS_DEFAULT_WAIT", "600"))  # default /recv block (s)
-MAX_WAIT = int(os.environ.get("BUS_MAX_WAIT", "600"))  # hard cap on /recv block (s)
+DEFAULT_WAIT = int(os.environ.get("RELAY_DEFAULT_WAIT", "600"))  # default /recv block (s)
+MAX_WAIT = int(os.environ.get("RELAY_MAX_WAIT", "600"))  # hard cap on /recv block (s)
 
-# Pidfile so `eject` (and a re-run of `jack`) can find and kill this process.
-# Lives next to the plugin (wire/.bus.pid), not in scripts/.
+# Pidfile so `eject` (and a re-run of `uplink`) can find and kill this process.
+# Lives next to the plugin (wire/.relay.pid), not in scripts/.
 PIDFILE = os.environ.get(
-    "BUS_PIDFILE",
-    os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), ".bus.pid"),
+    "RELAY_PIDFILE",
+    os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), ".relay.pid"),
 )
 
 # Portfile records the port we ACTUALLY bound (which may differ from the base if
-# we had to scan up). `jack` waits for it to appear then health-checks it, and
-# `eject` reads it to confirm the bus is down. Lives next to the pidfile
-# (wire/.bus.port). Removed on clean exit, same as the pidfile.
+# we had to scan up). `uplink` waits for it to appear then health-checks it, and
+# `eject` reads it to confirm the relay is down. Lives next to the pidfile
+# (wire/.relay.port). Removed on clean exit, same as the pidfile.
 PORTFILE = os.environ.get(
-    "BUS_PORTFILE",
-    os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), ".bus.port"),
+    "RELAY_PORTFILE",
+    os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), ".relay.port"),
 )
+
+# Secretfile records the shared secret that gates access (the SOFT GATE -- see the
+# header). `uplink` reads it to bake ?k=<secret> into the host's own curls and the
+# colleague hand-off line; it is removed on clean exit, same as the pid/port files.
+# Lives next to them (wire/.relay.secret). It is a credential: gitignored, never
+# committed.
+SECRETFILE = os.environ.get(
+    "RELAY_SECRETFILE",
+    os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), ".relay.secret"),
+)
+
+# The shared secret gating every route except /health. Resolved fully in main()
+# (argv --secret > RELAY_SECRET env > self-generated token_hex(16)); the env seed
+# here just gives it a value if the module is imported without main() running.
+SECRET = os.environ.get("RELAY_SECRET", "")
 
 
 def _norm(body: str) -> str:
@@ -126,8 +171,14 @@ class Conversation:
     exit. One conversation per process.
     """
 
-    def __init__(self, topic: str = ""):
+    def __init__(self, topic: str = "", brief: str = ""):
         self.topic = topic
+        # The topic brief (may be multiline). When set, it is seeded below as the
+        # FIRST log entry (seq 1, authored "system") so it tops every joiner's
+        # first /recv backlog and /trace; build_manual() also reads it for the
+        # TOPIC block. Stored stripped of trailing newlines only -- the body is
+        # preserved verbatim (embedded newlines intact). "" == no brief.
+        self.brief = brief.rstrip("\n") if brief else ""
         self.lock = threading.Lock()
         # The Condition shares the lock so a parked /recv is woken atomically
         # when /send appends or when we close -- no busy-spin.
@@ -146,6 +197,15 @@ class Conversation:
 
         # Set by main(); called once after close to terminate the process.
         self._on_close = None  # callable, invoked outside the lock
+
+        # Seed the topic brief as the FIRST log entry, authored "system" -- the
+        # same envelope as the close/leave notices, just emitted at construction
+        # (before the server binds, before any peer can /jack). Because a fresh
+        # peer's cursor starts at 0, this seq-1 entry is delivered at the TOP of
+        # its very first /recv backlog automatically; /trace replays it too. No
+        # lock needed here: we are still single-threaded in the constructor.
+        if self.brief:
+            self._append("system", self.brief, sys=True)
 
     def set_on_close(self, cb) -> None:
         self._on_close = cb
@@ -203,15 +263,15 @@ class Conversation:
     def _wall_expired(self) -> bool:
         return self.started_at is not None and (time.time() - self.started_at) >= MAX_SECONDS
 
-    # -- join / leave ------------------------------------------------------
+    # -- jack / unplug -----------------------------------------------------
 
     def join(self) -> tuple[str, str, int]:
         """Mint an opaque token + display handle for a new peer. The peer's
         cursor starts at the START of the log (0), so its FIRST /recv returns the
         whole conversation so far (the backlog) and only then does it block for
         new messages. This matters when the host posts ("hello, let's discuss X")
-        and THEN hands over the join URL: the late joiner must see that opener
-        immediately, not sit blocked waiting for the next post. Subsequent recvs
+        and THEN hands over the jack URL: the late joiner must see that opener
+        immediately, not sit blocked waiting for the next post. Subsequent scans
         advance the cursor as normal and return only new messages. Returns
         (token, handle, peer_count_before_this_join)."""
         with self.lock:
@@ -239,7 +299,7 @@ class Conversation:
             note = f"{peer['handle']} left"
             if reason:
                 note += f" ({reason})"
-            # Authored as "system" (like the closure notice) -- it's a broker
+            # Authored as "system" (like the closure notice) -- it's a relay
             # event, not a peer utterance. The body names the departing handle.
             self._append("system", note, sys=True)
             if not self.peers and self._any_joined:
@@ -256,7 +316,7 @@ class Conversation:
         with self.lock:
             peer = self.peers.get(token)
             if peer is None:
-                return 401, {"ok": False, "error": "unknown token (did you /join?)"}
+                return 401, {"ok": False, "error": "unknown token (did you /jack?)"}
             if self.closed:
                 return 409, {"ok": False, "error": f"conversation closed: {self.close_reason}"}
 
@@ -326,7 +386,7 @@ class Conversation:
         with self.lock:
             peer = self.peers.get(token)
             if peer is None:
-                return 401, {"ok": False, "error": "unknown token (did you /join?)"}
+                return 401, {"ok": False, "error": "unknown token (did you /jack?)"}
 
             while True:
                 # Anything in the log past our cursor? (covers normal posts AND
@@ -346,20 +406,20 @@ class Conversation:
                 if self.closed:
                     return 200, {"system": f"conversation closed: {self.close_reason}"}
 
-                # Sleep on the condition until /send, /leave, or _close notifies
-                # us, or until the deadline. cond.wait releases the lock while
-                # parked and reacquires it on wake -- so this never burns CPU and
-                # never blocks other requests (each request runs in its own
-                # thread). Because _close() runs under this same lock and calls
-                # notify_all, a close that happens while we hold the lock here
-                # cannot interleave, and one that happens while we are parked
-                # wakes us -- the wake is never lost.
+                # Sleep on the condition until /send, /unplug, or _close
+                # notifies us, or until the deadline. cond.wait releases the lock
+                # while parked and reacquires it on wake -- so this never burns
+                # CPU and never blocks other requests (each request runs in its
+                # own thread). Because _close() runs under this same lock and
+                # calls notify_all, a close that happens while we hold the lock
+                # here cannot interleave, and one that happens while we are
+                # parked wakes us -- the wake is never lost.
                 remaining = deadline - time.time()
                 if remaining <= 0:
                     return 204, None  # long-poll timed out with nothing new
                 self.cond.wait(timeout=remaining)
 
-    # -- history -----------------------------------------------------------
+    # -- trace -------------------------------------------------------------
 
     def history(self) -> str:
         """Render the full ordered log as human-readable plain text."""
@@ -389,31 +449,40 @@ class Conversation:
             }
 
 
-# The ONE conversation for this process. Topic comes from BUS_TOPIC if set.
-CONVO = Conversation(os.environ.get("BUS_TOPIC", ""))
+# The ONE conversation for this process. Topic comes from RELAY_TOPIC if set;
+# the topic brief from RELAY_BRIEF (a --brief argv value overrides it in main()).
+CONVO = Conversation(os.environ.get("RELAY_TOPIC", ""), os.environ.get("RELAY_BRIEF", ""))
 
 
 # ===========================================================================
 # The personalized MANUAL. This text IS the product's UX: it's the only thing
 # a fresh agent needs to participate. Curl commands come pre-filled with token.
 # ===========================================================================
-def build_manual(convo: Conversation, token: str, handle: str, peers_before: int, host: str, port: int) -> str:
+def build_manual(
+    convo: Conversation, token: str, handle: str, peers_before: int, host: str, port: int, secret: str
+) -> str:
     base = f"http://{host}:{port}"
     peer_word = "peer" if peers_before == 1 else "peers"
     topic_line = f"Topic: {convo.topic}\n" if convo.topic else ""
+    # When a brief was seeded, surface it as a TOPIC block up top -- a remote
+    # peer reads this manual BEFORE its first /recv, so the topic must be visible
+    # here too (the full brief also rides the log as the seq-1 system entry). The
+    # brief is rendered verbatim, multiline and all.
+    topic_block = f"TOPIC -- what this discussion is about:\n{convo.brief}\n\n" if convo.brief else ""
     return f"""\
 You are {handle}. {peers_before} {peer_word} currently here.
 {topic_line}
-This is a live GROUP chat over a shared message log. Everyone reads the same
+{topic_block}This is a live GROUP chat over a shared message log. Everyone reads the same
 log; anything you post is seen by all. Your hidden token is {token} -- it is
 already filled into the commands below. Do not share it; do not pass any name
-or number anywhere. The server tracks your read position for you.
+or number anywhere. The server tracks your read position for you. The commands
+also carry a shared access key (k=...) -- it's already filled in; leave it.
 
 YOUR THREE COMMANDS (copy-paste; these work in bash, cmd, and PowerShell):
 
-  recv:   curl -s --max-time 600 "{base}/recv?t={token}"
-  send:   curl -s -X POST "{base}/send?t={token}" --data-binary 'YOUR MESSAGE'
-  leave:  curl -s "{base}/leave?t={token}"
+  recv:    curl -s --max-time 600 "{base}/recv?t={token}&k={secret}"
+  send:    curl -s -X POST "{base}/send?t={token}&k={secret}" --data-binary 'YOUR MESSAGE'
+  unplug:  curl -s "{base}/unplug?t={token}&k={secret}"
 
 HOW TO PARTICIPATE (this is your job until the task is done):
   Run recv. Your FIRST recv returns the conversation SO FAR (everything posted
@@ -435,10 +504,12 @@ HOW TO PARTICIPATE (this is your job until the task is done):
 ETIQUETTE -- READ THIS:
   Only post when you ADD something. Do NOT post acknowledgement-only or
   pleasantry messages. If you have nothing to add, just run recv again. When
-  the task is resolved, run leave.
+  the task is resolved, run unplug.
 
 Re-read or watch the whole thread anytime (no token, doesn't move your position):
-  curl -s "{base}/history"
+  curl -s "{base}/trace?k={secret}"
+
+(The k=... key keeps strangers out, not sniffers -- this is plain HTTP.)
 """
 
 
@@ -447,7 +518,7 @@ Re-read or watch the whole thread anytime (no token, doesn't move your position)
 # long-polling /recv never blocks other requests.
 # ===========================================================================
 class Handler(BaseHTTPRequestHandler):
-    server_version = "WireBus/1.0"
+    server_version = "WireRelay/1.0"
     protocol_version = "HTTP/1.1"  # keep-alive + proper Content-Length framing
 
     # Silence the default noisy per-request stderr logging; we print our own.
@@ -489,6 +560,17 @@ class Handler(BaseHTTPRequestHandler):
         adv_host = "127.0.0.1" if HOST in ("0.0.0.0", "") else HOST
         return adv_host, PORT
 
+    # -- soft-gate key check ----------------------------------------------
+    # Constant-time compare of the ?k=<secret> query param against the process
+    # SECRET. This is the SOFT GATE: it stops casual discovery, not a sniffer
+    # (plain HTTP, key in cleartext). It is INDEPENDENT of the per-peer token --
+    # a gated route checks the key here, THEN (if it also needs one) the token in
+    # the Conversation method. /health is the only ungated route.
+    @staticmethod
+    def _key_ok(qs: dict) -> bool:
+        supplied = qs.get("k", [""])[0]
+        return hmac.compare_digest(supplied, SECRET)
+
     # -- GET ---------------------------------------------------------------
 
     def do_GET(self):
@@ -496,16 +578,24 @@ class Handler(BaseHTTPRequestHandler):
         path = parsed.path
         qs = parse_qs(parsed.query)
 
+        # /health is the ONE open route -- no key. The uplink double-start guard
+        # and the eject down-check probe it without knowing the secret.
         if path == "/health":
             return self._text(200, "ok\n")
 
-        if path == "/join":
+        if path == "/jack":
+            # /jack returns text, so its 401 is a short text body (not JSON).
+            if not self._key_ok(qs):
+                return self._text(401, "bad or missing key\n")
             token, handle, peers_before = CONVO.join()
             host, port = self._advertised()
-            print(f"[join] handle={handle} token={token} (peers now {peers_before + 1})")
-            return self._text(200, build_manual(CONVO, token, handle, peers_before, host, port))
+            print(f"[jack] handle={handle} token={token} (peers now {peers_before + 1})")
+            return self._text(200, build_manual(CONVO, token, handle, peers_before, host, port, SECRET))
 
         if path == "/recv":
+            # Key gate FIRST, then the per-peer token -- the two are independent.
+            if not self._key_ok(qs):
+                return self._json(401, {"ok": False, "error": "bad or missing key"})
             token = qs.get("t", [""])[0]
             if not token:
                 return self._json(400, {"ok": False, "error": "missing ?t=<token>"})
@@ -515,19 +605,27 @@ class Handler(BaseHTTPRequestHandler):
                 return self._no_content()
             return self._json(status, payload)
 
-        if path == "/leave":
+        if path == "/unplug":
+            if not self._key_ok(qs):
+                return self._json(401, {"ok": False, "error": "bad or missing key"})
             token = qs.get("t", [""])[0]
             if not token:
                 return self._json(400, {"ok": False, "error": "missing ?t=<token>"})
             reason = qs.get("reason", [""])[0]
             ok = CONVO.leave(token, reason)
-            print(f"[leave] token={token} ok={ok} reason={reason!r}")
+            print(f"[unplug] token={token} ok={ok} reason={reason!r}")
             return self._json(200 if ok else 401, {"ok": ok})
 
-        if path == "/history":
+        if path == "/trace":
+            # Key-only gate -- this is what closes the old "anyone reads the whole
+            # log with no credential" hole.
+            if not self._key_ok(qs):
+                return self._json(401, {"ok": False, "error": "bad or missing key"})
             return self._text(200, CONVO.history())
 
         if path == "/peers":
+            if not self._key_ok(qs):
+                return self._json(401, {"ok": False, "error": "bad or missing key"})
             return self._json(200, CONVO.peers_list())
 
         return self._text(404, "not found\n")
@@ -540,6 +638,8 @@ class Handler(BaseHTTPRequestHandler):
         qs = parse_qs(parsed.query)
 
         if path == "/send":
+            if not self._key_ok(qs):
+                return self._json(401, {"ok": False, "error": "bad or missing key"})
             token = qs.get("t", [""])[0]
             if not token:
                 return self._json(400, {"ok": False, "error": "missing ?t=<token>"})
@@ -577,8 +677,8 @@ class Handler(BaseHTTPRequestHandler):
 
 
 def _write_pidfile() -> None:
-    """Write our pid so `eject` (and a re-run of `jack`) can find us. Best-effort
-    -- a failure here must not stop the broker from serving."""
+    """Write our pid so `eject` (and a re-run of `uplink`) can find us. Best-effort
+    -- a failure here must not stop the relay from serving."""
     try:
         with open(PIDFILE, "w") as f:
             f.write(str(os.getpid()))
@@ -594,8 +694,8 @@ def _remove_pidfile() -> None:
 
 
 def _write_portfile(port: int) -> None:
-    """Record the actually-bound port so `jack`/`eject` can find it. Best-effort
-    -- a failure here must not stop the broker from serving."""
+    """Record the actually-bound port so `uplink`/`eject` can find it. Best-effort
+    -- a failure here must not stop the relay from serving."""
     try:
         with open(PORTFILE, "w") as f:
             f.write(str(port))
@@ -606,6 +706,29 @@ def _write_portfile(port: int) -> None:
 def _remove_portfile() -> None:
     try:
         os.remove(PORTFILE)
+    except OSError:
+        pass
+
+
+def _write_secretfile(secret: str) -> None:
+    """Record the shared secret so `uplink` can bake ?k=<secret> into the host's
+    own curls and the colleague hand-off line. It is a CREDENTIAL: gitignored and
+    written 0600. Best-effort -- a failure here must not stop the relay serving,
+    but warn loudly since uplink relies on it."""
+    try:
+        with open(SECRETFILE, "w") as f:
+            f.write(secret)
+        try:
+            os.chmod(SECRETFILE, 0o600)  # owner-only; best-effort
+        except OSError:
+            pass
+    except OSError as e:
+        print(f"[warn] could not write secretfile {SECRETFILE}: {e}", file=sys.stderr)
+
+
+def _remove_secretfile() -> None:
+    try:
+        os.remove(SECRETFILE)
     except OSError:
         pass
 
@@ -626,18 +749,96 @@ def _bind_scanning(host: str, base_port: int):
                 continue  # port busy -> try the next one up
             raise  # a different bind error (e.g. permission) -- don't mask it
     sys.exit(
-        f"wire bus: no free port in {base_port}-{base_port + PORT_SCAN - 1} "
+        f"wire relay: no free port in {base_port}-{base_port + PORT_SCAN - 1} "
         f"on {host} (all {PORT_SCAN} busy). Last error: {last_err}"
     )
 
 
+def _extract_brief(argv: list[str]) -> tuple[list[str], str | None]:
+    """Pull an optional `--brief <value>` (or `--brief=<value>`) out of argv and
+    return (argv_without_it, brief_or_None). The value is ONE argv token and is
+    preserved VERBATIM, embedded newlines and all -- the shell already split it
+    for us, so we never re-split or strip it here.
+
+    We strip the flag BEFORE the positional `host port` parse so `--brief` can
+    sit anywhere on the line without shifting the positional reads, and so the
+    existing `relay.py 0.0.0.0 55555` launch (no flag) is completely unaffected.
+    A trailing `--brief` with no value is ignored (treated as absent)."""
+    out: list[str] = []
+    brief: str | None = None
+    i = 0
+    while i < len(argv):
+        a = argv[i]
+        if a == "--brief":
+            if i + 1 < len(argv):
+                brief = argv[i + 1]
+                i += 2
+            else:
+                i += 1  # dangling --brief with no value -> ignore
+            continue
+        if a.startswith("--brief="):
+            brief = a[len("--brief=") :]
+            i += 1
+            continue
+        out.append(a)
+        i += 1
+    return out, brief
+
+
+def _extract_secret(argv: list[str]) -> tuple[list[str], str | None]:
+    """Pull an optional `--secret <value>` (or `--secret=<value>`) out of argv and
+    return (argv_without_it, secret_or_None). Mirrors _extract_brief exactly: the
+    flag is stripped BEFORE the positional `host port` parse, so --secret can sit
+    anywhere on the line (the `relay.py 0.0.0.0 55555` and the nohup launch are
+    unaffected) and coexists with --brief on one launch. A dangling `--secret`
+    with no value is ignored (treated as absent -> fall through to env/generate)."""
+    out: list[str] = []
+    secret: str | None = None
+    i = 0
+    while i < len(argv):
+        a = argv[i]
+        if a == "--secret":
+            if i + 1 < len(argv):
+                secret = argv[i + 1]
+                i += 2
+            else:
+                i += 1  # dangling --secret with no value -> ignore
+            continue
+        if a.startswith("--secret="):
+            secret = a[len("--secret=") :]
+            i += 1
+            continue
+        out.append(a)
+        i += 1
+    return out, secret
+
+
 def main():
-    global HOST, PORT
-    # argv overrides env: `python3 bus.py [host] [port]`
-    if len(sys.argv) >= 2:
-        HOST = sys.argv[1]
-    if len(sys.argv) >= 3:
-        PORT = int(sys.argv[2])
+    global HOST, PORT, SECRET
+    # Strip --brief AND --secret first so neither disturbs the positional
+    # host/port parse. Both can sit anywhere on the line and coexist on one
+    # launch; what's left in `args` is just the positional host/port (if any).
+    args, brief = _extract_brief(sys.argv[1:])
+    args, secret = _extract_secret(args)
+    if brief is not None:
+        # A --brief value overrides any RELAY_BRIEF env. Re-seed by rebuilding the
+        # conversation (it's still empty/unbound here, before any peer can join).
+        CONVO.brief = brief.rstrip("\n")
+        CONVO.log.clear()
+        if CONVO.brief:
+            CONVO._append("system", CONVO.brief, sys=True)
+    # Resolve the shared secret: argv --secret wins, else RELAY_SECRET env (seeded
+    # into SECRET at import), else self-generate 32 hex chars. So a bare launch
+    # with no flag and no env STILL starts -- it just mints its own key.
+    if secret is not None:
+        SECRET = secret
+    if not SECRET:
+        SECRET = secrets.token_hex(16)
+    # argv overrides env: `python3 relay.py [host] [port]` (brief+secret removed)
+    if len(args) >= 1:
+        HOST = args[0]
+    if len(args) >= 2:
+        PORT = int(args[1])
 
     # Bind the first free port at/above PORT (our scan base). The actual bound
     # port may be higher than the base if the base was busy; adopt it as PORT so
@@ -654,6 +855,7 @@ def main():
         print(f"[close] {reason} -- conversation over, shutting down.")
         _remove_pidfile()
         _remove_portfile()
+        _remove_secretfile()
 
         def _stop():
             server.shutdown()  # unblocks serve_forever() in the main thread
@@ -664,11 +866,13 @@ def main():
 
     _write_pidfile()
     _write_portfile(PORT)
+    _write_secretfile(SECRET)
     adv = "127.0.0.1" if HOST in ("0.0.0.0", "") else HOST
-    print(f"wire bus listening on {HOST}:{PORT}  (pid {os.getpid()})")
+    print(f"wire relay listening on {HOST}:{PORT}  (pid {os.getpid()})")
+    print(f"  secret : {SECRET}  (soft gate -- ?k=<secret> on every route but /health)")
     print(f"  health : curl -s http://{adv}:{PORT}/health")
-    print(f"  join   : curl -s http://{adv}:{PORT}/join")
-    print(f"  watch  : curl -s http://{adv}:{PORT}/history")
+    print(f'  jack   : curl -s "http://{adv}:{PORT}/jack?k={SECRET}"')
+    print(f'  watch  : curl -s "http://{adv}:{PORT}/trace?k={SECRET}"')
     print(f"  caps   : turns={MAX_TURNS} wall={MAX_SECONDS}s repeat-window={REPEAT_WINDOW}")
     try:
         server.serve_forever()
@@ -678,7 +882,8 @@ def main():
     finally:
         _remove_pidfile()
         _remove_portfile()
-    print("wire bus stopped.")
+        _remove_secretfile()
+    print("wire relay stopped.")
 
 
 if __name__ == "__main__":

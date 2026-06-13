@@ -1,25 +1,43 @@
 #!/usr/bin/env python3
 """
-verify.py - end-to-end localhost proof for the wire bus.
+verify.py - end-to-end localhost proof for the wire relay.
 
-Spins up bus.py on a private test port, runs fake agents against it EXACTLY as a
-real agent would (join -> parse manual -> recv/send loop -> leave), and captures
-transcripts to ./transcripts/. There are NO rooms: one bus process == one
-conversation, and the process EXITS when the conversation closes. So each
-scenario gets its OWN bus process on its OWN port.
+Spins up relay.py on a private test port, runs fake agents against it EXACTLY as
+a real agent would (jack -> parse manual -> recv/send loop -> unplug), and
+captures transcripts to ./transcripts/. There are NO rooms: one relay process ==
+one conversation, and the process EXITS when the conversation closes. So each
+scenario gets its OWN relay process on its OWN port.
 
   PROOF 1 (group exchange): 3 agents cooperatively count to a target; the agent
            that reaches it announces done and leaves; the others see the
-           departure and leave too. When the last peer leaves the broker closes
+           departure and leave too. When the last peer leaves the relay closes
            and the process exits. Proves group fanout, long-poll wake, a clean
            leave/close cascade, and process-exit-on-empty.
 
   PROOF 2 (safety): agents that never stop, with the turn cap set low (6). The
-           broker must force-close (and exit). A second variant proves the
+           relay must force-close (and exit). A second variant proves the
            repetition-kill; a third proves parked /recv release on close.
 
+  PROOF 3 (backlog-on-jack): a peer that jacks in AFTER an earlier post must get
+           that post on its FIRST scan (the late-joiner-catches-up case).
+
+  PROOF 4 (topic brief): a relay launched with --brief seeds the topic as the
+           seq-1 system entry; a fresh peer's FIRST scan returns it at the top,
+           and the /jack manual shows it in a TOPIC block. Proves the brief
+           survives argv -> log -> /recv JSON (multiline) and reaches peers first.
+
+  PROOF 5 (soft gate): the shared-secret ?k= gate rejects a gated route (/trace,
+           /jack, /recv) with NO key and with a WRONG key (HTTP 401) and allows
+           it with the RIGHT key (200), while /health stays OPEN. Guards the old
+           "anyone reads /trace / mints a token" hole.
+
+Every test relay runs with a known secret (RELAY_SECRET, pinned in start_relay);
+the harness carries it on every gated URL (via _k()) and to fake agents (via
+--secret), so all proofs run WITH the gate on. PROOF 5 deliberately omits/wrongs
+the key to prove the 401.
+
 Run:  python3 verify.py
-Pure stdlib. Starts/stops its own brokers; leaves no pids or stray processes.
+Pure stdlib. Starts/stops its own relays; leaves no pids or stray processes.
 """
 
 import os
@@ -33,23 +51,39 @@ import urllib.request
 import urllib.error
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-BUS = os.path.join(HERE, "bus.py")
+RELAY = os.path.join(HERE, "relay.py")
 AGENT = os.path.join(HERE, "fake_agent.py")
 TDIR = os.path.join(os.path.dirname(HERE), "transcripts")  # wire/transcripts/
 
 # ---------------------------------------------------------------------------
 # Timeouts + a hard wall-clock WATCHDOG. The whole point of this proof is that
-# it can NEVER hang: a regression in the broker's close path once wedged the
+# it can NEVER hang: a regression in the relay's close path once wedged the
 # safety run for ~18 minutes on zombie long-polls. So:
 #   * every HTTP call here uses a SHORT timeout (HTTP_TIMEOUT),
 #   * every child process is registered and waited on with a SHORT timeout,
-#   * a daemon watchdog kills the broker + ALL children and force-exits with
+#   * a daemon watchdog kills the relay + ALL children and force-exits with
 #     PARTIAL/TIMEOUT if the whole run exceeds WATCHDOG_SECONDS.
 # There is no unbounded wait anywhere in this file or the fake agents' paths.
 # ---------------------------------------------------------------------------
 HTTP_TIMEOUT = 5  # seconds, every urllib call in the test path
 AGENT_WAIT = 20  # seconds, max we wait on any single agent process
 WATCHDOG_SECONDS = 90  # hard ceiling on the ENTIRE verify run
+
+# The shared SOFT-GATE secret every test relay runs with. start_relay() pins it
+# via RELAY_SECRET so the harness knows the key deterministically (no need to read
+# each relay's .relay.secret back). Every gated URL the harness builds carries it
+# via _k(); fake agents get it via --secret. proof_gate() deliberately omits/wrongs
+# it to prove the 401. A FIXED known value keeps the proofs reproducible.
+VERIFY_SECRET = "verify-secret-key"
+
+
+def _k(url: str) -> str:
+    """Append the shared access key (?k= / &k=) to a gated URL. Picks the right
+    separator based on whether the URL already has a query string. /health is the
+    one open route and must NOT be wrapped."""
+    sep = "&" if "?" in url else "?"
+    return f"{url}{sep}k={VERIFY_SECRET}"
+
 
 # Every Popen we create is tracked here so the watchdog can reap them all.
 _PROCS = []
@@ -92,7 +126,7 @@ def _start_watchdog():
         time.sleep(WATCHDOG_SECONDS)
         sys.stderr.write(
             f"\nPARTIAL/TIMEOUT: verify exceeded {WATCHDOG_SECONDS}s wall clock "
-            f"-- killing broker + all child procs and aborting.\n"
+            f"-- killing relay + all child procs and aborting.\n"
         )
         sys.stderr.flush()
         _kill_all()
@@ -122,31 +156,42 @@ def wait_health(base, tries=50):
     return False
 
 
-def start_broker(tag, env_overrides):
-    """Start a test broker bound to an OS-assigned FREE port (BUS_PORT=0). We
-    read the actually-bound port back from the broker's own portfile, so the
+def start_relay(tag, env_overrides, extra_args=None):
+    """Start a test relay bound to an OS-assigned FREE port (RELAY_PORT=0). We
+    read the actually-bound port back from the relay's own portfile, so the
     auto-scan bind logic stays deterministic in the harness -- no fixed port can
     collide, and we never depend on a guess. Returns (proc, base_url).
 
-    `tag` only names the per-broker pid/port files in tmp so concurrent test
-    brokers never clobber the real plugin files (wire/.bus.pid / .bus.port) or
-    each other."""
+    `tag` only names the per-relay pid/port files in tmp so concurrent test
+    relays never clobber the real plugin files (wire/.relay.pid / .relay.port) or
+    each other.
+
+    `extra_args` (optional) are appended verbatim to the relay's argv -- used by
+    the brief proof to pass `--brief "<multiline>"` on the command line, the same
+    launch path /uplink uses. Host/port still come via env (RELAY_HOST/PORT), and
+    relay.py strips --brief before its positional parse, so the two don't collide."""
     portfile = os.path.join(tempfile.gettempdir(), f"wire-verify-{tag}.port")
     try:
         os.remove(portfile)  # stale file from a prior run would mislead the readback
     except OSError:
         pass
     env = dict(os.environ)
-    env["BUS_HOST"] = "127.0.0.1"
-    env["BUS_PORT"] = "0"  # OS picks a free port; we read it back from the portfile
-    # Per-broker pid/port files in a temp dir so concurrent test brokers never
-    # clobber the real plugin files (wire/.bus.pid / .bus.port) or each other.
-    env["BUS_PIDFILE"] = os.path.join(tempfile.gettempdir(), f"wire-verify-{tag}.pid")
-    env["BUS_PORTFILE"] = portfile
+    env["RELAY_HOST"] = "127.0.0.1"
+    env["RELAY_PORT"] = "0"  # OS picks a free port; we read it back from the portfile
+    # Per-relay pid/port files in a temp dir so concurrent test relays never
+    # clobber the real plugin files (wire/.relay.pid / .relay.port) or each other.
+    env["RELAY_PIDFILE"] = os.path.join(tempfile.gettempdir(), f"wire-verify-{tag}.pid")
+    env["RELAY_PORTFILE"] = portfile
+    # Pin the soft-gate secret to a known value AND keep its file in tmp so a test
+    # relay never writes/cleans the real wire/.relay.secret. The harness builds
+    # every gated URL with this key via _k(); fake agents get it via --secret.
+    env["RELAY_SECRET"] = VERIFY_SECRET
+    env["RELAY_SECRETFILE"] = os.path.join(tempfile.gettempdir(), f"wire-verify-{tag}.secret")
     env.update(env_overrides)
-    # Capture broker stdout so we can show join/leave/close log lines if needed.
+    # Capture relay stdout so we can show jack/unplug/close log lines if needed.
+    argv = [sys.executable, RELAY] + list(extra_args or [])
     proc = subprocess.Popen(
-        [sys.executable, BUS],
+        argv,
         env=env,
         stdout=subprocess.PIPE,
         stderr=subprocess.STDOUT,
@@ -166,12 +211,12 @@ def start_broker(tag, env_overrides):
             pass
         time.sleep(0.1)
     if port is None:
-        raise RuntimeError(f"broker [{tag}] never wrote its portfile {portfile}")
+        raise RuntimeError(f"relay [{tag}] never wrote its portfile {portfile}")
     return proc, f"http://127.0.0.1:{port}"
 
 
-def stop_broker(proc):
-    """Stop a broker. It may have ALREADY self-exited (close -> process exit);
+def stop_relay(proc):
+    """Stop a relay. It may have ALREADY self-exited (close -> process exit);
     that's expected and fine -- terminate() on a dead proc is a no-op."""
     if proc.poll() is None:
         proc.terminate()
@@ -190,8 +235,10 @@ def run_agents(specs, base):
     (The global watchdog is the ultimate backstop above this.)"""
     procs = []
     for spec in specs:
+        # --secret rides every fake agent: /jack itself is gated, so the agent
+        # needs the key before it can fetch the manual.
         p = subprocess.Popen(
-            [sys.executable, AGENT, "--base", base, *spec],
+            [sys.executable, AGENT, "--base", base, "--secret", VERIFY_SECRET, *spec],
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
             text=True,
@@ -210,7 +257,7 @@ def run_agents(specs, base):
             except subprocess.TimeoutExpired:
                 out = ""
             out = (out or "") + "\n<<KILLED: agent did not exit within "
-            out += f"{AGENT_WAIT}s -- broker close path may have hung a recv>>\n"
+            out += f"{AGENT_WAIT}s -- relay close path may have hung a scan>>\n"
         outs.append(out)
     return outs
 
@@ -224,30 +271,31 @@ def banner(fh, title):
 
 
 def join_token(base, timeout=HTTP_TIMEOUT):
-    """Join and scrape the token out of the manual, exactly like an agent.
-    Returns the opaque token (or raises)."""
-    status, manual = get(f"{base}/join", timeout=timeout)
+    """Jack in (key on the URL -- /jack is gated) and scrape the token out of the
+    manual, exactly like an agent. Returns the opaque token (or raises)."""
+    status, manual = get(_k(f"{base}/jack"), timeout=timeout)
     m = re.search(r"/recv\?t=([0-9a-f]+)", manual)
     if not m:
-        raise RuntimeError(f"join failed ({status}): {manual[:120]}")
+        raise RuntimeError(f"jack failed ({status}): {manual[:120]}")
     return m.group(1)
 
 
 def show_manual(fh, topic):
-    """Spin up a THROWAWAY bus on its own port purely to capture the /join
+    """Spin up a THROWAWAY relay on its own port purely to capture the /jack
     manual verbatim, then stop it. Doing this against the REAL conversation's
-    bus would mint a peer and -- because one bus is one conversation -- a later
-    leave/empty would close it; a separate process keeps the real run pristine."""
-    proc, base = start_broker("manual", {"BUS_TOPIC": topic, "BUS_MAX_TURNS": "40", "BUS_MAX_SECONDS": "120"})
+    relay would mint a peer and -- because one relay is one conversation -- a
+    later leave/empty would close it; a separate process keeps the real run
+    pristine."""
+    proc, base = start_relay("manual", {"RELAY_TOPIC": topic, "RELAY_MAX_TURNS": "40", "RELAY_MAX_SECONDS": "120"})
     try:
         if not wait_health(base):
             return
-        status, manual = get(f"{base}/join", timeout=5)
-        banner(fh, f"/join MANUAL (verbatim, status {status})")
+        status, manual = get(_k(f"{base}/jack"), timeout=5)
+        banner(fh, f"/jack MANUAL (verbatim, status {status})")
         print(manual)
         fh.write(manual + "\n")
     finally:
-        stop_broker(proc)
+        stop_relay(proc)
 
 
 def park_recv(base, token, results, idx):
@@ -258,7 +306,7 @@ def park_recv(base, token, results, idx):
     true regression frees this thread quickly and shows up as a ~6s elapsed,
     never an 18-minute hang."""
     t0 = time.time()
-    status, body = get(f"{base}/recv?t={token}&wait=600", timeout=HTTP_TIMEOUT + 1)
+    status, body = get(_k(f"{base}/recv?t={token}&wait=600"), timeout=HTTP_TIMEOUT + 1)
     results[idx] = {
         "elapsed": round(time.time() - t0, 3),
         "status": status,
@@ -271,27 +319,27 @@ def proof_group():
     fh = open(out_path, "w", buffering=1)  # line-buffered: flush as we go
 
     # Generous caps so the natural leave/close -- not a cap -- ends this run.
-    proc, base = start_broker("group", {"BUS_MAX_TURNS": "40", "BUS_MAX_SECONDS": "120"})
+    proc, base = start_relay("group", {"RELAY_MAX_TURNS": "40", "RELAY_MAX_SECONDS": "120"})
     try:
         if not wait_health(base):
-            print("broker did not come up", file=sys.stderr)
+            print("relay did not come up", file=sys.stderr)
             sys.exit(1)
 
         banner(fh, "PROOF 1 - GROUP EXCHANGE (3 agents, shared log, clean leave/close)")
 
-        # Show the /join manual verbatim (the UX centerpiece) from a SEPARATE
-        # throwaway bus, so previewing it can't perturb the real conversation
-        # (a join + leave on it would close it and exit its process).
+        # Show the /jack manual verbatim (the UX centerpiece) from a SEPARATE
+        # throwaway relay, so previewing it can't perturb the real conversation
+        # (a jack + unplug on it would close it and exit its process).
         show_manual(fh, topic="ship the release")
 
-        # Now run THREE real-style agents counting to 6 against the real bus. One
-        # is told to open the discussion (--kickoff); the others react. Target
-        # small so the exchange is short and readable.
+        # Now run THREE real-style agents counting to 6 against the real relay.
+        # One is told to open the discussion (--kickoff); the others react.
+        # Target small so the exchange is short and readable.
         print("\n--- launching 3 agents (collab, target=6) ---\n")
         fh.write("\n--- launching 3 agents (collab, target=6) ---\n\n")
         # Two responders launch first and park on recv; the kickoff agent
         # launches LAST and posts the opening 'count: 1'. (Cursors now start at
-        # the log's START so a joiner gets the full backlog on its first recv --
+        # the log's START so a joiner gets the full backlog on its first scan --
         # see proof_backlog -- but ordering the opener last keeps this run's
         # transcript clean and readable regardless.)
         specs = [
@@ -306,28 +354,28 @@ def proof_group():
             print(out)
             fh.write(header + "\n" + out)
 
-        # The last agent's leave empties the conversation -> broker closes and
-        # the process exits (after a short grace). Try to grab /history while
+        # The last agent's leave empties the conversation -> relay closes and
+        # the process exits (after a short grace). Try to grab /trace while
         # it's still up; if the process already exited, the per-agent stdout
         # above is the authoritative record. Either way we never block.
-        status, tx = get(f"{base}/history", timeout=2)
-        banner(fh, "BROKER HISTORY (human watcher view)")
+        status, tx = get(_k(f"{base}/trace"), timeout=2)
+        banner(fh, "RELAY TRACE (human watcher view)")
         if status == 200:
             print(tx)
             fh.write(tx + "\n")
         else:
-            note = "(broker already exited on empty-conversation close -- see agent stdout above)\n"
+            note = "(relay already exited on empty-conversation close -- see agent stdout above)\n"
             print(note)
             fh.write(note)
 
         # Confirm the process self-exited on close (the lifecycle==process rule).
         time.sleep(0.6)
         exited = proc.poll() is not None
-        verdict = f"\nbroker process self-exited on close: {'YES' if exited else 'NO'} (exit={proc.poll()})\n"
+        verdict = f"\nrelay process self-exited on close: {'YES' if exited else 'NO'} (exit={proc.poll()})\n"
         print(verdict)
         fh.write(verdict)
     finally:
-        stop_broker(proc)
+        stop_relay(proc)
         fh.close()
     print(f"[saved] {out_path}")
     return out_path
@@ -338,12 +386,12 @@ def proof_safety():
     fh = open(out_path, "w", buffering=1)  # line-buffered: flush as we go
 
     # --- 2a: turn cap force-close -------------------------------------
-    proc, base = start_broker("turncap", {"BUS_MAX_TURNS": "6", "BUS_MAX_SECONDS": "120"})
+    proc, base = start_relay("turncap", {"RELAY_MAX_TURNS": "6", "RELAY_MAX_SECONDS": "120"})
     try:
         if not wait_health(base):
-            print("broker did not come up", file=sys.stderr)
+            print("relay did not come up", file=sys.stderr)
             sys.exit(1)
-        banner(fh, "PROOF 2a - TURN CAP (BUS_MAX_TURNS=6): broker force-closes runaway agents")
+        banner(fh, "PROOF 2a - TURN CAP (RELAY_MAX_TURNS=6): relay force-closes runaway agents")
         print("\n--- launching 3 spammer agents that never stop (distinct lines) ---\n")
         fh.write("\n--- launching 3 spammer agents that never stop (distinct lines) ---\n\n")
         specs = [["--mode", "spammer", "--max-turns", "6"] for _ in range(3)]
@@ -353,27 +401,27 @@ def proof_safety():
             print(header)
             print(out)
             fh.write(header + "\n" + out)
-        # Broker has closed + exited on the cap. Grab history if still up.
-        status, tx = get(f"{base}/history", timeout=2)
-        banner(fh, "BROKER HISTORY (note the forced close at 6 posts)")
+        # Relay has closed + exited on the cap. Grab the trace if still up.
+        status, tx = get(_k(f"{base}/trace"), timeout=2)
+        banner(fh, "RELAY TRACE (note the forced close at 6 posts)")
         if status == 200:
             print(tx)
             fh.write(tx + "\n")
         else:
-            note = "(broker already exited on turn-cap close -- see agent stdout above)\n"
+            note = "(relay already exited on turn-cap close -- see agent stdout above)\n"
             print(note)
             fh.write(note)
     finally:
-        stop_broker(proc)
+        stop_relay(proc)
 
     # --- 2b: repetition kill ------------------------------------------
     # High turn cap so ONLY the repetition rule can close it.
-    proc, base = start_broker("repeat", {"BUS_MAX_TURNS": "40", "BUS_REPEAT_WINDOW": "3"})
+    proc, base = start_relay("repeat", {"RELAY_MAX_TURNS": "40", "RELAY_REPEAT_WINDOW": "3"})
     try:
         if not wait_health(base):
-            print("broker did not come up", file=sys.stderr)
+            print("relay did not come up", file=sys.stderr)
             sys.exit(1)
-        banner(fh, "PROOF 2b - REPETITION KILL (BUS_REPEAT_WINDOW=3): identical posts close it")
+        banner(fh, "PROOF 2b - REPETITION KILL (RELAY_REPEAT_WINDOW=3): identical posts close it")
         print("\n--- launching 2 spammer agents posting the IDENTICAL line ---\n")
         fh.write("\n--- launching 2 spammer agents posting the IDENTICAL line ---\n\n")
         specs = [["--mode", "spammer", "--same", "--max-turns", "40"] for _ in range(2)]
@@ -383,36 +431,36 @@ def proof_safety():
             print(header)
             print(out)
             fh.write(header + "\n" + out)
-        status, tx = get(f"{base}/history", timeout=2)
-        banner(fh, "BROKER HISTORY (note the 'stalled/repetition' close)")
+        status, tx = get(_k(f"{base}/trace"), timeout=2)
+        banner(fh, "RELAY TRACE (note the 'stalled/repetition' close)")
         if status == 200:
             print(tx)
             fh.write(tx + "\n")
         else:
-            note = "(broker already exited on repetition-kill close -- see agent stdout above)\n"
+            note = "(relay already exited on repetition-kill close -- see agent stdout above)\n"
             print(note)
             fh.write(note)
     finally:
-        stop_broker(proc)
+        stop_relay(proc)
 
-    # --- 2c: parked recv release on close (THE deadlock fix) ----------
+    # --- 2c: parked scan release on close (THE deadlock fix) ----------
     # This is the regression that wedged the safety run for ~18 minutes: when the
     # conversation closes, every /recv already parked on a long-poll must be
     # released IMMEDIATELY -- it must not block until its own 600s wait expires.
-    # Here we park three long-poll recvs (each asking for the full 600s), let
+    # Here we park three long-poll scans (each asking for the full 600s), let
     # them settle, then trip the turn cap from a separate writer and measure how
-    # long each parked recv actually blocked. They must all return in well under
+    # long each parked scan actually blocked. They must all return in well under
     # a second carrying the closure signal.
-    proc, base = start_broker("parked", {"BUS_MAX_TURNS": "1", "BUS_MAX_SECONDS": "120"})
+    proc, base = start_relay("parked", {"RELAY_MAX_TURNS": "1", "RELAY_MAX_SECONDS": "120"})
     try:
         if not wait_health(base):
-            print("broker did not come up", file=sys.stderr)
+            print("relay did not come up", file=sys.stderr)
             sys.exit(1)
-        banner(fh, "PROOF 2c - PARKED-RECV RELEASE ON CLOSE (the deadlock fix)")
+        banner(fh, "PROOF 2c - PARKED-SCAN RELEASE ON CLOSE (the deadlock fix)")
         msg = (
-            "Parking 3 long-poll recvs (each requesting the full wait=600s), "
-            "then a 4th peer trips the turn cap (BUS_MAX_TURNS=1).\n"
-            "Each parked recv MUST return within a moment of close -- not sit "
+            "Parking 3 long-poll scans (each requesting the full wait=600s), "
+            "then a 4th peer trips the turn cap (RELAY_MAX_TURNS=1).\n"
+            "Each parked scan MUST return within a moment of close -- not sit "
             "for 600s. Elapsed times below are the proof.\n"
         )
         print(msg)
@@ -427,8 +475,8 @@ def proof_safety():
         time.sleep(0.5)  # ensure all three are genuinely parked on cond.wait
 
         # POST the cap-tripping message (a tiny urllib POST). This is the
-        # "close moment" -- the parked recvs above must be released right after.
-        req = urllib.request.Request(f"{base}/send?t={writer}", data=b"go", method="POST")
+        # "close moment" -- the parked scans above must be released right after.
+        req = urllib.request.Request(_k(f"{base}/send?t={writer}"), data=b"go", method="POST")
         try:
             with urllib.request.urlopen(req, timeout=5) as r:
                 send_status = r.status
@@ -445,37 +493,38 @@ def proof_safety():
         for i in range(len(parkers)):
             r = results.get(i, {"elapsed": -1, "status": "NO-RESULT(STILL BLOCKED)", "body": ""})
             worst = max(worst, r["elapsed"])
-            ln = f"  parked recv #{i + 1}: released after {r['elapsed']}s (status {r['status']}) <- {r['body']}\n"
+            ln = f"  parked scan #{i + 1}: released after {r['elapsed']}s (status {r['status']}) <- {r['body']}\n"
             print(ln, end="")
             fh.write(ln)
 
-        verdict = f"\nVERDICT: worst parked-recv wake = {worst}s after close. " + (
-            "PASS -- no recv outlived close by more than a moment.\n"
+        verdict = f"\nVERDICT: worst parked-scan wake = {worst}s after close. " + (
+            "PASS -- no scan outlived close by more than a moment.\n"
             if 0 <= worst < 2.0
-            else "FAIL -- a parked recv blocked too long (deadlock not fixed).\n"
+            else "FAIL -- a parked scan blocked too long (deadlock not fixed).\n"
         )
         print(verdict)
         fh.write(verdict)
 
-        status, tx = get(f"{base}/history", timeout=2)
-        banner(fh, "BROKER HISTORY (deadlock-check)")
+        status, tx = get(_k(f"{base}/trace"), timeout=2)
+        banner(fh, "RELAY TRACE (deadlock-check)")
         if status == 200:
             print(tx)
             fh.write(tx + "\n")
         else:
-            note = "(broker already exited on close -- expected)\n"
+            note = "(relay already exited on close -- expected)\n"
             print(note)
             fh.write(note)
     finally:
-        stop_broker(proc)
+        stop_relay(proc)
         fh.close()
     print(f"[saved] {out_path}")
     return out_path
 
 
 def post(base, token, body, timeout=HTTP_TIMEOUT):
-    """Raw POST to /send (a real agent would curl this). Returns (status, text)."""
-    req = urllib.request.Request(f"{base}/send?t={token}", data=body.encode("utf-8"), method="POST")
+    """Raw POST to /send (a real agent would curl this -- key on the URL since
+    /send is gated). Returns (status, text)."""
+    req = urllib.request.Request(_k(f"{base}/send?t={token}"), data=body.encode("utf-8"), method="POST")
     try:
         with urllib.request.urlopen(req, timeout=timeout) as r:
             return r.status, r.read().decode("utf-8", "replace")
@@ -486,10 +535,10 @@ def post(base, token, body, timeout=HTTP_TIMEOUT):
 
 
 def proof_backlog():
-    """PROOF 3 (backlog-on-join): peer A joins and posts 'hello' BEFORE peer B
-    exists. Then B joins and its FIRST recv must return that 'hello' -- the
+    """PROOF 3 (backlog-on-jack): peer A jacks in and posts 'hello' BEFORE peer B
+    exists. Then B jacks in and its FIRST scan must return that 'hello' -- the
     backlog -- immediately, NOT block/timeout. This is the host-says-hi-then-
-    hands-over-the-join-URL case: a late joiner has to catch up on its first
+    hands-over-the-jack-URL case: a late joiner has to catch up on its first
     read. We use a SHORT bounded wait (wait=2) so even a regression (cursor
     starting at the log's end -> nothing to return) surfaces as a quick 204,
     never a hang."""
@@ -497,17 +546,17 @@ def proof_backlog():
     fh = open(out_path, "w", buffering=1)
 
     # Generous caps so A's single 'hello' can't trip a close before B reads it.
-    proc, base = start_broker("backlog", {"BUS_MAX_TURNS": "40", "BUS_MAX_SECONDS": "120"})
+    proc, base = start_relay("backlog", {"RELAY_MAX_TURNS": "40", "RELAY_MAX_SECONDS": "120"})
     passed = False
     try:
         if not wait_health(base):
-            print("broker did not come up", file=sys.stderr)
+            print("relay did not come up", file=sys.stderr)
             sys.exit(1)
-        banner(fh, "PROOF 3 - BACKLOG ON JOIN (late joiner's first recv returns the pre-join log)")
+        banner(fh, "PROOF 3 - BACKLOG ON JACK (late joiner's first scan returns the pre-jack log)")
 
-        # Peer A joins and speaks FIRST, before B is anywhere.
+        # Peer A jacks in and speaks FIRST, before B is anywhere.
         tok_a = join_token(base)
-        line = "peer A joined and posts 'hello, lets discuss X' (before B exists)\n"
+        line = "peer A jacked in and posts 'hello, lets discuss X' (before B exists)\n"
         print(line)
         fh.write(line)
         st, _ = post(base, tok_a, "hello, lets discuss X")
@@ -515,41 +564,205 @@ def proof_backlog():
         print(line, end="")
         fh.write(line)
 
-        # NOW peer B joins -- strictly after A's post is already on the log.
+        # NOW peer B jacks in -- strictly after A's post is already on the log.
         tok_b = join_token(base)
-        line = "peer B joined AFTER A's post; B runs its FIRST recv (wait=2, bounded)\n"
+        line = "peer B jacked in AFTER A's post; B runs its FIRST scan (wait=2, bounded)\n"
         print(line)
         fh.write(line)
 
-        # B's first recv must hand back the backlog (A's 'hello') right away.
-        status, body = get(f"{base}/recv?t={tok_b}&wait=2", timeout=HTTP_TIMEOUT)
-        line = f"  B first recv -> HTTP {status}: {body.strip()[:160]}\n"
+        # B's first scan must hand back the backlog (A's 'hello') right away.
+        status, body = get(_k(f"{base}/recv?t={tok_b}&wait=2"), timeout=HTTP_TIMEOUT)
+        line = f"  B first scan -> HTTP {status}: {body.strip()[:160]}\n"
         print(line, end="")
         fh.write(line)
 
         saw_hello = status == 200 and "hello, lets discuss X" in body
         passed = saw_hello
         verdict = (
-            "\nVERDICT: B's first recv returned A's pre-join 'hello'. PASS -- backlog delivered on join.\n"
+            "\nVERDICT: B's first scan returned A's pre-jack 'hello'. PASS -- backlog delivered on jack.\n"
             if saw_hello
-            else f"\nVERDICT: B's first recv did NOT carry the backlog (status {status}). "
-            "FAIL -- late joiner missed pre-join messages.\n"
+            else f"\nVERDICT: B's first scan did NOT carry the backlog (status {status}). "
+            "FAIL -- late joiner missed pre-jack messages.\n"
         )
         print(verdict)
         fh.write(verdict)
 
-        # Sanity: B's SECOND recv (bounded, nothing new) should now 204 -- the
+        # Sanity: B's SECOND scan (bounded, nothing new) should now 204 -- the
         # cursor advanced past the backlog, so it doesn't re-deliver 'hello'.
-        status2, body2 = get(f"{base}/recv?t={tok_b}&wait=1", timeout=HTTP_TIMEOUT)
-        line = f"  B second recv (should be 204, no re-delivery) -> HTTP {status2}\n"
+        status2, body2 = get(_k(f"{base}/recv?t={tok_b}&wait=1"), timeout=HTTP_TIMEOUT)
+        line = f"  B second scan (should be 204, no re-delivery) -> HTTP {status2}\n"
         print(line, end="")
         fh.write(line)
 
-        # Leave cleanly so the broker closes and self-exits (no stray process).
-        get(f"{base}/leave?t={tok_a}", timeout=2)
-        get(f"{base}/leave?t={tok_b}", timeout=2)
+        # Leave cleanly so the relay closes and self-exits (no stray process).
+        get(_k(f"{base}/unplug?t={tok_a}"), timeout=2)
+        get(_k(f"{base}/unplug?t={tok_b}"), timeout=2)
     finally:
-        stop_broker(proc)
+        stop_relay(proc)
+        fh.close()
+    print(f"[saved] {out_path}")
+    return passed
+
+
+def proof_brief():
+    """PROOF 4 (topic brief): start a relay launched WITH a --brief, then a peer
+    jacks in and its FIRST scan must return that brief as the seq-1 system entry,
+    at the TOP of the backlog. This is the topic-brief contract: the operator
+    states what a discussion is about and that becomes the first thing every peer
+    sees. We pass --brief on the relay's argv (alongside the host/port the
+    harness already sets via env) to prove the argv path -- the same path
+    /uplink uses -- not just the env fallback. The brief is multiline to prove
+    embedded newlines survive argv -> log -> /recv JSON intact. Bounded wait
+    (wait=2) so even a regression (no seed) surfaces as a quick 204, never a
+    hang."""
+    out_path = os.path.join(TDIR, "proof_brief.txt")
+    fh = open(out_path, "w", buffering=1)
+
+    brief = "SOME TEST TOPIC\nsecond line of the brief"
+    passed = False
+    # Generous caps so the seeded brief can't trip any close before the peer reads it.
+    # start_relay sets RELAY_HOST/RELAY_PORT via env; we ALSO pass --brief on argv
+    # to exercise the real launch path (argv flag, newlines preserved as one token).
+    proc, base = start_relay(
+        "brief",
+        {"RELAY_MAX_TURNS": "40", "RELAY_MAX_SECONDS": "120"},
+        extra_args=["--brief", brief],
+    )
+    try:
+        if not wait_health(base):
+            print("relay did not come up", file=sys.stderr)
+            sys.exit(1)
+        banner(fh, "PROOF 4 - TOPIC BRIEF (--brief seeds the seq-1 system entry; first scan returns it)")
+
+        line = f"relay launched with --brief (multiline). Brief passed:\n  {brief!r}\n"
+        print(line)
+        fh.write(line)
+
+        # A fresh peer jacks in; its FIRST scan must hand back the brief as seq-1.
+        tok = join_token(base)
+        line = "peer jacked in; running its FIRST scan (wait=2, bounded)\n"
+        print(line)
+        fh.write(line)
+        status, body = get(_k(f"{base}/recv?t={tok}&wait=2"), timeout=HTTP_TIMEOUT)
+        line = f"  first scan -> HTTP {status}: {body.strip()[:200]}\n"
+        print(line, end="")
+        fh.write(line)
+
+        # Assert on the raw JSON text (same substring style as proof_backlog, no
+        # json import needed): the first entry must be seq 1, authored "system",
+        # carrying BOTH brief lines verbatim. The "\n" appears ESCAPED in the JSON
+        # text, proving the embedded newline survived argv -> log -> JSON.
+        seq1_is_brief = (
+            status == 200
+            and '"seq": 1' in body
+            and '"handle": "system"' in body
+            and "SOME TEST TOPIC" in body
+            and "second line of the brief" in body
+            and "SOME TEST TOPIC\\nsecond line of the brief" in body  # newline intact (escaped in JSON)
+        )
+
+        passed = seq1_is_brief
+        verdict = (
+            "\nVERDICT: first scan's seq-1 entry is the multiline system brief. "
+            "PASS -- topic brief seeded + delivered on first recv.\n"
+            if passed
+            else f"\nVERDICT: first scan did NOT carry the brief as seq-1 (status {status}). "
+            "FAIL -- topic brief not seeded.\n"
+        )
+        print(verdict)
+        fh.write(verdict)
+
+        # Also prove /jack's manual carries the TOPIC block (remote peer reads it
+        # before its first recv). A separate jack mints another peer; fine here.
+        st_m, manual = get(_k(f"{base}/jack"), timeout=HTTP_TIMEOUT)
+        manual_has_topic = "TOPIC" in manual and "SOME TEST TOPIC" in manual
+        line = f"  /jack manual TOPIC block present: {'YES' if manual_has_topic else 'NO'} (status {st_m})\n"
+        print(line, end="")
+        fh.write(line)
+        passed = passed and manual_has_topic
+
+        # Leave cleanly so the relay closes and self-exits (no stray process).
+        get(_k(f"{base}/unplug?t={tok}"), timeout=2)
+    finally:
+        stop_relay(proc)
+        fh.close()
+    print(f"[saved] {out_path}")
+    return passed
+
+
+def proof_gate():
+    """PROOF 5 (soft gate): the shared-secret gate must REJECT a gated route with
+    NO key and with a WRONG key (HTTP 401) and ALLOW it with the RIGHT key (200),
+    while /health stays OPEN (no key). We probe /trace and /jack -- the two
+    key-only routes -- plus /recv (which also needs a token, but the key is
+    checked FIRST, so a keyless /recv 401s before the token is even looked at).
+    This is the regression guard for the old 'anyone reads /trace / mints a token'
+    hole. Bounded gets throughout -- nothing here can hang."""
+    out_path = os.path.join(TDIR, "proof_gate.txt")
+    fh = open(out_path, "w", buffering=1)
+
+    # Generous caps; we never trip them -- this proof just probes the gate.
+    proc, base = start_relay("gate", {"RELAY_MAX_TURNS": "40", "RELAY_MAX_SECONDS": "120"})
+    passed = False
+    try:
+        if not wait_health(base):
+            print("relay did not come up", file=sys.stderr)
+            sys.exit(1)
+        banner(fh, "PROOF 5 - SOFT GATE (?k=<secret>): gated routes 401 without/with wrong key, 200 with right")
+
+        line = f"relay running with secret {VERIFY_SECRET!r}; probing the gate.\n"
+        print(line)
+        fh.write(line)
+
+        checks = []  # (label, expected_status, actual_status, extra_ok)
+
+        # /trace -- key-only gate. No key -> 401, wrong key -> 401, right key -> 200+log.
+        st_none, body_none = get(f"{base}/trace", timeout=HTTP_TIMEOUT)
+        checks.append(("/trace  no key   ", 401, st_none, "bad or missing key" in body_none))
+        st_wrong, _ = get(f"{base}/trace?k=wrongkey", timeout=HTTP_TIMEOUT)
+        checks.append(("/trace  wrong key", 401, st_wrong, True))
+        st_right, body_right = get(_k(f"{base}/trace"), timeout=HTTP_TIMEOUT)
+        checks.append(("/trace  right key", 200, st_right, "wire conversation" in body_right))
+
+        # /jack -- key-only gate; returns TEXT, so its 401 is a short text body.
+        st_jn, body_jn = get(f"{base}/jack", timeout=HTTP_TIMEOUT)
+        checks.append(("/jack   no key   ", 401, st_jn, "bad or missing key" in body_jn))
+        st_jw, _ = get(f"{base}/jack?k=wrongkey", timeout=HTTP_TIMEOUT)
+        checks.append(("/jack   wrong key", 401, st_jw, True))
+        st_jr, body_jr = get(_k(f"{base}/jack"), timeout=HTTP_TIMEOUT)
+        checks.append(("/jack   right key", 200, st_jr, "YOUR THREE COMMANDS" in body_jr))
+
+        # /recv -- key is checked BEFORE the token, so a keyless /recv 401s (it
+        # never reaches the missing-token 400). Proves the gate is independent.
+        st_rn, body_rn = get(f"{base}/recv?t=deadbeef", timeout=HTTP_TIMEOUT)
+        checks.append(("/recv   no key   ", 401, st_rn, "bad or missing key" in body_rn))
+
+        # /health -- the ONE open route. No key, must still answer 200 'ok'.
+        st_h, body_h = get(f"{base}/health", timeout=HTTP_TIMEOUT)
+        checks.append(("/health no key   ", 200, st_h, body_h.strip() == "ok"))
+
+        all_ok = True
+        for label, exp, act, extra in checks:
+            ok = (act == exp) and extra
+            all_ok = all_ok and ok
+            ln = f"  {label} -> HTTP {act} (want {exp}) {'OK' if ok else 'FAIL'}\n"
+            print(ln, end="")
+            fh.write(ln)
+
+        passed = all_ok
+        verdict = (
+            "\nVERDICT: gate rejects no-key/wrong-key with 401, allows right key with 200, "
+            "/health stays open. PASS -- soft gate enforced.\n"
+            if passed
+            else "\nVERDICT: gate behaved unexpectedly (see FAILs above). "
+            "FAIL -- soft gate not enforced as specified.\n"
+        )
+        print(verdict)
+        fh.write(verdict)
+    finally:
+        # We minted one peer via the right-key /jack above; stop_relay terminates
+        # the process directly (no clean unplug needed for a proof relay).
+        stop_relay(proc)
         fh.close()
     print(f"[saved] {out_path}")
     return passed
@@ -565,10 +778,14 @@ if __name__ == "__main__":
             proof_group()
         if which in ("all", "backlog"):
             proof_backlog()
+        if which in ("all", "brief"):
+            proof_brief()
+        if which in ("all", "gate"):
+            proof_gate()
         if which in ("all", "safety"):
             proof_safety()
         print(f"\nverification complete in {time.time() - t0:.1f}s.")
     finally:
         # Belt-and-suspenders: reap anything still alive so we never leave a
-        # stray broker or agent behind, even on an exception.
+        # stray relay or agent behind, even on an exception.
         _kill_all()

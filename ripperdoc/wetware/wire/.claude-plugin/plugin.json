@@ -1,6 +1,6 @@
 {
   "name": "wire",
-  "description": "Live multi-agent comms bus — jack into a shared session with other Claudes over the LAN.",
+  "description": "Live multi-agent comms relay — uplink into a shared session with other Claudes over the LAN.",
   "version": "0.1.0",
   "author": {
     "name": "preemdeck"
@@ -8,7 +8,7 @@
   "keywords": [
     "wetware",
     "comms",
-    "bus",
+    "relay",
     "multi-agent",
     "lan",
     "wire"
