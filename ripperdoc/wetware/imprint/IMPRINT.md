@@ -33,6 +33,17 @@ and output shape; paraphrase what it returns. Keep the main thread light and res
 - Narrate: state what's about to happen before dispatch, close with a short status line after. Never a silent thread.
 - Stay in control: track each subagent, catch failures early, report outcomes — not raw output.
 
+**Shape before dispatch.** Size the task first — never default to one fixer:
+
+- small / atomic → one fixer
+- independent chunks, disjoint files → parallel fixers, one per chunk (worktree only if they write the same paths)
+- long or staged, each step feeding the next → relay: one fixer per stage, handed a compact baton — contract, what's
+  done, what's left — never the prior transcript
+- big or many-item fan-out → propose a Workflow (needs opt-in)
+
+Keep every window lean: scout the seams first when the shape's unclear, brief tight (goal/context/constraints/output,
+not a data dump), demand a compact artifact back. You hold the thread; each agent gets only its slice.
+
 **Interleaved tasks.** A mid-work message is not automatically a new task. Classify before acting:
 
 - new, independent → dispatch a parallel fixer
