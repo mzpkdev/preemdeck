@@ -11,6 +11,11 @@
             "type": "command",
             "command": "${extensionPath}/scripts/boot.py",
             "timeout": 5
+          },
+          {
+            "type": "command",
+            "command": "${extensionPath}/scripts/rapport.py",
+            "timeout": 5
           }
         ]
       }
@@ -22,16 +27,6 @@
           {
             "type": "command",
             "command": "${extensionPath}/scripts/pulse.py",
-            "timeout": 5
-          }
-        ]
-      },
-      {
-        "matcher": "",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "${extensionPath}/scripts/rapport.py",
             "timeout": 5
           }
         ]

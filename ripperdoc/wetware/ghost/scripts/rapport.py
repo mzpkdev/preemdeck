@@ -8,7 +8,7 @@ from pathlib import Path
 
 DB_PATH = Path.home() / ".claude" / ".cache" / ".ghost_cortex.db"
 RAPPORT_MD = Path(__file__).parent.parent / "RAPPORT.md"
-DEFAULT_EVENT = "UserPromptSubmit"
+DEFAULT_EVENT = "SessionStart"
 
 
 def read_rapport() -> str | None:

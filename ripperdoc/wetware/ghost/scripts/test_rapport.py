@@ -147,7 +147,7 @@ class TestMain:
         self._run(monkeypatch, stdin_data="{}")
         out = capsys.readouterr().out.strip()
         data = json.loads(out)
-        assert data["hookSpecificOutput"]["hookEventName"] == "UserPromptSubmit"
+        assert data["hookSpecificOutput"]["hookEventName"] == "SessionStart"
 
     def test_malformed_json_uses_default_event(self, tmp_path, monkeypatch, capsys):
         db_path = tmp_path / "cortex.db"
@@ -159,7 +159,7 @@ class TestMain:
         self._run(monkeypatch, stdin_data="{not valid json")
         out = capsys.readouterr().out.strip()
         data = json.loads(out)
-        assert data["hookSpecificOutput"]["hookEventName"] == "UserPromptSubmit"
+        assert data["hookSpecificOutput"]["hookEventName"] == "SessionStart"
 
     def test_non_string_event_name_uses_default(self, tmp_path, monkeypatch, capsys):
         db_path = tmp_path / "cortex.db"
@@ -171,4 +171,4 @@ class TestMain:
         self._run(monkeypatch, stdin_data='{"hook_event_name": 42}')
         out = capsys.readouterr().out.strip()
         data = json.loads(out)
-        assert data["hookSpecificOutput"]["hookEventName"] == "UserPromptSubmit"
+        assert data["hookSpecificOutput"]["hookEventName"] == "SessionStart"

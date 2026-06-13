@@ -7,6 +7,11 @@
             "type": "command",
             "command": "python3 ${PLUGIN_ROOT}/scripts/boot.py",
             "timeout": 5
+          },
+          {
+            "type": "command",
+            "command": "python3 ${PLUGIN_ROOT}/scripts/rapport.py",
+            "timeout": 5
           }
         ]
       }
@@ -17,15 +22,6 @@
           {
             "type": "command",
             "command": "python3 ${PLUGIN_ROOT}/scripts/pulse.py",
-            "timeout": 5
-          }
-        ]
-      },
-      {
-        "hooks": [
-          {
-            "type": "command",
-            "command": "python3 ${PLUGIN_ROOT}/scripts/rapport.py",
             "timeout": 5
           }
         ]

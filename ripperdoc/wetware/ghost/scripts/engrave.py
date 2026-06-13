@@ -39,6 +39,17 @@ MEM_SELF_DESCRIPTOR = (
 # Possessives that signal personal context: "my favorite editor", "my team uses X"
 MEM_POSSESSIVE = r"\bmy (?:favorite|preference|hobby|background|personality|style|approach|workflow|experience|setup|stack|role|job|team|company|career|opinion|take|view|project|side project|day job)\b"  # noqa: E501
 
+# Career / work-life grind: burnout, frustration with corpo process, and ambitions —
+# "I'm so burned out", "sick of standups", "my manager never shipped", "I'd rather build".
+# Keys on emotional/ambition framing about work, NOT bare technical task commands.
+MEM_CAREER = (
+    r"\bI (?:\S+ ){0,2}(?:want|wanna|need|hope|plan|dream|long|itch) to (?:quit|leave|build|ship|start|launch|escape|do)\b"  # noqa: E501
+    r"|\bI'?d (?:rather|love to|really)\b"
+    r"|\b(?:burn(?:ed|t)?[ -]?out|burning out|fed up|sick (?:of|and tired)|so done|over it)\b"
+    r"|\b(?:my|the|this|that|another|pointless|bloated|endless) (?:standup|stand-up|sprint|backlog|manager|boss|grind|process|deadline|meeting|crunch|corpo|day job)\b"  # noqa: E501
+    r"|\b(?:quit|leave|hate|dread|escape) (?:my|this|the) (?:job|gig|company|role)\b"
+)
+
 # Opinion/stance markers: "personally", "tbh", "in my opinion"
 MEM_OPINION = (
     r"\b(?:personally|honestly|frankly|tbh|ngl|imo|imho)\b"
@@ -48,7 +59,7 @@ MEM_OPINION = (
 )
 
 PERSONA_RE = re.compile(
-    "|".join((MEM_SENTIMENT, MEM_BIOGRAPHY, MEM_SELF_DESCRIPTOR, MEM_POSSESSIVE, MEM_OPINION)),
+    "|".join((MEM_SENTIMENT, MEM_BIOGRAPHY, MEM_SELF_DESCRIPTOR, MEM_POSSESSIVE, MEM_CAREER, MEM_OPINION)),
     re.IGNORECASE,
 )
 
@@ -311,7 +322,9 @@ def extract_facts(transcript: str, existing: str, harness_cli: str, model: str |
         "- Max 5 facts\n"
         "- Each fact max 10 words\n"
         "- Only personality, communication style, preferences, things the user shared about themselves\n"
-        "- NOT code, NOT projects, NOT technical tasks\n"
+        "- DO capture the user's feelings about their job / work life / corpo grind — their\n"
+        "  frustrations, burnout, ambitions, and what they'd rather build or do instead\n"
+        "- NOT code, NOT projects, NOT technical task DETAILS (capture the career FEELING, not the ticket)\n"
         "- Return ONE FACT PER LINE, plain text, no bullets, no markdown, no headers, no preamble\n"
         "- If nothing new worth remembering, return a completely EMPTY response (no text at all,\n"
         "  no '(nothing new)', no 'N/A', no explanation)\n"
