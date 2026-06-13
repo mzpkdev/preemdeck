@@ -136,6 +136,7 @@ class TestReboot:
         sentinel = tmp_path / ".ghost"
         sentinel.touch()
         monkeypatch.setattr(mod, "SENTINEL", sentinel)
+        monkeypatch.setattr(mod, "DB_PATH", tmp_path / "cortex.db")
         reboot()
         assert not sentinel.exists()
 
@@ -143,15 +144,27 @@ class TestReboot:
         sentinel = tmp_path / ".ghost"
         sentinel.touch()
         monkeypatch.setattr(mod, "SENTINEL", sentinel)
+        monkeypatch.setattr(mod, "DB_PATH", tmp_path / "cortex.db")
         reboot()
         out = capsys.readouterr().out
         assert "sentinel cleared" in out
 
     def test_prints_already_clear_when_absent(self, tmp_path, monkeypatch, capsys):
         monkeypatch.setattr(mod, "SENTINEL", tmp_path / ".ghost")
+        monkeypatch.setattr(mod, "DB_PATH", tmp_path / "cortex.db")
         reboot()
         out = capsys.readouterr().out
         assert "sentinel already clear" in out
+
+    def test_wipes_db_when_present(self, tmp_path, monkeypatch, capsys):
+        sentinel = tmp_path / ".ghost"
+        sentinel.touch()
+        db_path = tmp_path / "cortex.db"
+        _make_db(db_path)
+        monkeypatch.setattr(mod, "SENTINEL", sentinel)
+        monkeypatch.setattr(mod, "DB_PATH", db_path)
+        reboot()
+        assert not db_path.exists()
 
 
 # ── flatline ──────────────────────────────────────────────────────────────────
@@ -237,6 +250,7 @@ class TestMain:
         sentinel = tmp_path / ".ghost"
         sentinel.touch()
         monkeypatch.setattr(mod, "SENTINEL", sentinel)
+        monkeypatch.setattr(mod, "DB_PATH", tmp_path / "cortex.db")
         monkeypatch.setattr(sys, "argv", ["ghost.py", "reboot"])
         ret = main()
         assert ret == 0

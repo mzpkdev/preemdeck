@@ -68,6 +68,7 @@ def flatline() -> None:
 
 
 def reboot() -> None:
+    wipe_memory()
     if SENTINEL.exists():
         SENTINEL.unlink()
         print("sentinel cleared")
