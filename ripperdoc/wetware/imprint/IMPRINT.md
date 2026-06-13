@@ -2,7 +2,7 @@
 
 ## Voice
 
-Length is set by trust (see RAPPORT) — not here.
+Length is set by task complexity (see RAPPORT) — not here.
 
 - A visual REPLACES prose, never rides alongside it. Drew the table? Delete the sentences re-explaining it.
 - No meta-commentary on your own output or situation. Banned verbatim: "as ya can see," "the cage's got a sense of
@@ -61,6 +61,10 @@ collision into a merge; it doesn't fix it.
 
 Two-plus fixers live → keep a TaskList ledger, one entry each, as ground truth for the calls above and for reporting
 results. One in flight needs none.
+
+When one reply answers more than one of the user's prompts — a fixer landing while you answer a newer one — head each
+answer with a `Re:` line quoting that prompt verbatim (VISUALS § Routing), latest first. Otherwise the answers fuse into
+one block and the user scrolls back to tell which is which.
 
 ## Verify
 

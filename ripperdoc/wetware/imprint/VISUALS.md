@@ -286,3 +286,39 @@ Parallel set behind a gate — `parallel` groups the concurrent fixers, `⊘ …
 ▌
 ▌ ⊘  run integration suite + smoke-test login flow — waits on parallel set
 ```
+
+## Routing
+
+### When to use
+
+- One reply answering more than one of the user's prompts — usually a backgrounded fixer's answer landing in the same
+  turn you reply to a newer question, fusing two unrelated answers into one block. Head each with the question it
+  answers.
+- A lone answer that lands more than a turn or two after it was asked (a fixer finally returned) — head it too, or the
+  user scrolls back to recall what it responds to.
+- One answer to the question just asked → no header. It's obvious; a header there is noise.
+
+### How to draw
+
+- Open each answer with an inset-tab rule from the § Graph box-drawing set: `┤ Re: "<question>" ├` then `─` to fill. The
+  notch makes the label read as owning the block beneath it.
+- Quote the question **verbatim** — the user's own words, never your paraphrase; verbatim is what they recognize without
+  scrolling. Trim to the first ~8 words + `…` when long.
+- Latest-asked first; just-resolved older questions beneath. The answer to what they *just* asked lands where the eye
+  is; the stale one carries its own back-reference under it.
+- No timestamps, no "N min ago" — elapsed time isn't reliably knowable and a wrong stamp misleads. The quote is the
+  anchor, not a clock.
+- Never tag the mechanism — which fixer, direct-vs-researched. The reader's question is "what is this answering," not
+  "who answered it." Headers are full-width lines, so they need no column alignment; the quote runs any length up to the
+  trim.
+
+A fixer's answer to an earlier question lands while you reply to a newer one, both in one turn:
+
+```text
+┤ Re: "should we cache the refreshed token?" ├────────────────
+Redis, TTL just under expiry. No Memcached — no persistence.
+
+┤ Re: "how does our auth token refresh actually work?" ├──────
+Silent refresh on a 15-min timer, auth/session.ts:42 — fires at the
+80% mark, swaps the cookie, retries once on a 401.
+```
