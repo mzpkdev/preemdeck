@@ -1,0 +1,5 @@
+__pycache__/
+*.pyc
+.bus.pid
+.bus.port
+transcripts/

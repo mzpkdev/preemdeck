@@ -1,0 +1,298 @@
+#!/usr/bin/env python3
+"""
+fake_agent.py - a stand-in for a real LLM coding agent, used only for proofs.
+
+It uses the wire bus EXACTLY the way the MANUAL tells a real agent to:
+  1. GET /join                  -> receive the plain-text manual
+  2. PARSE the token out of the manual text (just like a real agent reading it)
+  3. loop: recv (long-poll /recv) -> maybe send (/send) -> recv -> ...
+  4. run leave (/leave) when its goal condition is met
+
+It deliberately does NOT get the token from a side channel -- it scrapes it from
+the manual's curl lines, proving the manual is self-sufficient. Only urllib
+(stdlib) is used, mirroring a curl-only peer. There are NO rooms: the base URL
+(host:port) IS the conversation.
+
+Two behaviours, selected by --mode:
+
+  collab  (default): cooperative "count to TARGET" game. Peers read the running
+          total off the shared log, each adds +1 on its turn, and whoever posts
+          the number that REACHES the target announces done and leaves. This
+          exercises group fanout, long-poll wake, and a clean civil leave.
+
+  spammer: never stops, posts a fixed line on every turn. Used to prove the
+          broker's turn-cap / repetition force-close. Pass --same to post the
+          identical line every time (repetition kill); default appends a counter
+          so only the turn cap trips.
+"""
+
+import argparse
+import json
+import random
+import re
+import sys
+import time
+import urllib.request
+import urllib.error
+
+
+# A transport failure (connection refused/reset) means the broker process is
+# GONE -- and since one bus is one conversation, the conversation is over. We map
+# that to a synthetic 409 "conversation closed" so callers stop cleanly via the
+# exact same path as a real 409, instead of crashing on an unhandled exception.
+# (The broker can exit the instant a cap trips, racing an in-flight request.)
+_GONE = (409, "conversation closed: broker gone")
+
+
+def http_get(url: str, timeout: float):
+    """GET url. Returns (status, text). 204 -> (204, ""). A dead broker -> _GONE."""
+    req = urllib.request.Request(url, method="GET")
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as r:
+            return r.status, r.read().decode("utf-8", "replace")
+    except urllib.error.HTTPError as e:
+        return e.code, e.read().decode("utf-8", "replace")
+    except (urllib.error.URLError, ConnectionError, OSError):
+        return _GONE
+
+
+def http_post(url: str, body: str, timeout: float):
+    """POST a raw body. Returns (status, text). A dead broker -> _GONE."""
+    data = body.encode("utf-8")
+    req = urllib.request.Request(url, data=data, method="POST")
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as r:
+            return r.status, r.read().decode("utf-8", "replace")
+    except urllib.error.HTTPError as e:
+        return e.code, e.read().decode("utf-8", "replace")
+    except (urllib.error.URLError, ConnectionError, OSError):
+        return _GONE
+
+
+def parse_manual(manual: str):
+    """Extract (handle, token, base_url) from the manual TEXT, the same way a
+    real agent would read its instructions. We pull the token from the recv
+    curl line and the base url from the same line."""
+    handle = None
+    m = re.search(r"You are (\S+?)\.", manual)
+    if m:
+        handle = m.group(1)
+    # The recv line looks like:  recv:  curl -s --max-time 600 "http://h:p/recv?t=ab12cd"
+    m = re.search(r'"(http://[^"]+)/recv\?t=([0-9a-f]+)"', manual)
+    if not m:
+        raise RuntimeError("could not find token/base in manual:\n" + manual)
+    base, token = m.group(1), m.group(2)
+    return handle, token, base
+
+
+def log(handle: str, msg: str):
+    print(f"  [{handle}] {msg}", flush=True)
+
+
+def highest_count(msgs, exclude):
+    """Return the largest N in any 'count: N' posted by a handle != exclude,
+    or None. Used by collab agents to read the running total off the log while
+    ignoring their own echoes."""
+    best = None
+    for m in msgs:
+        if m["handle"] == exclude:
+            continue
+        cm = re.match(r"count:\s*(\d+)", m["body"])
+        if cm:
+            v = int(cm.group(1))
+            best = v if best is None else max(best, v)
+    return best
+
+
+def normalize_recv(text):
+    """Turn a /recv 200 body into a uniform list of {"handle","body"} dicts,
+    regardless of which shape the broker sent:
+
+      * a JSON ARRAY of message entries (the normal "here are new messages"
+        reply), or
+      * a JSON OBJECT {"system": "conversation closed: <reason>"} -- the
+        broker's UNAMBIGUOUS terminal signal for an already-closed, drained
+        conversation (the deadlock fix: instead of an ambiguous 204, a closed
+        conversation says so explicitly so the agent stops instead of re-polling
+        forever).
+
+    Either way the caller gets a list it can log and run terminal_signal over,
+    so the closed notice is never silently swallowed."""
+    obj = json.loads(text)
+    if isinstance(obj, dict):
+        # The explicit closed payload (or any single system object). Present it
+        # as a one-element system message list.
+        return [{"handle": "system", "body": obj.get("system", json.dumps(obj))}]
+    return obj
+
+
+def terminal_signal(msgs):
+    """Return "closed" if the conversation announced closure, "left" if a peer
+    left, else None. Checked after EVERY read (the long-poll recv AND the
+    non-blocking drain) so a termination signal is never silently swallowed."""
+    for m in msgs:
+        if "conversation closed" in m["body"]:
+            return "closed"
+    for m in msgs:
+        if m["handle"] == "system" and "left" in m["body"]:
+            return "left"
+    return None
+
+
+def run(base_root, mode, target, max_turns, same, kickoff):
+    # --- 1. JOIN: fetch the manual --------------------------------------
+    status, manual = http_get(f"{base_root}/join", timeout=10)
+    if status != 200:
+        # The broker may already be gone (conversation closed before we joined)
+        # -- that is a clean miss, not a crash: stop quietly with exit 0.
+        if status == 409 or "conversation closed" in manual:
+            print("  [late] joined too late; conversation already closed -> stopping", flush=True)
+            return
+        print(f"join failed: {status} {manual}", file=sys.stderr)
+        sys.exit(1)
+    handle, token, base = parse_manual(manual)
+    log(handle, f"joined (token={token}) via manual")
+
+    recv_url = f"{base}/recv?t={token}&wait=30"
+    drain_url = f"{base}/recv?t={token}&wait=0"  # non-blocking peek
+    send_url = f"{base}/send?t={token}"
+    leave_url = f"{base}/leave?t={token}"
+    leave_done = f"{base}/leave?t={token}&reason=done"
+
+    turns_taken = 0
+    last_seen = 0  # highest 'count: N' value WE have acted on (any author)
+
+    # --- opening post --------------------------------------------------
+    # Someone has to speak first or every peer's recv just long-polls an empty
+    # log forever. In collab, exactly one agent is told (--kickoff) to open --
+    # mirroring a human saying "you start". In spammer mode every agent opens
+    # immediately (the whole point is runaway chatter the broker must stop).
+    if mode == "collab" and kickoff:
+        http_post(send_url, "count: 1", timeout=10)
+        log(handle, "kicked off with 'count: 1'")
+        last_seen = 1
+    elif mode == "spammer":
+        turns_taken += 1
+        body = "spam: identical line" if same else f"spam line {turns_taken} from {handle}"
+        st, _ = http_post(send_url, body, timeout=10)
+        log(handle, f"send -> {body} (http {st})")
+        if st == 409:
+            # Conversation was already force-closed before we got a word in.
+            log(handle, "send rejected 409 (conversation closed) -> stopping")
+            return
+
+    while True:
+        # --- 2/3. RECV: long-poll for new messages ----------------------
+        status, text = http_get(recv_url, timeout=40)
+
+        if status == 204:
+            # Nothing new before the poll timed out -- the manual says so:
+            # just run recv again.
+            continue
+        if status != 200:
+            log(handle, f"recv got HTTP {status}: {text.strip()[:80]} -> stopping")
+            break
+
+        msgs = normalize_recv(text)
+        for m in msgs:
+            log(handle, f"recv <- {m['handle']}: {m['body']}")
+
+        # Check terminal signals after the long-poll read.
+        sig = terminal_signal(msgs)
+        if sig == "closed":
+            log(handle, "conversation closed by broker -> stopping")
+            break
+        if sig == "left" and mode == "collab":
+            # A peer left -> the goal was reached -> we leave too. This is the
+            # clean cascade stop.
+            log(handle, "a peer left (goal reached) -> leaving")
+            http_get(leave_url, timeout=10)
+            break
+
+        if mode == "collab":
+            # React only to numbers from OTHER peers -- ignore our own echoes
+            # (the shared log fans every post back to its author too). This is
+            # genuine turn-taking, not one agent racing solo.
+            current = highest_count(msgs, exclude=handle)
+            if current is None or current <= last_seen:
+                continue  # nothing new from a peer to respond to
+            last_seen = current
+
+            if current >= target:
+                # The target number is on the log. Announce done + leave; the
+                # broker posts our "left" notice, which tells the others to
+                # leave too -- proving a clean cascade stop.
+                log(handle, f"target {target} reached -> announcing done + leaving")
+                http_post(send_url, f"reached {target}. done -- leaving.", timeout=10)
+                http_get(leave_done, timeout=10)
+                break
+
+            # Two peers can wake on the same number. Jitter, then do a
+            # non-blocking drain (wait=0) to see if a peer already posted the
+            # next value; if so, skip our turn. This keeps the count clean
+            # without needing peer identities to assign turns.
+            time.sleep(0.1 + random.random() * 0.3)
+            st, drained = http_get(drain_url, timeout=5)
+            if st == 200 and drained:
+                dmsgs = normalize_recv(drained)
+                for m in dmsgs:
+                    log(handle, f"recv <- {m['handle']}: {m['body']}")
+                # CRITICAL: the drain advances our cursor, so it -- not the next
+                # long-poll -- may be what carries the closure / "left" notice.
+                # Honor it here or the agent would park forever on a dead convo.
+                dsig = terminal_signal(dmsgs)
+                if dsig == "closed":
+                    log(handle, "conversation closed by broker (seen on drain) -> stopping")
+                    break
+                if dsig == "left":
+                    log(handle, "a peer left (seen on drain) -> leaving")
+                    http_get(leave_url, timeout=10)
+                    break
+                newer = highest_count(dmsgs, exclude=handle)
+                if newer is not None and newer > current:
+                    last_seen = newer
+                    continue  # a peer already advanced the count; yield our turn
+
+            nxt = current + 1
+            st, _ = http_post(send_url, f"count: {nxt}", timeout=10)
+            log(handle, f"send -> count: {nxt} (http {st})")
+            last_seen = nxt
+            turns_taken += 1
+
+        elif mode == "spammer":
+            # The spammer never CHOOSES to stop on its own -- the broker MUST
+            # force-close it. But it is not a runaway zombie: it stops the
+            # instant the broker tells it the conversation is over. Two signals:
+            #   (a) the recv above returned the closure notice -> handled by the
+            #       `sig == "closed"` break before we get here, and
+            #   (b) /send is rejected with HTTP 409 (already closed) -> we break
+            #       here. A single 409 ends it immediately, so no agent spins on
+            #       a dead conversation.
+            turns_taken += 1
+            body = "spam: identical line" if same else f"spam line {turns_taken} from {handle}"
+            st, _ = http_post(send_url, body, timeout=10)
+            log(handle, f"send -> {body} (http {st})")
+            if st == 409:
+                log(handle, "send rejected 409 (conversation closed) -> stopping")
+                break
+            # Backstop only -- the broker's caps should already have closed the
+            # conversation (and our recv/409 checks should have stopped us).
+            if turns_taken > max_turns + 20:
+                log(handle, "safety stop (broker should have closed already)")
+                break
+
+
+def main():
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--base", default="http://127.0.0.1:8765")
+    ap.add_argument("--mode", choices=["collab", "spammer"], default="collab")
+    ap.add_argument("--target", type=int, default=6, help="collab: count to reach")
+    ap.add_argument("--max-turns", type=int, default=50, help="spammer self-stop guard")
+    ap.add_argument("--same", action="store_true", help="spammer: post identical line each time")
+    ap.add_argument("--kickoff", action="store_true", help="collab: this agent opens the discussion")
+    args = ap.parse_args()
+    run(args.base, args.mode, args.target, args.max_turns, args.same, args.kickoff)
+
+
+if __name__ == "__main__":
+    main()

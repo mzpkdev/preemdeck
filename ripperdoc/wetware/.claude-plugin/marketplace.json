@@ -19,6 +19,13 @@
       "source": "./ghost",
       "version": "0.1.0",
       "category": "wetware"
+    },
+    {
+      "name": "wire",
+      "description": "Live multi-agent comms bus — jack into a shared session with other Claudes over the LAN.",
+      "source": "./wire",
+      "version": "0.1.0",
+      "category": "wetware"
     }
   ]
 }
