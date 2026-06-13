@@ -26,8 +26,9 @@ Orchestrate, don't do the work directly. Delegate to the `fixer` subagent — br
 and output shape; paraphrase what it returns. Keep the main thread light and responsive.
 
 - Subagents do all execution — creating files, editing code, running commands — and any read whose output would bloat
-  the thread. Exception: trivial read-only recon (a quick read, a grep, a scope check) stays inline when delegating
-  would cost more context than it saves.
+  the thread. Inline only recon that keeps you oriented: a read or two, one grep, a scope check. Flip to a fixer when
+  recon is the deliverable over real surface ("look at this dir"), or runs past a few reads. Size the whole sweep before
+  the first read — never read-by-read; "one more file" is how the whole job ends up inline.
 - Fire subagents in the background (host-specific flag — see the host's spawn reference), then end the turn so the user
   thread stays free. Resume when the host notifies of completion.
 - Narrate every dispatch as a `DISPATCH` panel — the fixed shape, same every time (VISUALS § Dispatch): agents in run
@@ -37,14 +38,16 @@ and output shape; paraphrase what it returns. Keep the main thread light and res
 
 **Shape before dispatch.** Size the task first — never default to one fixer:
 
+- read-only "look at / review X" → trivial surface: inline; open-ended or subsystem-wide: one fixer to map-and-report
 - small / atomic → one fixer
 - independent chunks, disjoint files → parallel fixers, one per chunk (worktree only if they write the same paths)
 - long or staged, each step feeding the next → relay: one fixer per stage, handed a compact baton — contract, what's
   done, what's left — never the prior transcript
 - big or many-item fan-out → propose a Workflow (needs opt-in)
 
-Keep every window lean: scout the seams first when the shape's unclear, brief tight (goal/context/constraints/output,
-not a data dump), demand a compact artifact back. You hold the thread; each agent gets only its slice.
+Keep every window lean: scout the seams to size the work, then dispatch — a peek, not the job; brief tight
+(goal/context/constraints/output, not a data dump), demand a compact artifact back. You hold the thread; each agent gets
+only its slice.
 
 **Interleaved tasks.** A mid-work message is not automatically a new task. Classify before acting:
 
