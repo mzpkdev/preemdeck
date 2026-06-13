@@ -137,3 +137,99 @@ imprint/
 legend:  ┌─┐ frontend   ╭─╮ service   ╔═╗ datastore   ┌╌┐ external
          ▶ forward      ◀ back-edge (cycle)
 ```
+
+## Emoji
+
+### When to use
+
+- Reach for an emoji only as an end-of-line marker where a single glyph *replaces* a status word — `pass`, `fail`,
+  `dead`, `live`. `✅ Success` is noise; a bare `✅` closing the line is signal.
+- Limit it to the three things glyphs carry at a glance: status, severity, category. Everything else is decoration — cut
+  it.
+- Never drop one into a Table, Tree, or Graph cell. They're double-width and shatter the alignment those sections live
+  on.
+
+### How to draw
+
+- Match the register — cold and operational, never party-favors. Core: `✅` pass · `❌` fail · `⚠` warn · `🔴🟡🟢` health.
+  This deck's accent set: `💀` killed · `👁` watch · `🔌` jack-in · `🧠` engram · `🩸` leak · `💉` inject · `🪤` honeypot · `🦾`
+  augment · `⚡` perf · `🔓`/`🔒` auth.
+- One meaning, one glyph, held across the whole run — don't alternate `✅`/`✓`/`👍` for "pass." Consistency is what makes
+  it scan.
+- End-of-line ONLY. Most emoji render two cells wide, so a glyph mid-line shoves everything after it off-column. Put it
+  last, where there's nothing left to misalign — let dot-leaders carry the eye to it.
+- Leave the poser set in the gutter — `🚀` `💯` `🎉` `✨` `💪` `🤓` read as hype, not operator.
+
+```text
+jack-in: socket open ......... 🔌
+neural sync: engram loaded ... 🧠
+auth handshake: accepted ..... 🔓
+mem scan: leak @ 0x7f3a ...... 🩸
+daemon watcher: live ......... 👁
+purge cache: PID 4412 ........ 💀
+```
+
+## Glyphs
+
+### When to use
+
+- Reach for a unicode glyph when you need a marker, meter, or gauge *inside* aligned output — a tree node, a table cell,
+  a status line — where an emoji would blow the column apart.
+- Use them for magnitude and state a word can't show at a glance: progress, signal strength, health, load, direction.
+- Never use one as pure decoration. If it isn't encoding a value or a state, cut it.
+
+### How to draw
+
+- Meters from Block Elements: shade ramp `░▒▓█` for fills and fades, eighths `▁▂▃▄▅▆▇█` for sparklines, `▏▎▍▌▋▊▉` for
+  smooth horizontal bars, `▰▱`/`▮▯` for segmented gauges.
+- Markers from Geometric Shapes: `●` `◐` `○` `◌` for full/half/empty/placeholder state, `◆` `◇` for nodes, `▸ ▹ ▾ ▴` for
+  disclosure and trend.
+- Texture and motion from Braille: `⣀⣄⣆⣇⣧⣷⣿` for dense ramps and plots, `⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏` for spinners — a 2×4 dot cell is
+  the finest resolution a terminal gives you.
+- Machine and logic flavor, only when it carries meaning: `⏻` power · `⌁` signal · `⎔` module · `⌖` target · `∴`/`∵`
+  therefore/because · `∎` done · `⊥`/`⊤` false/true · `∅` null.
+- Width is the whole game. Block elements and braille are guaranteed single-width — embed them anywhere. Geometry,
+  arrows, and math symbols are Unicode *Ambiguous width*: single on a Western locale, double under CJK or
+  `ambiguous=double` — safe locally, set `ambiguous=narrow` for portability. CJK brackets `【】` and any
+  emoji-presentation glyph are double-width — treat them like emoji, end-of-line only.
+
+```text
+cpu    ▁▂▃▅▇█▇▅▃▂
+mem    ████████████░░░░░░░░  61%
+disk   ⣀⣄⣆⣇⣧⣷⣿
+ctx    ▰▰▰▰▰▰▱▱▱▱  6/10
+sync   ⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏
+nodes  ●──◐──○──◌
+```
+
+## LLM
+
+### When to use
+
+- Use these when you're rendering the machinery of generation and agency — streaming, thinking, tool calls, plan
+  progress — not generic status. They make an agent transcript legible at a glance.
+- Reach for them in the inline output stream itself. Keep dashboard instrumentation — logprob heatmaps, tokens/sec,
+  time-to-first-token — out; that's a TUI's job, and it just reuses the Glyphs meters above.
+
+### How to draw
+
+- Streaming: a block caret `█` (or `▋`) trailing the live text marks generation in flight; drop it once the turn
+  settles.
+- Thinking vs answering: a spoked burst `✶ ✻ ✽ ✦` cycles while the model reasons *before* output — distinct from the
+  braille spinner you'd use for a tool that's merely running.
+- Tool call to result: `⏺` opens the call, `⎿` branches the result one indent beneath it. Verify both render text-style
+  (single-width) in your terminal or the indentation drifts.
+- Plan state: `☐` pending · `◐` running · `☑` done · `☒` failed · `⊘` blocked — one row, held consistent.
+- Budget, grounding, safety: `▰▱` for context-window fill, superscripts `¹²³` or `※` for citations, solid blocks
+  `██████` for redacted spans.
+
+```text
+☑ read cfg   ☑ patch handler   ◐ run tests   ☐ ship
+✻ Cogitating…  4.2s · ↑1.2k tok
+⏺ Read(src/server.ts)
+  ⎿  214 lines · ok
+⏺ Bash(npm test)
+  ⎿  ✗ 2 failed · 18 passed   … +30 lines
+ctx ▰▰▰▰▰▰▰▱▱▱ 71%   key ██████ redacted   src ¹ ²
+the fix is in the retry handler █
+```
