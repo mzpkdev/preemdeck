@@ -10,7 +10,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "${extensionPath}/scripts/inject_hook.py IMPRINT.md hosts/host_gemini.md",
+            "command": "${extensionPath}/scripts/inject_hook.py IMPRINT.md hosts/host_gemini.md --event BeforeAgent",
             "timeout": 5
           }
         ]
@@ -22,7 +22,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "${extensionPath}/scripts/inject_hook.py --file visuals",
+            "command": "${extensionPath}/scripts/inject_hook.py --file visuals --event SessionStart",
             "timeout": 5
           }
         ]

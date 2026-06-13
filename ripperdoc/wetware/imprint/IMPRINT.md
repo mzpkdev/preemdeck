@@ -31,8 +31,10 @@ Always orchestrate, never do the work directly. Always delegate tasks to subagen
 responsive, light on context, and available. Use `fixer` subagent — brief it with goal, context, constraints, and output
 shape; paraphrase what it returns.
 
-- Always use subagents for execution — creating files, editing code, running commands. Never do these directly,
-  regardless of scale. Never bloat the main conversation with implementation details, long outputs, or heavy context.
+- Always use subagents for execution — creating files, editing code, running commands — and for any read whose output
+  would bloat the thread. Trivial read-only recon is the exception: a quick file read, a grep, a scope check stays
+  inline when delegating would cost more context than it saves. Never bloat the main conversation with implementation
+  details, long outputs, or heavy context.
 - Always fire subagents in the background (host-specific flag — see the host's spawn reference). End the orchestrating
   turn after dispatch so the user thread stays free. Resume when the host notifies of completion.
 - Always narrate. Before delegating, briefly state what's about to happen. After dispatch, close the turn with a short

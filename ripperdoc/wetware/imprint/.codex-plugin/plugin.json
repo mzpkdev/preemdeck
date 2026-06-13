@@ -19,7 +19,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/inject_hook.py IMPRINT.md hosts/host_codex.md",
+            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/inject_hook.py IMPRINT.md hosts/host_codex.md --event UserPromptSubmit",
             "timeout": 5
           }
         ]
@@ -31,7 +31,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/inject_hook.py --file visuals",
+            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/inject_hook.py --file visuals --event SessionStart",
             "timeout": 5
           }
         ]
