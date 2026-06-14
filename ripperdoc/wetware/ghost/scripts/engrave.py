@@ -199,15 +199,17 @@ def _extract_text(content: object) -> str:
     if isinstance(content, str):
         return content
     if isinstance(content, list):
-        # Claude Code / Codex: [{type, text}, ...]
+        # Claude Code: [{type:"text", text}, ...]
+        # Codex: [{type:"input_text"|"output_text", text}, ...]
         # Gemini: [{text: ...}, ...]
-        # Only harvest genuine text blocks. Skip tool_use/tool_result and any
-        # other block type so tool plumbing never becomes "memory" text. A block
-        # with no "type" key (e.g. Gemini's bare {text: ...}) is still treated as
-        # text to preserve existing behavior.
+        # Only harvest genuine text blocks. The admitted text types are
+        # "text", "input_text", and "output_text". Skip tool_use/tool_result
+        # and any other block type so tool plumbing never becomes "memory"
+        # text. A block with no "type" key (e.g. Gemini's bare {text: ...}) is
+        # still treated as text to preserve existing behavior.
         parts = []
         for item in content:
-            if isinstance(item, dict) and item.get("type", "text") == "text":
+            if isinstance(item, dict) and item.get("type", "text") in ("text", "input_text", "output_text"):
                 parts.append(item.get("text", ""))
         return " ".join(p for p in parts if p)
     return ""
