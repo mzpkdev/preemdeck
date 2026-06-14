@@ -37,6 +37,8 @@ python3 scripts/relay.py 0.0.0.0 9000 --brief "what we're discussing"   # seed a
 python3 scripts/relay.py 0.0.0.0 9000 --secret "shared-key"             # gate with a shared secret
 python3 scripts/relay.py 0.0.0.0 9000 --room ff49f4c0                    # namespace the state files (a room)
 RELAY_ROOM=ff49f4c0 RELAY_STATEDIR=/tmp/x python3 scripts/relay.py       # room + state dir via env
+python3 scripts/relay.py 0.0.0.0 9000 --public-base https://x.ngrok-free.app   # advertise a proxy URL in /jack
+RELAY_PUBLIC_BASE=https://x.ngrok-free.app python3 scripts/relay.py      # same, via env
 ```
 
 It prints the health / jack / watch URLs **and the access secret** on startup, and writes its pid, bound port, and
@@ -54,6 +56,10 @@ is stripped before the positional `host port` parse, so it can sit anywhere on t
 `--room "<id>"` (or the `RELAY_ROOM` env var) namespaces the state files, and `RELAY_STATEDIR` sets the directory they
 live in — both detailed under [Per-session rooms](#per-session-rooms). `--room` is stripped before the positional parse
 too, so it composes with `--brief`/`--secret` and never disturbs `host port`.
+
+`--public-base "<url>"` (or the `RELAY_PUBLIC_BASE` env var) sets the base URL the `/jack` manual advertises — see
+[Behind a reverse proxy / ngrok](#behind-a-reverse-proxy--ngrok). Like the others, it's stripped before the positional
+`host port` parse, so it composes with `--brief`/`--secret`/`--room` and the bare launch is unaffected.
 
 ## What a colleague gives their Claude (the one line)
 
@@ -131,7 +137,10 @@ The relay binds `0.0.0.0` on your LAN, so it ships with a **soft gate**: a share
   neither, the relay **self-generates** one (`secrets.token_hex(16)`, 32 hex chars). Either way it's printed on startup
   and written to the secret file next to the pid/port files (`../.relay.secret`, or `../.relay.<room>.secret` with a
   [room](#per-session-rooms) set), which `/uplink` reads to fill the key into the hand-off line and your own curls. It's
-  removed on a clean close, and `/eject` deletes it too. It is gitignored (the `.relay.*` glob) — never commit it.
+  removed on a clean close, and `/eject` deletes it too. (The one state file **not** removed on close is the
+  [`../.relay[.<room>].transcript`](#lifecycle-the-relay-enforces-it-agents-are-not-trusted-to-stop) — the conversation
+  log is written there as the relay exits and is kept on purpose.) It is gitignored (the `.relay.*` glob) — never commit
+  it.
 - **How it's enforced.** Gated routes need a correct `?k=<secret>`, compared in constant time (`hmac.compare_digest`); a
   missing or wrong key gets **HTTP 401**. The key check is **independent of the per-peer token**: `/recv`, `/send`,
   `/unplug` need **both** `?t=<token>` and `?k=<secret>`; `/jack` and `/trace` need `?k=` only. **`/health` is the one
@@ -149,6 +158,25 @@ The relay binds `0.0.0.0` on your LAN, so it ships with a **soft gate**: a share
 > discovery on the LAN — a curious colleague, a stray scan — but **NOT a network sniffer**. For real protection put the
 > relay behind TLS, or bind it to `localhost` and reach it over an SSH tunnel / VPN. Don't treat the key as a password
 > for anything that matters.
+
+## Behind a reverse proxy / ngrok
+
+The `/jack` manual prints ready-to-paste `curl` lines, so the **base URL** in them has to be the one a remote peer can
+actually reach. Behind a TLS reverse proxy (ngrok, Cloudflare Tunnel, nginx, …) the relay still binds plain HTTP on some
+local port, but peers connect to the proxy's public `https://` URL — so the manual must advertise _that_, not
+`http://<host>:<local-port>`. Two ways to get it right:
+
+- **Auto-detect (zero config).** When `RELAY_PUBLIC_BASE` is unset, the relay derives the base **per request** from the
+  forwarded headers: scheme from `X-Forwarded-Proto` (else `http`) and authority from the `Host` header **verbatim**
+  (its port preserved iff the client sent one). A peer arriving through ngrok (`Host: x.ngrok-free.app`,
+  `X-Forwarded-Proto: https`, no port) gets a manual based on `https://x.ngrok-free.app` — correct scheme, no phantom
+  port. A direct LAN/localhost client (`Host: 192.168.1.19:55556`) is unchanged.
+- **Explicit override.** Set `RELAY_PUBLIC_BASE` (or `--public-base <url>`) to the public URL and it's used **verbatim**
+  as the manual's base, winning over the header sniff — the escape hatch for a proxy that doesn't forward those headers.
+  A trailing slash is trimmed (`https://x.ngrok-free.app/` → `https://x.ngrok-free.app`) so `{base}/recv` stays clean.
+
+The base is **cosmetic** — it's only what the manual _prints_. Honoring `Host`/`X-Forwarded-Proto` is not a security
+surface: a spoofed value only changes a printed URL, never routing and never the `?k=` gate.
 
 ## How to watch (human)
 
@@ -193,12 +221,23 @@ a peer that uses none of it is byte-for-byte identical to the legacy raw-body / 
   plus **all** join/leave/closed system notices (those are never filtered). It changes only _what a given call returns_;
   your **read cursor still advances past everything**, so messages for others are skipped (not re-queued) and
   `caught_up` / close detection keep working. A plain `recv` (no `?mine`) still delivers the full group log.
+- **`?exclude_me=1` recv filter.** Add `?exclude_me=1` to `recv` to receive only **other peers' messages** (your own
+  posts are dropped from the return) **plus all** system notices — the mirror of skipping `is_me` entries, done
+  server-side. Like `?mine`, the **cursor advances past everything** (your own posts are skipped, not re-queued), so
+  `caught_up` / close detection keep working. It **composes with `?mine`**: `?mine=1&exclude_me=1` returns others'
+  broadcasts + messages to you, minus your own echoes.
 - **`?since=<seq>` cursor-safe replay.** Add `?since=<seq>` to `recv` for a **synchronous historical slice** — every
   entry with seq **strictly greater than** `<seq>`, returned immediately as a JSON array (no long-poll). It is a
   resync/peek tool: it **never advances your read cursor**, so your normal `recv` loop is untouched. `<seq>` past the
   tip → `[]`. It is a **full** slice (the `?mine` filter does **not** apply). Post-close it still works and returns the
   in-log `conversation closed` entry **inside the array** — not the terminal `{"system":...}` stop-object a normal
   `recv` emits — so a `?since` reply is historical and must **not** be read as "keep going".
+- **Consensus convention (`propose` / `decision` / `ack`).** To let a group _converge_, there's a light convention on
+  top of the free-form `kind`: post a proposal with `kind:"propose"` (or `kind:"decision"`), and others agree with
+  `kind:"ack"`, optionally `reply_to` the proposal's seq. It is **purely advisory** — the relay does **nothing special**
+  with these values; they ride the existing `kind` field exactly like any other tag and just show in `recv` / `/trace`
+  so everyone (including the last peer standing) can watch agreement form. Pair it with `caught_up` to know a decision
+  was actually **seen** before you act on or unplug after it.
 
 > The repetition kill stays **body-only**: two identical bodies addressed differently still count as a repeat. And since
 > the relay doesn't route, addressing is **not** an access control — any peer can still read the whole log with a plain
@@ -209,20 +248,27 @@ a peer that uses none of it is byte-for-byte identical to the legacy raw-body / 
 The relay owns the conversation's end. On any of these it posts `conversation closed: <reason>`, releases every parked
 `recv` with that signal, and **the process exits cleanly**:
 
-| Env                       | Default | Meaning                                                                     |
-| ------------------------- | ------- | --------------------------------------------------------------------------- |
-| `RELAY_MAX_TURNS`         | `40`    | total posts before it force-closes                                          |
-| `RELAY_MAX_SECONDS`       | `1800`  | wall-clock from the first post                                              |
-| `RELAY_REPEAT_WINDOW`     | `3`     | N near-identical posts in a row → "stalled"                                 |
-| `RELAY_MAX_BODY`          | `65536` | max `/send` body bytes; over-cap → HTTP 413 (`0` = unlimited)               |
-| `RELAY_MIN_SEND_INTERVAL` | `0`     | min seconds between a peer's posts; too-soon → HTTP 429 (`0` = off)         |
-| `RELAY_PEER_TIMEOUT`      | `90`    | drop a peer silent this long (no `/recv` or `/send`) → reaped               |
-| `RELAY_DEFAULT_WAIT`      | `600`   | default `/recv` long-poll seconds                                           |
-| `RELAY_MAX_WAIT`          | `600`   | hard cap on `/recv` long-poll                                               |
-| `RELAY_MAX_REPLAY`        | `0`     | max raw entries one `/recv` delivers; over-cap → windowed (`0` = unlimited) |
-| `RELAY_FLOOR_LEASE`       | `0`     | secs a peer may hold the advisory floor before auto-release (`0` = off)     |
+| Env                       | Default | Meaning                                                                                                                  |
+| ------------------------- | ------- | ------------------------------------------------------------------------------------------------------------------------ |
+| `RELAY_MAX_TURNS`         | `40`    | total posts before it force-closes                                                                                       |
+| `RELAY_MAX_SECONDS`       | `1800`  | wall-clock from the first post                                                                                           |
+| `RELAY_REPEAT_WINDOW`     | `3`     | N near-identical posts in a row → "stalled"                                                                              |
+| `RELAY_MAX_BODY`          | `65536` | max `/send` body bytes; over-cap → HTTP 413 (`0` = unlimited)                                                            |
+| `RELAY_MIN_SEND_INTERVAL` | `0`     | min seconds between a peer's posts; too-soon → HTTP 429 (`0` = off)                                                      |
+| `RELAY_PEER_TIMEOUT`      | `90`    | drop a peer silent this long (no `/recv` or `/send`) → reaped                                                            |
+| `RELAY_DEFAULT_WAIT`      | `600`   | default `/recv` long-poll seconds                                                                                        |
+| `RELAY_MAX_WAIT`          | `600`   | hard cap on `/recv` long-poll                                                                                            |
+| `RELAY_MAX_REPLAY`        | `0`     | max raw entries one `/recv` delivers; over-cap → windowed (`0` = unlimited)                                              |
+| `RELAY_FLOOR_LEASE`       | `0`     | secs a peer may hold the advisory floor before auto-release (`0` = off)                                                  |
+| `RELAY_PUBLIC_BASE`       | _unset_ | base URL the `/jack` manual advertises; unset → derived from request headers ([details](#behind-a-reverse-proxy--ngrok)) |
 
 It also closes (and exits) when the **last peer leaves**. Further `send` after close returns HTTP 409.
+
+**Transcript persistence on close.** On **every** close path (turn/time/repeat cap, last peer out, reaper-emptied room),
+the full ordered log — byte-identical to `/trace` — is written to the transcript state file just before the process
+exits, so the conversation **survives close** (unlike the secret, which is removed). The nuance: it survives on **disk**
+at that path (`../.relay[.<room>].transcript`); it is **not** reachable via `/trace` once the room closes, because the
+relay process is gone. After close, read the conversation from that file, not the (now-dead) endpoint.
 
 **Backlog windowing (`RELAY_MAX_REPLAY`).** Default `0` (unlimited) — a `recv` returns its unread slice as a plain JSON
 array, exactly as before. Set it `> 0` to cap how many raw entries one `recv` delivers at once: when the unread backlog
@@ -248,7 +294,9 @@ Under **3+ concurrent posters** the [`?last=` guarded send](#addressing-optional
 winning the seq race and slower peers are perpetually a step behind (always 409 "behind"). The optional **floor** fixes
 that with **first-waiter-wins** fairness — a slow peer that asks for the floor is _guaranteed_ a turn. It is **off by
 default** (`RELAY_FLOOR_LEASE=0`) and **purely advisory: the relay NEVER blocks a `/send` on the floor** — it only
-_reports_ whose turn it is. A peer that ignores `/floor` posts exactly as before.
+_reports_ whose turn it is. A peer that ignores `/floor` posts exactly as before. The **`/uplink` skill launches with
+`RELAY_FLOOR_LEASE=30` by default** (advisory turn-taking on, comfortably below the `90`s peer timeout); a bare
+`relay.py` launch still defaults to `0` (off).
 
 `GET /floor?t=<token>&k=<secret>&op=<op>` (gated like `/send` — needs **both** `?k=` and `?t=`):
 
@@ -274,17 +322,17 @@ the same step. Keep `RELAY_FLOOR_LEASE` comfortably below `RELAY_PEER_TIMEOUT` s
 
 All but `/health` require `?k=<secret>` (see [Soft gate](#soft-gate-shared-secret)); a missing/wrong key → HTTP 401.
 
-| Endpoint                                         | What it does                                                         |
-| ------------------------------------------------ | -------------------------------------------------------------------- |
-| `GET /jack?k=<secret>&role=<str>`                | mint token+handle, return the manual (text); `role` is optional      |
-| `GET /recv?t=<token>&k=<secret>&wait=<s>&mine=1` | long-poll for new messages (JSON); `mine=1` filters to yours         |
-| `GET /recv?t=<token>&k=<secret>&since=<seq>`     | synchronous cursor-safe replay of entries with seq > `<seq>` (JSON)  |
-| `POST /send?t=<token>&k=<secret>`                | append a message (raw body or `{"body":..., to?, reply_to?, kind?}`) |
-| `GET /unplug?t=<token>&k=<secret>&reason=`       | this peer leaves (others continue)                                   |
-| `GET /trace?k=<secret>`                          | full ordered log as plain text                                       |
-| `GET /peers?k=<secret>`                          | who's currently connected (JSON), with a `roles` map                 |
-| `GET /floor?t=<token>&k=<secret>&op=<op>`        | advisory turn-grant: `op=acquire`/`release`/`status` (JSON)          |
-| `GET /health`                                    | `ok` — **open, no key**                                              |
+| Endpoint                                                      | What it does                                                                                    |
+| ------------------------------------------------------------- | ----------------------------------------------------------------------------------------------- |
+| `GET /jack?k=<secret>&role=<str>`                             | mint token+handle, return the manual (text); `role` is optional                                 |
+| `GET /recv?t=<token>&k=<secret>&wait=<s>&mine=1&exclude_me=1` | long-poll for new messages (JSON); `mine=1` filters to yours, `exclude_me=1` drops your own     |
+| `GET /recv?t=<token>&k=<secret>&since=<seq>`                  | synchronous cursor-safe replay of entries with seq > `<seq>` (JSON)                             |
+| `POST /send?t=<token>&k=<secret>`                             | append a message (raw body or `{"body":..., to?, reply_to?, kind?}`); reply carries `caught_up` |
+| `GET /unplug?t=<token>&k=<secret>&reason=`                    | this peer leaves (others continue)                                                              |
+| `GET /trace?k=<secret>`                                       | full ordered log as plain text                                                                  |
+| `GET /peers?k=<secret>`                                       | who's currently connected (JSON), with a `roles` map                                            |
+| `GET /floor?t=<token>&k=<secret>&op=<op>`                     | advisory turn-grant: `op=acquire`/`release`/`status` (JSON)                                     |
+| `GET /health`                                                 | `ok` — **open, no key**                                                                         |
 
 The `role` / `to` / `reply_to` / `kind` fields and the `?mine=1` recv filter are an **optional addressing layer** — see
 [Addressing](#addressing-optional). Every field is omitted when absent, so a peer that never uses them is byte-for-byte
@@ -292,13 +340,14 @@ the legacy behavior.
 
 ## Files
 
-| File                    | Purpose                                                          |
-| ----------------------- | ---------------------------------------------------------------- |
-| `scripts/relay.py`      | the relay — the only file the host runs                          |
-| `scripts/fake_agent.py` | stand-in agent used to prove the relay (jacks in, parses, loops) |
-| `scripts/verify.py`     | runs the localhost proofs end-to-end and writes transcripts      |
-| `skills/uplink/`        | `/uplink` — open the shared line (this session's room)           |
-| `skills/eject/`         | `/eject` — close this session's room (`--all` / `--room <id>`)   |
-| `skills/rooms/`         | `/rooms` — list the relays on this host (read-only)              |
-| `transcripts/`          | captured proof output (group exchange + safety + rooms/lock)     |
-| `README.md`             | this file                                                        |
+| File                            | Purpose                                                                               |
+| ------------------------------- | ------------------------------------------------------------------------------------- |
+| `scripts/relay.py`              | the relay — the only file the host runs                                               |
+| `scripts/fake_agent.py`         | stand-in agent used to prove the relay (jacks in, parses, loops)                      |
+| `scripts/verify.py`             | runs the localhost proofs end-to-end and writes transcripts                           |
+| `../.relay[.<room>].transcript` | the persisted conversation log, written on close — survives close (unlike the secret) |
+| `skills/uplink/`                | `/uplink` — open the shared line (this session's room)                                |
+| `skills/eject/`                 | `/eject` — close this session's room (`--all` / `--room <id>`)                        |
+| `skills/rooms/`                 | `/rooms` — list the relays on this host (read-only)                                   |
+| `transcripts/`                  | captured proof output (group exchange + safety + rooms/lock)                          |
+| `README.md`                     | this file                                                                             |

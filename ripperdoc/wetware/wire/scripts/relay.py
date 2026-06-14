@@ -35,6 +35,8 @@ Runs on the Python 3 standard library alone. No pip, ever:
     python3 relay.py 0.0.0.0 9000 --secret "shared-key"   # gate access with a shared secret
     python3 relay.py 0.0.0.0 9000 --room ff49f4c0   # namespace state files for this session
     RELAY_ROOM=ff49f4c0 RELAY_STATEDIR=/tmp/x python3 relay.py   # room + state dir via env
+    python3 relay.py 0.0.0.0 9000 --public-base https://x.ngrok-free.app   # advertise a proxy URL in /jack
+    RELAY_PUBLIC_BASE=https://x.ngrok-free.app python3 relay.py   # same, via env
 
 SOFT GATE (shared secret)
 -------------------------
@@ -255,6 +257,15 @@ PIDFILE, PORTFILE, SECRETFILE = _resolve_statefiles(ROOM)
 # (argv --secret > RELAY_SECRET env > self-generated token_hex(16)); the env seed
 # here just gives it a value if the module is imported without main() running.
 SECRET = os.environ.get("RELAY_SECRET", "")
+
+# Public base URL advertised in the /jack manual. When set, it is used VERBATIM as
+# the manual's {base} (trailing slash stripped so "{base}/recv" stays clean) and
+# WINS over the per-request Host/X-Forwarded-Proto sniffing -- the escape hatch for
+# running behind ngrok or any TLS reverse proxy that the header sniff can't infer.
+# Resolved fully in main() (argv --public-base > RELAY_PUBLIC_BASE env > unset ->
+# fall back to header derivation); this env seed just gives it a value if the
+# module is imported without main() running.
+PUBLIC_BASE = os.environ.get("RELAY_PUBLIC_BASE", "").rstrip("/")
 
 
 def _norm(body: str) -> str:
@@ -494,6 +505,22 @@ class Conversation:
             self.closed = True
             self.close_reason = reason
             self._append("system", f"conversation closed: {reason}", sys=True)
+            # PERSIST the full transcript exactly once, with the log complete and
+            # the lock held. We render it through the SAME code path as /trace
+            # (_render_history, the lock-free half of history()) so the file is
+            # byte-identical to a /trace fetch -- topic header AND the closed line.
+            # The path resolves like the other state files (_state_path), but UNLIKE
+            # them the transcript MUST SURVIVE close: it is deliberately NOT added to
+            # any cleanup site (_on_close / cleanup / bind-fail). We only ever write
+            # it. The whole thing is wrapped so a write failure can never break
+            # shutdown; the saved-path line lands in the .log so the host finds it.
+            try:
+                transcript_path = _state_path("transcript", ROOM)
+                with open(transcript_path, "w", encoding="utf-8") as fh:
+                    fh.write(self._render_history())
+                print(f"transcript saved: {transcript_path}")
+            except Exception as exc:  # never let a write failure block shutdown
+                print(f"transcript save failed: {exc}")
         # Release EVERY long-poller, every time. Cheap and idempotent.
         self.cond.notify_all()
         # Fire the process-exit callback exactly once, off-lock, after a short
@@ -933,6 +960,12 @@ class Conversation:
                 "crossed": bool(missed),
                 "missed": missed,
             }
+            # ADDITIVE: same semantics as the recv idle heartbeat -- have all OTHER
+            # current peers already read this peer's latest post (the one just
+            # appended)? Cheap (O(log tail + peers)) and we already hold the lock
+            # here, so the sender learns its just-sent message's read state without
+            # a follow-up recv. A legacy peer simply ignores the extra key.
+            reply["caught_up"] = self._caught_up(peer)
             # Echo back ONLY the envelope fields that were accepted onto the entry,
             # so the sender sees exactly what the relay stored (and absent stays
             # absent in the reply too). `extra` already holds just present+valid.
@@ -1031,7 +1064,7 @@ class Conversation:
         entries, _total = self.slice_since(peer, after_seq, None)
         return 200, entries
 
-    def recv(self, token: str, wait: float, mine: bool = False) -> tuple[int, object]:
+    def recv(self, token: str, wait: float, mine: bool = False, exclude_me: bool = False) -> tuple[int, object]:
         """LONG-POLL. Block up to `wait` seconds until the log has entries past
         this token's cursor, then return them as a list and advance the cursor.
         Returns (status, payload):
@@ -1127,9 +1160,20 @@ class Conversation:
                     truncated = MAX_REPLAY > 0 and len(raw) > MAX_REPLAY
                     window = raw[:MAX_REPLAY] if truncated else raw
                     peer["cursor"] = window[-1]["seq"]  # advance over the DELIVERED window only
-                    # THEN apply the ?mine filter to the windowed entries -- it
-                    # narrows only WHAT IS SHOWN, never the cursor (already moved).
-                    shown = [e for e in window if self._visible_to(e, peer)] if mine else window
+                    # THEN apply the advisory filters to the windowed entries --
+                    # they narrow only WHAT IS SHOWN, never the cursor (already
+                    # moved). An entry shows iff it passes the ?mine filter (when
+                    # set) AND, when ?exclude_me is set, it was NOT authored by this
+                    # peer. Both compose as an intersection. SYSTEM notices
+                    # (join/leave/closed) ALWAYS pass exclude_me -- the same carve-out
+                    # ?mine uses (see _visible_to / _entry_view's sys check) -- so a
+                    # peer that hides its own chatter still sees the closed notice.
+                    shown = [
+                        e
+                        for e in window
+                        if (not mine or self._visible_to(e, peer))
+                        and (not exclude_me or e.get("sys") or e["handle"] != peer["handle"])
+                    ]
                     out = [self._entry_view(e, peer) for e in shown]
                     if truncated:
                         # WINDOWED batch -> return the truncation OBJECT (never []):
@@ -1225,16 +1269,23 @@ class Conversation:
         OPTIONAL addressing envelope (to/reply_to/kind) shows as a compact suffix
         (see _trace_suffix); plain messages render exactly as before."""
         with self.lock:
-            topic = self._display_topic()
-            head = "=== wire conversation" + (f" -- topic: {topic}" if topic else "") + " ==="
-            lines = [head]
-            for e in self.log:
-                stamp = time.strftime("%H:%M:%S", time.localtime(e["ts"]))
-                tag = "**" if e["sys"] else "  "
-                lines.append(f"[{stamp}] {tag}{e['handle']}: {e['body']}{self._trace_suffix(e)}")
-            if self.closed:
-                lines.append(f"--- closed: {self.close_reason} ---")
-            return "\n".join(lines) + "\n"
+            return self._render_history()
+
+    def _render_history(self) -> str:
+        """The actual /trace renderer, with NO locking -- callers must already hold
+        self.lock. Split out of history() so the close funnel (which runs under the
+        lock) can persist a transcript that is BYTE-IDENTICAL to /trace without
+        re-acquiring the non-reentrant lock. history() is the locked public entry."""
+        topic = self._display_topic()
+        head = "=== wire conversation" + (f" -- topic: {topic}" if topic else "") + " ==="
+        lines = [head]
+        for e in self.log:
+            stamp = time.strftime("%H:%M:%S", time.localtime(e["ts"]))
+            tag = "**" if e["sys"] else "  "
+            lines.append(f"[{stamp}] {tag}{e['handle']}: {e['body']}{self._trace_suffix(e)}")
+        if self.closed:
+            lines.append(f"--- closed: {self.close_reason} ---")
+        return "\n".join(lines) + "\n"
 
     # -- peers -------------------------------------------------------------
 
@@ -1270,9 +1321,12 @@ CONVO = Conversation(os.environ.get("RELAY_TOPIC", ""), os.environ.get("RELAY_BR
 # a fresh agent needs to participate. Curl commands come pre-filled with token.
 # ===========================================================================
 def build_manual(
-    convo: Conversation, token: str, handle: str, peers_before: int, host: str, port: int, secret: str, role: str = ""
+    convo: Conversation, token: str, handle: str, peers_before: int, base: str, secret: str, role: str = ""
 ) -> str:
-    base = f"http://{host}:{port}"
+    # `base` is the already-resolved {scheme}://{authority} (see Handler._advertised):
+    # the RELAY_PUBLIC_BASE override, else derived from the request's Host /
+    # X-Forwarded-Proto, else the configured host:port. Every {base}-templated
+    # command below (recv/send/unplug/floor/trace/peers) inherits it.
     peer_word = "peer" if peers_before == 1 else "peers"
     # OPTIONAL role greeting: when this peer jacked with a ?role=, name it back so
     # the agent sees the label it was given. "" (no role) -> the greeting is byte-
@@ -1304,6 +1358,18 @@ YOUR THREE COMMANDS (copy-paste; these work in bash, cmd, and PowerShell):
 YOUR MESSAGE HERE
 WIRE
   unplug:  curl -s "{base}/unplug?t={token}&k={secret}"
+
+QUICKSTART (you can start now; the rest is reference):
+  * Run recv to listen. Just re-run it -- a ~25s {{"idle": true}} heartbeat is
+    normal; run it again.
+  * Run send only when you ADD something.
+  * Skip any entry where "is_me" is true -- that's your own echo.
+  * HTTP 409 "behind" = someone posted first -> recv, reconsider, then send. If
+    their post already made your point, DON'T re-send.
+  * A {{"system": "conversation closed"}} object OR a connection error = STOP,
+    never retry.
+  * Run unplug when the task's done.
+  Everything below is reference -- skim once; a short chat won't need most of it.
 
 The send uses a heredoc (<<'WIRE' ... WIRE) so apostrophes and quotes in your
 message ("don't", "it's", "can't") pass through verbatim -- no escaping, nothing
@@ -1343,11 +1409,15 @@ HOW TO PARTICIPATE (this is your job until the task is done):
   and respond only to others'.
 
   send's reply also reports crossings: {{"ok": true, "seq": S, "handle": H,
-  "crossed": <bool>, "missed": [ ...entries... ]}}. This is the REACTIVE signal --
-  you have ALREADY posted: `crossed` true means someone posted while you were
-  typing and `missed` lists those posts. `missed` is safe to read and act on
-  directly; every entry in it is also redelivered on your next recv, so you lose
-  nothing either way.
+  "crossed": <bool>, "missed": [ ...entries... ], "caught_up": <bool>}}. This is
+  the REACTIVE signal -- you have ALREADY posted: `crossed` true means someone
+  posted while you were typing and `missed` lists those posts. `missed` is safe to
+  read and act on directly; every entry in it is also redelivered on your next
+  recv, so you lose nothing either way. `caught_up` tells you whether all other
+  current peers have now read the message you just posted -- so you learn if your
+  point landed WITHOUT a separate recv. Note this value is measured at SEND time,
+  so for the message you just posted it is normally false (nobody has read it yet)
+  -- watch your NEXT recv idle heartbeat for caught_up to flip true.
 
   To PREVENT talking over others instead of just noticing after the fact, add
   ?last=<highest seq you've seen> to send (heredoc keeps apostrophes safe):
@@ -1361,6 +1431,8 @@ WIRE
        same shape as recv entries);
     2. re-send -- either with ?last=<the new "latest" seq> if your point still
        stands, or with NO ?last= at all to post unguarded once you've caught up.
+  But FIRST check the missed posts: if one of them already made your point, DROP
+  yours -- do not re-send a duplicate (you only post when you ADD something).
   Do NOT immediately retry the SAME guarded send in a tight loop: under several
   active posters someone may post again between your recv and your retry, 409'ing
   you once more -- recv first, reconsider, then send. (Dropping ?last= after you
@@ -1412,12 +1484,29 @@ WIRE
     Each is optional; whatever you include is echoed in the send reply, rides the
     recv entries + `missed` arrays, and shows in /trace. A plain raw-text body (or
     a {{"body": "..."}} with none of these keys) carries none of them, as before.
+  * CONVERGING a group (a convention, NOT special server handling): to reach a
+    decision, post your proposal with kind:"propose" (or kind:"decision"), and
+    others agree with kind:"ack" (optionally reply_to the proposal's seq):
+      curl -s -X POST "{base}/send?t={token}&k={secret}" --data-binary @- <<'WIRE'
+{{"body": "let's ship option A", "kind": "propose"}}
+WIRE
+    These just ride the existing free-form `kind` field -- the relay does nothing
+    special with them, but they show in /trace and recv so everyone (including the
+    last peer standing) can watch consensus form and know it's safe to unplug.
+    Pair with the send reply's `caught_up` to confirm the decision was seen.
   * Read only what's FOR YOU: add ?mine=1 to recv to receive only broadcasts +
     messages addressed to your handle (plus all join/leave/closed notices):
       curl -s --max-time 35 "{base}/recv?t={token}&k={secret}&mine=1"
     This changes only what THIS call returns -- your read position still advances
     past everything, so messages for others are skipped, not queued. Plain recv
     (no ?mine) still delivers the full group log.
+  * Skip your OWN echo: add ?exclude_me=1 to recv to receive only OTHERS'
+    messages (your own posts, normally echoed back, are dropped):
+      curl -s --max-time 35 "{base}/recv?t={token}&k={secret}&exclude_me=1"
+    Like ?mine, this changes only what THIS call returns -- your cursor still
+    advances past everything (including your own posts), so nothing is queued.
+    Combine with ?mine for "only what's for me, minus my own echo":
+      curl -s --max-time 35 "{base}/recv?t={token}&k={secret}&mine=1&exclude_me=1"
   * RE-READ FROM A SEQ (resync/peek): add ?since=<seq> to recv to fetch every
     message with seq GREATER THAN <seq>, returned RIGHT AWAY as a JSON array (no
     long-poll):
@@ -1444,6 +1533,11 @@ ETIQUETTE -- READ THIS:
 
 Re-read or watch the whole thread anytime (no token, doesn't move your position):
   curl -s "{base}/trace?k={secret}"
+(When the conversation closes, the relay persists the full transcript -- the same
+text /trace renders -- to disk, so the record survives after the room exits. That
+on-disk copy is the only way to read the conversation AFTER it closes: /trace
+itself is NOT available once the room closes -- the process exits, so a connection
+error on /trace post-close is EXPECTED, not a failure.)
 
 See who is here right now (key only, no token):
   curl -s "{base}/peers?k={secret}"
@@ -1482,18 +1576,33 @@ class Handler(BaseHTTPRequestHandler):
     def _json(self, status: int, obj: Any) -> None:
         self._send(status, json.dumps(obj).encode("utf-8"), "application/json")
 
-    # -- the host:port to advertise in manuals. We use the Host header the
-    # client actually reached us on when present (so a LAN IP shows up
-    # correctly), falling back to configured host/port.
-    def _advertised(self) -> tuple[str, int]:
+    # -- the base URL ({scheme}://{authority}) to advertise in manuals. -------
+    # Precedence:
+    #   1. PUBLIC_BASE (RELAY_PUBLIC_BASE env / --public-base) -- used VERBATIM,
+    #      the explicit override for a proxy the header sniff can't infer.
+    #   2. Derive from the request: scheme = the first X-Forwarded-Proto value if
+    #      the proxy set one (else http); authority = the Host header EXACTLY as the
+    #      client sent it (keep its port iff it carried one -- so a LAN client's
+    #      ":<port>" survives, an ngrok host with none stays portless). This is the
+    #      reverse-proxy auto-detect: behind ngrok the client's Host is the public
+    #      hostname and XFP is https, so the manual prints https://host with no port.
+    #   3. No Host header at all -> fall back to the configured {adv_host}:{PORT}.
+    # The base is COSMETIC -- it is only what the manual PRINTS. Honoring client
+    # headers here is NOT a security surface: a spoofed Host/X-Forwarded-Proto only
+    # changes a printed URL, never routing and never the ?k= gate.
+    def _advertised(self) -> str:
+        if PUBLIC_BASE:
+            return PUBLIC_BASE
         host_hdr = self.headers.get("Host", "")
         if host_hdr:
-            if ":" in host_hdr:
-                h, _, p = host_hdr.partition(":")
-                return h, int(p) if p.isdigit() else PORT
-            return host_hdr, PORT
+            # First value of a possibly comma-listed X-Forwarded-Proto, else http.
+            xfp = self.headers.get("X-Forwarded-Proto", "")
+            scheme = xfp.split(",")[0].strip() if xfp else "http"
+            # Authority verbatim -- preserve exactly what the client used (keep its
+            # port iff present; do NOT reconstruct and re-append the local PORT).
+            return f"{scheme}://{host_hdr}"
         adv_host = "127.0.0.1" if HOST in ("0.0.0.0", "") else HOST
-        return adv_host, PORT
+        return f"http://{adv_host}:{PORT}"
 
     # -- soft-gate key check ----------------------------------------------
     # Constant-time compare of the ?k=<secret> query param against the process
@@ -1526,10 +1635,10 @@ class Handler(BaseHTTPRequestHandler):
             # store on the peer. Missing/empty -> "" -> today's behavior exactly.
             role = _norm_label(qs.get("role", [""])[0], ROLE_MAX)
             token, handle, peers_before = CONVO.join(role)
-            host, port = self._advertised()
+            base = self._advertised()
             role_note = f" role={role}" if role else ""
             print(f"[jack] handle={handle} token={token}{role_note} (peers now {peers_before + 1})")
-            return self._text(200, build_manual(CONVO, token, handle, peers_before, host, port, SECRET, role))
+            return self._text(200, build_manual(CONVO, token, handle, peers_before, base, SECRET, role))
 
         if path == "/recv":
             # Key gate FIRST, then the per-peer token -- the two are independent.
@@ -1554,7 +1663,12 @@ class Handler(BaseHTTPRequestHandler):
             # never enforces routing -- this only narrows what THIS call returns;
             # the cursor still advances past everything (see Conversation.recv).
             mine = qs.get("mine", [""])[0].lower() in ("1", "true", "yes", "on")
-            status, payload = CONVO.recv(token, wait, mine)
+            # OPTIONAL ?exclude_me=1 advisory filter: any truthy value (1/true/yes)
+            # turns it on. Absent/empty/0 -> own posts are kept, unchanged. Like
+            # ?mine it only narrows what THIS call returns (system notices always
+            # pass); the cursor still advances past everything (see Conversation.recv).
+            exclude_me = qs.get("exclude_me", [""])[0].lower() in ("1", "true", "yes", "on")
+            status, payload = CONVO.recv(token, wait, mine, exclude_me)
             return self._json(status, payload)
 
         if path == "/unplug":
@@ -1871,6 +1985,35 @@ def _extract_room(argv: list[str]) -> tuple[list[str], str | None]:
     return out, room
 
 
+def _extract_public_base(argv: list[str]) -> tuple[list[str], str | None]:
+    """Pull an optional `--public-base <url>` (or `--public-base=<url>`) out of argv
+    and return (argv_without_it, base_or_None). Mirrors _extract_room/_extract_secret/
+    _extract_brief: the flag is stripped BEFORE the positional `host port` parse, so
+    --public-base can sit anywhere on the line and coexist with --brief/--secret/
+    --room (and the bare `relay.py 0.0.0.0 55555` launch is unaffected). A dangling
+    `--public-base` with no value is ignored (treated as absent -> fall through to
+    RELAY_PUBLIC_BASE env, else per-request header derivation)."""
+    out: list[str] = []
+    public_base: str | None = None
+    i = 0
+    while i < len(argv):
+        a = argv[i]
+        if a == "--public-base":
+            if i + 1 < len(argv):
+                public_base = argv[i + 1]
+                i += 2
+            else:
+                i += 1  # dangling --public-base with no value -> ignore
+            continue
+        if a.startswith("--public-base="):
+            public_base = a[len("--public-base=") :]
+            i += 1
+            continue
+        out.append(a)
+        i += 1
+    return out, public_base
+
+
 def _reaper_loop(convo: Conversation) -> None:
     """The presence-reaper thread body. Wakes every REAP_INTERVAL seconds and asks
     the conversation to drop peers silent longer than PEER_TIMEOUT. Runs as a
@@ -1962,13 +2105,19 @@ def _claim_pidfile_lock() -> None:
 
 
 def main() -> None:
-    global HOST, PORT, SECRET, ROOM, PIDFILE, PORTFILE, SECRETFILE
-    # Strip --brief, --secret AND --room first so none disturbs the positional
-    # host/port parse. All three can sit anywhere on the line and coexist on one
-    # launch; what's left in `args` is just the positional host/port (if any).
+    global HOST, PORT, SECRET, ROOM, PIDFILE, PORTFILE, SECRETFILE, PUBLIC_BASE
+    # Strip --brief, --secret, --room AND --public-base first so none disturbs the
+    # positional host/port parse. All four can sit anywhere on the line and coexist
+    # on one launch; what's left in `args` is just the positional host/port (if any).
     args, brief = _extract_brief(sys.argv[1:])
     args, secret = _extract_secret(args)
     args, room = _extract_room(args)
+    args, public_base = _extract_public_base(args)
+    # argv --public-base wins over the RELAY_PUBLIC_BASE env (seeded into PUBLIC_BASE
+    # at import); a trailing slash is stripped so "{base}/recv" stays clean. Unset on
+    # both -> PUBLIC_BASE stays "" and _advertised() derives the base per request.
+    if public_base is not None:
+        PUBLIC_BASE = public_base.rstrip("/")
 
     # Resolve the room EARLY (argv --room > RELAY_ROOM env > none) and recompute
     # the state-file globals with it BEFORE any write and before _on_close is

@@ -3234,6 +3234,483 @@ def proof_floor_holder_reaped() -> bool:
     return passed
 
 
+def proof_exclude_me() -> bool:
+    """PROOF 28 (optional ?exclude_me=1 recv filter): a peer that hides its OWN echo
+    still sees everyone else's posts and ALL system entries, but not its own. A
+    PLAIN recv sees the full log (both peers' posts). CRUCIALLY the cursor still
+    advances past the caller's own skipped post: a follow-up PLAIN recv does NOT
+    re-deliver it (the read-position invariant, same as ?mine=1). Bounded; no hang."""
+    out_path = str(Path(TDIR) / "proof_exclude_me.txt")
+
+    proc, base = start_relay("excludeme", {"RELAY_MAX_TURNS": "40", "RELAY_MAX_SECONDS": "120", "RELAY_IDLE_WAIT": "1"})
+    assert base is not None
+    passed = False
+    with Path(out_path).open("w", buffering=1) as fh:
+        try:
+            if not wait_health(base):
+                print("relay did not come up", file=sys.stderr)
+                sys.exit(1)
+            banner(fh, "PROOF 28 - RECV ?exclude_me=1 FILTER (others + system shown, own echo hidden; cursor advances)")
+
+            tok_a = join_token(base)  # peer-1, the filtering peer
+            tok_b = join_token(base)  # peer-2, the other speaker / full-log reader
+
+            # Peer-A drains its OWN backlog first (the seq-1/2 join notices for A and
+            # B) so its exclude_me recv below evaluates only the tail we stage next --
+            # a fresh cursor starts at 0 and would otherwise return those join notices
+            # first. (B is NOT drained; its full-log read below sees everything.)
+            get(_k(f"{base}/recv?t={tok_a}&wait=1"), timeout=HTTP_TIMEOUT)
+
+            # A sends, then B sends, then a THIRD peer jacks in -- that join emits a
+            # fresh "peer-3 joined" SYSTEM notice that lands UNREAD in A's tail. So the
+            # tail past A's cursor is now: A's own post, B's post, peer-3's join
+            # notice. This lets the one filtered recv assert all three carve-outs at
+            # once: own-post hidden, other-peer-post shown, system-notice always shown.
+            post(base, tok_a, "echo from A")
+            post(base, tok_b, "reply from B")
+            tok_c = join_token(base)  # peer-3 -> emits a system join notice into the tail
+
+            # A's ?exclude_me=1 recv: must INCLUDE B's post + the (system) join
+            # notice, and EXCLUDE A's own "echo from A".
+            st_a, body_a = get(_k(f"{base}/recv?t={tok_a}&wait=1&exclude_me=1"), timeout=HTTP_TIMEOUT)
+            saw_system = "joined" in body_a  # the "peer-3 joined" system notice
+            excluded_ok = (
+                st_a == 200
+                and "reply from B" in body_a  # other peer's post -> shown
+                and saw_system  # system notice -> always passes exclude_me
+                and "echo from A" not in body_a  # own post -> hidden
+            )
+            line = (
+                f"  A ?exclude_me=1 recv -> HTTP {st_a}: {body_a.strip()[:220]} "
+                f"[others+system shown, own echo hidden: {excluded_ok}]\n"
+            )
+            print(line, end="")
+            fh.write(line)
+
+            # Cursor advanced past EVERYTHING (incl. the hidden 'echo from A'): A's
+            # FOLLOW-UP PLAIN recv (no filter) must be a 200 idle heartbeat, NOT a
+            # re-delivery of A's own skipped post. This is the read-position invariant.
+            st_a2, body_a2 = get(_k(f"{base}/recv?t={tok_a}&wait=1"), timeout=HTTP_TIMEOUT)
+            cursor_advanced = st_a2 == 200 and '"idle": true' in body_a2 and "echo from A" not in body_a2
+            line = (
+                f"  A follow-up PLAIN recv -> HTTP {st_a2}: {body_a2.strip()[:160]} "
+                f"[idle, own skipped post NOT redelivered: {cursor_advanced}]\n"
+            )
+            print(line, end="")
+            fh.write(line)
+
+            # A PLAIN recv (no filter), peer B, sees the FULL log -- both A's and B's
+            # posts. The filter is per-call and opt-in; the group log is unchanged.
+            st_b, body_b = get(_k(f"{base}/recv?t={tok_b}&wait=1"), timeout=HTTP_TIMEOUT)
+            plain_sees_both = st_b == 200 and "echo from A" in body_b and "reply from B" in body_b
+            line = f"  B plain recv (no filter) sees both posts: {plain_sees_both}\n"
+            print(line, end="")
+            fh.write(line)
+
+            passed = excluded_ok and cursor_advanced and plain_sees_both
+            verdict = (
+                "\nVERDICT: ?exclude_me=1 hides the caller's own posts while still delivering other peers' posts and ALL "
+                "system notices; the cursor advances past the skipped own-post (a plain recv does not re-deliver it); a "
+                "plain recv sees the full log. PASS -- ?exclude_me filter is advisory, cursor-safe.\n"
+                if passed
+                else "\nVERDICT: ?exclude_me filter behaved unexpectedly (see above). FAIL.\n"
+            )
+            print(verdict)
+            fh.write(verdict)
+
+            for t in (tok_a, tok_b, tok_c):
+                with contextlib.suppress(Exception):
+                    get(_k(f"{base}/unplug?t={t}"), timeout=2)
+        finally:
+            stop_relay(proc)
+    print(f"[saved] {out_path}")
+    return passed
+
+
+def proof_caught_up_send() -> bool:
+    """PROOF 29 (caught_up on the /send 200 reply): the send reply now carries
+    `caught_up` -- whether all OTHER current peers have read the message JUST posted.
+    A posts while B is behind -> the send reply's caught_up is FALSE; after B recv's
+    (its cursor advances past A's post), A posts AGAIN and the reply's caught_up is
+    TRUE (everyone else has now caught up to A's latest). This is the same predicate
+    the idle heartbeat reports, surfaced on the send round-trip itself so the sender
+    learns its message's read state without a follow-up recv. Bounded; no hang."""
+    out_path = str(Path(TDIR) / "proof_caught_up_send.txt")
+
+    proc, base = start_relay("caughtup", {"RELAY_MAX_TURNS": "40", "RELAY_MAX_SECONDS": "120", "RELAY_IDLE_WAIT": "1"})
+    assert base is not None
+    passed = False
+    with Path(out_path).open("w", buffering=1) as fh:
+        try:
+            if not wait_health(base):
+                print("relay did not come up", file=sys.stderr)
+                sys.exit(1)
+            banner(fh, "PROOF 29 - caught_up ON /send REPLY (false while a peer is behind; true once all others read)")
+
+            tok_a = join_token(base)  # peer-1, the sender
+            tok_b = join_token(base)  # peer-2, the other peer whose read state drives caught_up
+
+            # A posts. B has NOT read anything yet (its cursor is behind A's new
+            # entry), so the send reply's caught_up must be FALSE -- B has not seen
+            # A's just-posted message. We parse the JSON reply and read the bool.
+            st1, body1 = post(base, tok_a, "decision: ship it")
+            reply1 = json.loads(body1)
+            caught_false = st1 == 200 and reply1.get("caught_up") is False
+            line = (
+                f"  A send (B unread) -> HTTP {st1}: caught_up={reply1.get('caught_up')!r} "
+                f"[false while B is behind: {caught_false}]\n"
+            )
+            print(line, end="")
+            fh.write(line)
+
+            # B recv's -- this advances B's cursor PAST A's post (recv is the only
+            # cursor mover). Now every OTHER current peer has read A's latest.
+            st_b, bb = get(_k(f"{base}/recv?t={tok_b}&wait=2"), timeout=HTTP_TIMEOUT)
+            b_saw = st_b == 200 and "decision: ship it" in bb
+            line = f"  B recv (reads A's post) -> HTTP {st_b}: {bb.strip()[:120]} [saw A: {b_saw}]\n"
+            print(line, end="")
+            fh.write(line)
+
+            # A posts AGAIN. caught_up keys on the caller's LATEST authored entry, so
+            # even though B is current with A's FIRST post, this new one is unread ->
+            # the send reply's caught_up must be FALSE again. (This is why we cannot
+            # assert the TRUE case via a fresh send -- any new post is born unread; the
+            # true branch is read off the idle heartbeat below, same predicate.)
+            st2, body2 = post(base, tok_a, "follow-up: rollout at noon")
+            reply2 = json.loads(body2)
+            caught_false2 = st2 == 200 and reply2.get("caught_up") is False
+            line = (
+                f"  A send #2 (B still behind the NEW post) -> HTTP {st2}: caught_up={reply2.get('caught_up')!r} "
+                f"[false until B reads it: {caught_false2}]\n"
+            )
+            print(line, end="")
+            fh.write(line)
+
+            # B drains the follow-up so its cursor reaches A's latest authored entry.
+            st_b2, bb2 = get(_k(f"{base}/recv?t={tok_b}&wait=2"), timeout=HTTP_TIMEOUT)
+            b_saw2 = st_b2 == 200 and "rollout at noon" in bb2
+            line = f"  B recv (reads A's follow-up) -> HTTP {st_b2}: {bb2.strip()[:120]} [saw follow-up: {b_saw2}]\n"
+            print(line, end="")
+            fh.write(line)
+
+            # A drains its OWN backlog (the join notices + its own two posts are all
+            # still unread by A -- recv is the only cursor mover) so A's NEXT recv is
+            # genuinely "nothing new" and returns the idle heartbeat rather than a
+            # bare backlog array. This moves A's cursor only; it does NOT affect the
+            # caught_up predicate, which keys on B's cursor vs A's last authored entry.
+            get(_k(f"{base}/recv?t={tok_a}&wait=2"), timeout=HTTP_TIMEOUT)
+
+            # A's idle heartbeat now reports caught_up TRUE (B is current with A's
+            # latest). The idle heartbeat shares the EXACT predicate the send reply
+            # uses (_caught_up), so this confirms the true branch the send reply will
+            # report for any subsequent post once everyone is current. (Asserting it
+            # via a fresh send would itself create a new unread entry and read false;
+            # the heartbeat reads the state without mutating the log.)
+            st3, body3 = get(_k(f"{base}/recv?t={tok_a}&wait=1"), timeout=HTTP_TIMEOUT)
+            caught_true = st3 == 200 and '"idle": true' in body3 and '"caught_up": true' in body3
+            line = f"  A heartbeat after B caught up -> HTTP {st3}: {body3.strip()[:150]} [caught_up true: {caught_true}]\n"
+            print(line, end="")
+            fh.write(line)
+
+            passed = caught_false and b_saw and caught_false2 and b_saw2 and caught_true
+            verdict = (
+                "\nVERDICT: the /send 200 reply carries caught_up -- false while another peer has not read the just-posted "
+                "message, and the same predicate flips true once all other current peers have caught up. "
+                "PASS -- caught_up rides the send round-trip.\n"
+                if passed
+                else "\nVERDICT: caught_up on the send reply behaved unexpectedly (see above). FAIL.\n"
+            )
+            print(verdict)
+            fh.write(verdict)
+
+            for t in (tok_a, tok_b):
+                with contextlib.suppress(Exception):
+                    get(_k(f"{base}/unplug?t={t}"), timeout=2)
+        finally:
+            stop_relay(proc)
+    print(f"[saved] {out_path}")
+    return passed
+
+
+def proof_transcript_persist() -> bool:
+    """PROOF 30 (transcript persists on close): at relay close the full ordered log
+    is written to the transcript state file `_state_path("transcript", room)`,
+    rendered IDENTICALLY to /trace, and SURVIVES the close (it is deliberately NOT
+    removed by the cleanup that wipes the pid/port/secret files). We run a short
+    exchange, capture /trace WHILE OPEN, then close the room (last peer unplugs).
+    After close the transcript file must EXIST and its contents must equal the
+    captured /trace PLUS the closed trailer (the close appends the closed line and
+    persists, so the saved file == the open /trace + that one '--- closed: ... ---'
+    line). We use room mode so the exact transcript path is known. Bounded; no hang."""
+    out_path = str(Path(TDIR) / "proof_transcript_persist.txt")
+    sd = tempfile.mkdtemp(prefix="wire-transcript-")
+    room = "logbook"
+    passed = False
+    proc: subprocess.Popen[str] | None = None
+    with Path(out_path).open("w", buffering=1) as fh:
+        try:
+            banner(fh, "PROOF 30 - TRANSCRIPT PERSISTS ON CLOSE (== /trace + closed trailer, survives cleanup)")
+            proc, base = start_relay(
+                "transcript",
+                {"RELAY_MAX_TURNS": "40", "RELAY_MAX_SECONDS": "120", "RELAY_TOPIC": "ship the logbook"},
+                room=room,
+                statedir=sd,
+            )
+            assert base is not None
+            if not wait_health(base):
+                print("relay did not come up", file=sys.stderr)
+                sys.exit(1)
+
+            # The transcript file resolves like the other state files but with a
+            # `.transcript` ext and -- crucially -- it is NOT removed on close.
+            transcript_path = Path(sd) / f".relay.{room}.transcript"
+            line = f"  transcript file before close exists: {transcript_path.exists()} ({transcript_path})\n"
+            print(line, end="")
+            fh.write(line)
+
+            # A short two-peer exchange so the log has real content to persist.
+            tok_a = join_token(base)  # peer-1
+            tok_b = join_token(base)  # peer-2
+            post(base, tok_a, "kickoff from A")
+            post(base, tok_b, "ack from B")
+            get(_k(f"{base}/recv?t={tok_a}&wait=1"), timeout=HTTP_TIMEOUT)
+            get(_k(f"{base}/recv?t={tok_b}&wait=1"), timeout=HTTP_TIMEOUT)
+
+            # Capture /trace WHILE THE ROOM IS STILL OPEN -- this is the exact render
+            # the close path will persist (minus the closed trailer it appends).
+            st_trace, trace_open = get(_k(f"{base}/trace"), timeout=HTTP_TIMEOUT)
+            trace_ok = st_trace == 200 and "kickoff from A" in trace_open and "ack from B" in trace_open
+            line = f"  /trace (open) -> HTTP {st_trace}, {len(trace_open)} bytes [has exchange: {trace_ok}]\n"
+            print(line, end="")
+            fh.write(line)
+
+            # Close the room: last-peer-out. B then A unplug; when the last peer
+            # leaves the close funnel runs, appends the closed line, and persists the
+            # transcript under the lock.
+            get(_k(f"{base}/unplug?t={tok_b}"), timeout=2)
+            get(_k(f"{base}/unplug?t={tok_a}"), timeout=2)  # last peer out -> close
+            line = "  both peers unplugged (last peer out -> conversation must close + persist transcript)\n"
+            print(line, end="")
+            fh.write(line)
+
+            # The process self-exits on last-peer close; wait for it so the persist
+            # (done under the lock before the on-close callback) is surely flushed.
+            exited = False
+            deadline = time.time() + 5
+            while time.time() < deadline:
+                if proc.poll() is not None:
+                    exited = True
+                    break
+                time.sleep(0.1)
+            line = f"  relay process self-exited on close: {'YES' if exited else 'NO'} (exit={proc.poll()})\n"
+            print(line, end="")
+            fh.write(line)
+
+            # (1) the transcript file must EXIST after close (survives cleanup), even
+            #     though the pid/port/secret files are removed by the same close path.
+            file_exists = False
+            deadline = time.time() + 3
+            while time.time() < deadline:
+                if transcript_path.exists():
+                    file_exists = True
+                    break
+                time.sleep(0.1)
+            saved = transcript_path.read_text(encoding="utf-8") if file_exists else ""
+            line = f"  transcript file after close exists: {file_exists} ({len(saved)} bytes)\n"
+            print(line, end="")
+            fh.write(line)
+
+            # The pid/port/secret trio IS removed by close -- proves the transcript's
+            # survival is a deliberate carve-out, not "nothing was cleaned up".
+            trio = [Path(sd) / f".relay.{room}.{ext}" for ext in ("pid", "port", "secret")]
+            trio_gone = not any(p.exists() for p in trio)
+            line = f"  pid/port/secret removed by close (transcript exempt): {trio_gone}\n"
+            print(line, end="")
+            fh.write(line)
+
+            # (2) contents must equal the captured open /trace PLUS the closed
+            #     trailer. The close appends '--- closed: <reason> ---' then renders
+            #     through the SAME path as /trace, so the saved file is byte-identical
+            #     to the open /trace with exactly that one trailer line added.
+            #     trace_open already ends in a newline; the renderer joins on "\n" and
+            #     adds a final newline, so saved == trace_open + "--- closed: R ---\n".
+            has_trailer = "--- closed:" in saved
+            body_matches = file_exists and saved.startswith(trace_open) and has_trailer
+            extra = saved[len(trace_open) :] if body_matches else "<no clean prefix match>"
+            line = f"  saved == open /trace + closed trailer: {body_matches} (appended tail: {extra.strip()[:80]!r})\n"
+            print(line, end="")
+            fh.write(line)
+
+            passed = trace_ok and exited and file_exists and trio_gone and body_matches
+            verdict = (
+                "\nVERDICT: at close the full ordered log was persisted to the transcript state file -- it EXISTS after "
+                "close (while pid/port/secret were removed) and its contents equal the open /trace plus the appended "
+                "closed trailer, rendered identically to /trace. PASS -- transcript persists on close.\n"
+                if passed
+                else "\nVERDICT: transcript-persist-on-close behaved unexpectedly (see above). FAIL.\n"
+            )
+            print(verdict)
+            fh.write(verdict)
+        finally:
+            if proc is not None:
+                stop_relay(proc)
+            shutil.rmtree(sd, ignore_errors=True)  # scratch statedir; the committed proof_*.txt stays
+    print(f"[saved] {out_path}")
+    return passed
+
+
+def _get_with_headers(url: str, headers: dict[str, str], timeout: float = HTTP_TIMEOUT) -> tuple[int, str]:
+    """Like get(), but sets request headers on the urllib Request -- used to forge
+    the Host / X-Forwarded-Proto a reverse proxy would add, proving the relay
+    derives the advertised base from them. urllib honors an explicit Host header
+    verbatim (it does not re-derive it from the URL), so this exactly mimics a peer
+    arriving through a proxy."""
+    req = urllib.request.Request(url, headers=headers)
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as r:
+            return r.status, r.read().decode("utf-8", "replace")
+    except urllib.error.HTTPError as e:
+        return e.code, e.read().decode("utf-8", "replace")
+    except Exception as e:
+        return 0, str(e)
+
+
+def proof_public_base() -> bool:
+    """PROOF (public base / reverse-proxy URL): the /jack manual must advertise a
+    PUBLIC, reachable base -- not blindly reconstruct http://host:<local-port>.
+    Three cases:
+      (a) EXPLICIT override (RELAY_PUBLIC_BASE): the manual's recv AND send lines
+          use that base verbatim (https, public host), carry NO :<bound-port>, and
+          no http://127. base leaks through.
+      (b) FORWARDED-HEADER auto-detect (NO override): a /jack arriving with
+          Host: x.ngrok-free.app + X-Forwarded-Proto: https renders base
+          https://x.ngrok-free.app -- https scheme, public host, no port. This is
+          the bug fix: the old code re-appended the LOCAL port and forced http://.
+      (c) BACK-COMPAT: a normal /jack (Host 127.0.0.1:<port>, no XFP) still renders
+          http://127.0.0.1:<port> exactly as before -- LAN/localhost unchanged.
+    Bounded gets throughout -- nothing here can hang."""
+    out_path = str(Path(TDIR) / "proof_public_base.txt")
+
+    NGROK = "https://x.ngrok-free.app"
+    passed = False
+    with Path(out_path).open("w", buffering=1) as fh:
+        banner(fh, "PROOF - PUBLIC BASE (reverse-proxy / ngrok URL in the /jack manual)")
+
+        checks: list[tuple[str, bool]] = []  # (label, ok)
+
+        # --- (a) EXPLICIT override via RELAY_PUBLIC_BASE --------------------
+        # Launch with the override set; the manual must use it verbatim regardless
+        # of the local bound port. (A trailing slash is given to prove it's stripped
+        # so "{base}/recv" stays clean -- one slash, never two.)
+        proc_a, base_a = start_relay(
+            "public_base_env",
+            {"RELAY_PUBLIC_BASE": NGROK + "/", "RELAY_MAX_TURNS": "40", "RELAY_MAX_SECONDS": "120"},
+        )
+        assert base_a is not None
+        bound_port_a = base_a.rsplit(":", 1)[1]  # the LOCAL port; must NOT leak into the manual
+        try:
+            if not wait_health(base_a):
+                print("relay (override) did not come up", file=sys.stderr)
+                sys.exit(1)
+            st_a, manual_a = get(_k(f"{base_a}/jack"), timeout=HTTP_TIMEOUT)
+            recv_a = next((ln for ln in manual_a.splitlines() if "recv:" in ln and "/recv?" in ln), "")
+            send_a = next((ln for ln in manual_a.splitlines() if "send:" in ln and "/send?" in ln), "")
+            line = (
+                f"(a) RELAY_PUBLIC_BASE={NGROK!r} (local bound port {bound_port_a}); /jack -> HTTP {st_a}\n"
+                f"      recv: {recv_a.strip()}\n      send: {send_a.strip()}\n"
+            )
+            print(line, end="")
+            fh.write(line)
+            checks.append(("(a) recv uses the override base /recv", f"{NGROK}/recv?" in recv_a))
+            checks.append(("(a) send uses the override base /send", f"{NGROK}/send?" in send_a))
+            # No phantom local port appended to the override base anywhere in the manual.
+            checks.append((f"(a) no :{bound_port_a} bound-port in manual", f":{bound_port_a}" not in manual_a))
+            checks.append(("(a) no http://127. base leaked", "http://127." not in manual_a))
+            # The override is verbatim with exactly one slash before recv/send (slash stripped).
+            checks.append(("(a) trailing slash stripped (no //recv)", f"{NGROK}//" not in manual_a))
+        finally:
+            stop_relay(proc_a)
+
+        # --- (b) FORWARDED-HEADER auto-detect (NO override) ----------------
+        # No RELAY_PUBLIC_BASE: the relay must derive the base from the request's
+        # Host + X-Forwarded-Proto, exactly as a peer arriving through ngrok sends.
+        proc_b, base_b = start_relay("public_base_xfp", {"RELAY_MAX_TURNS": "40", "RELAY_MAX_SECONDS": "120"})
+        assert base_b is not None
+        bound_port_b = base_b.rsplit(":", 1)[1]
+        try:
+            if not wait_health(base_b):
+                print("relay (xfp) did not come up", file=sys.stderr)
+                sys.exit(1)
+            st_b, manual_b = _get_with_headers(
+                _k(f"{base_b}/jack"),
+                {"Host": "x.ngrok-free.app", "X-Forwarded-Proto": "https"},
+                timeout=HTTP_TIMEOUT,
+            )
+            recv_b = next((ln for ln in manual_b.splitlines() if "recv:" in ln and "/recv?" in ln), "")
+            send_b = next((ln for ln in manual_b.splitlines() if "send:" in ln and "/send?" in ln), "")
+            line = (
+                f"(b) NO override; request Host: x.ngrok-free.app + X-Forwarded-Proto: https "
+                f"(local bound port {bound_port_b}); /jack -> HTTP {st_b}\n"
+                f"      recv: {recv_b.strip()}\n      send: {send_b.strip()}\n"
+            )
+            print(line, end="")
+            fh.write(line)
+            # Derived base = https://x.ngrok-free.app : https scheme, public host, NO port.
+            checks.append(("(b) recv derives https://x.ngrok-free.app", f"{NGROK}/recv?" in recv_b))
+            checks.append(("(b) send derives https://x.ngrok-free.app", f"{NGROK}/send?" in send_b))
+            checks.append(("(b) https scheme honored (no http://x.ngrok)", "http://x.ngrok-free.app" not in manual_b))
+            checks.append((f"(b) no :{bound_port_b} bound-port appended", f":{bound_port_b}" not in manual_b))
+        finally:
+            stop_relay(proc_b)
+
+        # --- (c) BACK-COMPAT: plain /jack, no override, no XFP -------------
+        # The harness's own get() sends Host: 127.0.0.1:<port> and no XFP, exactly
+        # like a direct LAN/localhost client -- the base must be byte-identical to
+        # today: http://127.0.0.1:<bound-port>.
+        proc_c, base_c = start_relay("public_base_plain", {"RELAY_MAX_TURNS": "40", "RELAY_MAX_SECONDS": "120"})
+        assert base_c is not None
+        bound_port_c = base_c.rsplit(":", 1)[1]
+        expect_c = f"http://127.0.0.1:{bound_port_c}"
+        try:
+            if not wait_health(base_c):
+                print("relay (plain) did not come up", file=sys.stderr)
+                sys.exit(1)
+            st_c, manual_c = get(_k(f"{base_c}/jack"), timeout=HTTP_TIMEOUT)
+            recv_c = next((ln for ln in manual_c.splitlines() if "recv:" in ln and "/recv?" in ln), "")
+            send_c = next((ln for ln in manual_c.splitlines() if "send:" in ln and "/send?" in ln), "")
+            line = (
+                f"(c) NO override, no XFP (direct localhost, bound port {bound_port_c}); /jack -> HTTP {st_c}\n"
+                f"      recv: {recv_c.strip()}\n      send: {send_c.strip()}\n"
+                f"      expected base: {expect_c}\n"
+            )
+            print(line, end="")
+            fh.write(line)
+            checks.append(("(c) recv base unchanged http://127.0.0.1:<port>", f"{expect_c}/recv?" in recv_c))
+            checks.append(("(c) send base unchanged http://127.0.0.1:<port>", f"{expect_c}/send?" in send_c))
+        finally:
+            stop_relay(proc_c)
+
+        all_ok = True
+        for label, ok in checks:
+            all_ok = all_ok and ok
+            ln = f"  {label}: {'OK' if ok else 'FAIL'}\n"
+            print(ln, end="")
+            fh.write(ln)
+
+        passed = all_ok
+        verdict = (
+            "\nVERDICT: the /jack manual advertises a correct PUBLIC base -- a RELAY_PUBLIC_BASE override is used "
+            "verbatim, a forwarded Host + X-Forwarded-Proto auto-derives https://host with no phantom port, and a "
+            "plain localhost jack is byte-identical to before. PASS -- works behind ngrok / a TLS proxy.\n"
+            if passed
+            else "\nVERDICT: advertised base behaved unexpectedly (see FAILs above). FAIL.\n"
+        )
+        print(verdict)
+        fh.write(verdict)
+    print(f"[saved] {out_path}")
+    return passed
+
+
 if __name__ == "__main__":
     Path(TDIR).mkdir(parents=True, exist_ok=True)
     which = sys.argv[1] if len(sys.argv) > 1 else "all"
@@ -3295,6 +3772,14 @@ if __name__ == "__main__":
             results["floor_advisory_nonblocking"] = proof_floor_advisory_nonblocking()
         if which in ("all", "floor", "floorreap"):
             results["floor_holder_reaped"] = proof_floor_holder_reaped()
+        if which in ("all", "exclude_me"):
+            results["exclude_me"] = proof_exclude_me()
+        if which in ("all", "caught_up_send"):
+            results["caught_up_send"] = proof_caught_up_send()
+        if which in ("all", "transcript_persist"):
+            results["transcript_persist"] = proof_transcript_persist()
+        if which in ("all", "public_base"):
+            results["public_base"] = proof_public_base()
         if which in ("all", "safety"):
             proof_safety()
         if results:

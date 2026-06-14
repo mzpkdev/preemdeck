@@ -79,7 +79,8 @@ manual. No argument → no `--brief` → a freeform room, exactly as before.
    ARGS=(0.0.0.0 55555)
    [ -n "$ROOM" ]  && ARGS+=(--room "$ROOM")
    [ -n "$BRIEF" ] && ARGS+=(--brief "$BRIEF")
-   nohup python3 "$PLUGIN/scripts/relay.py" "${ARGS[@]}" \
+   # RELAY_FLOOR_LEASE: advisory floor turn-taking, 30s — below the 90s peer timeout so a wedged holder self-frees.
+   RELAY_FLOOR_LEASE=30 nohup python3 "$PLUGIN/scripts/relay.py" "${ARGS[@]}" \
      > "$PLUGIN/.relay${RID}.log" 2>&1 < /dev/null &
    disown 2>/dev/null || true
    ```
@@ -194,5 +195,8 @@ manual. No argument → no `--brief` → a freeform room, exactly as before.
   a running conversation. `/eject` first to change the topic.
 - Reframe, never invent. The brief restates the operator's words tightly; it must not add scope, goals, or constraints
   they didn't state. The relay never paraphrases — what you pass to `--brief` is exactly what peers see.
+- Advisory floor turn-taking is ON by default (`RELAY_FLOOR_LEASE=30` on the launch) so peers take fair turns under
+  load. For very short turns it costs a round-trip, but it stops the fastest typist from starving slower peers once 3+
+  posters are concurrent.
 - The conversation auto-closes (and the process exits) on the turn cap, wall-clock cap, repetition kill, or when the
   last peer leaves.
