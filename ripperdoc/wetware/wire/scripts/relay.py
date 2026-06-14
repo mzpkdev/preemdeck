@@ -84,7 +84,7 @@ need another conversation, run `uplink` again.
 ENDPOINTS  (all but /health require ?k=<secret>)
 ---------
   GET  /jack?k=<secret>                   -> mint token+handle, return MANUAL (text)
-  GET  /recv?t=<token>&k=<secret>&wait=<s> -> LONG-POLL for new messages (JSON / 204)
+  GET  /recv?t=<token>&k=<secret>&wait=<s> -> LONG-POLL for new messages (JSON; 200 idle heartbeat when quiet)
   POST /send?t=<token>&k=<secret>         -> append a message to the shared log
   GET  /unplug?t=<token>&k=<secret>&reason=... -> this peer leaves (others continue)
   GET  /trace?k=<secret>                  -> full ordered log as plain text
@@ -136,6 +136,15 @@ REPEAT_WINDOW = int(os.environ.get("RELAY_REPEAT_WINDOW", "3"))  # N consecutive
 # Long-poll bounds. A client may ask for a shorter wait; we clamp to the cap.
 DEFAULT_WAIT = int(os.environ.get("RELAY_DEFAULT_WAIT", "600"))  # default /recv block (s)
 MAX_WAIT = int(os.environ.get("RELAY_MAX_WAIT", "600"))  # hard cap on /recv block (s)
+
+# The server's OWN idle ceiling for a /recv long-poll: how long the relay parks a
+# quiet /recv before answering with a 200 idle heartbeat (NOT a 204, NOT a dropped
+# socket). This MUST stay comfortably BELOW the client's curl --max-time so a
+# healthy-but-quiet relay always wins the race and never looks like a dead
+# connection (curl exit 28). Env-tunable like the other RELAY_* knobs; the verify
+# harness sets it to ~1-2s so idle proofs run fast. Clamped to a sane upper cap so
+# a fat env value can't push it past what a client would wait for.
+IDLE_WAIT = min(int(os.environ.get("RELAY_IDLE_WAIT", "25")), 120)  # server idle ceiling (s)
 
 # --- State files: dir + per-room infix -------------------------------------
 # The three state files (pid/port/secret) live next to the plugin (wire/), not in
@@ -359,7 +368,16 @@ class Conversation:
 
     def send(self, token: str, body: str) -> tuple[int, dict]:
         """Append a peer's message to the shared log and wake all long-pollers.
-        Enforces the caps. Returns (http_status, json_payload)."""
+        Enforces the caps. Returns (http_status, json_payload).
+
+        On a successful append the response also carries CROSS-DETECTION fields:
+        `missed` is every log entry the caller has not yet recv'd (seq > its read
+        cursor) authored by SOMEONE ELSE -- i.e. posts that crossed the wire with
+        this one -- in order, same shape as recv entries; `crossed` is just
+        bool(missed). This is informational ONLY: it does NOT advance the caller's
+        read cursor. recv stays the SOLE mover of a peer's read position, so every
+        `missed` entry is STILL delivered on the caller's next recv. Echo informs;
+        recv delivers."""
         with self.lock:
             peer = self.peers.get(token)
             if peer is None:
@@ -403,9 +421,50 @@ class Conversation:
             # Wake everyone parked on /recv: there is new content (this post,
             # and possibly a closure notice) for them to drain.
             self.cond.notify_all()
-            return 200, {"ok": True, "seq": entry["seq"], "handle": peer["handle"]}
+
+            # Cross-detection: others' posts the caller hasn't recv'd yet (seq
+            # past its cursor, authored by someone else). The caller's own just-
+            # appended entry is excluded by the handle check. We deliberately do
+            # NOT touch peer["cursor"] -- recv remains the only cursor mover, so
+            # these entries are still delivered on the caller's next recv.
+            cur = peer["cursor"]
+            missed = [
+                {"seq": e["seq"], "handle": e["handle"], "body": e["body"], "ts": e["ts"]}
+                for e in self.log
+                if e["seq"] > cur and e["handle"] != peer["handle"]
+            ]
+            return 200, {
+                "ok": True,
+                "seq": entry["seq"],
+                "handle": peer["handle"],
+                "crossed": bool(missed),
+                "missed": missed,
+            }
 
     # -- recv (long-poll read) --------------------------------------------
+
+    def _caught_up(self, peer: dict) -> bool:
+        """Has every OTHER connected peer already read this peer's latest post?
+        Called with self.lock held. True iff every other peer's cursor is >= the
+        seq of this caller's last authored (non-system) log entry -- i.e. everyone
+        has seen the caller's most recent message. Edge cases that count as caught
+        up: the caller has never posted (nothing to be behind on), or the caller is
+        the only peer here (no one else to be waiting on)."""
+        # Find the caller's last authored (non-system) entry by scanning back.
+        my_handle = peer["handle"]
+        last_mine = 0
+        for e in reversed(self.log):
+            if not e["sys"] and e["handle"] == my_handle:
+                last_mine = e["seq"]
+                break
+        if last_mine == 0:
+            return True  # never posted -> nobody can be behind on us
+        for other in self.peers.values():
+            if other is peer:
+                continue
+            if other["cursor"] < last_mine:
+                return False
+        return True
 
     def recv(self, token: str, wait: float) -> tuple[int, object]:
         """LONG-POLL. Block up to `wait` seconds until the log has entries past
@@ -417,13 +476,19 @@ class Conversation:
                                  -- the conversation is CLOSED and this peer has
                                     already drained the log. An UNAMBIGUOUS
                                     terminal signal: the client must stop.
-          * (204, None)          -- long-poll timed out with nothing new on a
-                                    STILL-OPEN conversation. The client re-runs.
+          * (200, {"idle": True, "cursor": N, "peers": M, "caught_up": BOOL})
+                                 -- the long-poll timed out with nothing new on a
+                                    STILL-OPEN conversation. A 200 HEARTBEAT (not
+                                    a 204, not a dropped socket): cursor is the
+                                    caller's read position, peers the connected
+                                    count, caught_up whether everyone else has
+                                    seen the caller's latest post. The client just
+                                    re-runs recv.
 
-        The closed case never blocks and never returns the ambiguous 204 (which
-        also means "timed out, retry"): once closed, /recv returns the closed
-        payload immediately so no waiter can hang and no client is tricked into
-        re-polling a dead conversation. This is the deadlock fix.
+        The closed case never blocks and never returns the idle heartbeat: once
+        closed, /recv returns the closed payload immediately so no waiter can hang
+        and no client is tricked into re-polling a dead conversation. This is the
+        deadlock fix.
 
         This is the heart of the "peer side stays trivial" promise: the server
         holds the connection open and holds the cursor, so the agent just
@@ -463,7 +528,15 @@ class Conversation:
                 # parked wakes us -- the wake is never lost.
                 remaining = deadline - time.time()
                 if remaining <= 0:
-                    return 204, None  # long-poll timed out with nothing new
+                    # Timed out with nothing new on a STILL-OPEN conversation.
+                    # Answer with a 200 idle HEARTBEAT (not a 204): the client
+                    # learns the relay is alive + quiet and just re-runs recv.
+                    return 200, {
+                        "idle": True,
+                        "cursor": peer["cursor"],
+                        "peers": len(self.peers),
+                        "caught_up": self._caught_up(peer),
+                    }
                 self.cond.wait(timeout=remaining)
 
     # -- trace -------------------------------------------------------------
@@ -538,11 +611,21 @@ HOW TO PARTICIPATE (this is your job until the task is done):
   something to add, run send, then run recv again. Repeat. That re-running of
   recv is the entire loop -- no script needed.
 
-  (recv returns HTTP 204 with no body if nothing new arrived before it timed
-  out. That is normal -- just run recv again.)
+  (If nothing new arrives for ~25s, recv returns a 200 idle HEARTBEAT -- a JSON
+  object {{"idle": true, "cursor": N, "peers": M, "caught_up": <bool>}} -- so a
+  quiet line never looks like a dropped connection. That is normal: just run recv
+  again. The recv command's --max-time is well above that window, so the server
+  always answers first. caught_up tells you whether everyone else has read your
+  latest post yet.)
 
   Note: recv returns ALL new messages including your OWN posts -- ignore your
   own and respond to others'.
+
+  send's reply also reports crossings: {{"ok": true, "seq": S, "handle": H,
+  "crossed": <bool>, "missed": [ ...entries... ]}}. If someone posted while you
+  were typing, `crossed` is true and `missed` lists those posts. You don't need
+  to act on it -- your next recv still delivers every one of them -- but it lets
+  you notice you replied without seeing their message.
 
   If recv ever returns a conversation-closed system message (a JSON object with
   a `system` field, e.g. {{"system": "conversation closed: ..."}}), the
@@ -587,12 +670,6 @@ class Handler(BaseHTTPRequestHandler):
 
     def _json(self, status: int, obj: Any) -> None:
         self._send(status, json.dumps(obj).encode("utf-8"), "application/json")
-
-    def _no_content(self) -> None:
-        # 204: explicitly zero-length so HTTP/1.1 keep-alive framing is clean.
-        self.send_response(204)
-        self.send_header("Content-Length", "0")
-        self.end_headers()
 
     # -- the host:port to advertise in manuals. We use the Host header the
     # client actually reached us on when present (so a LAN IP shows up
@@ -648,8 +725,6 @@ class Handler(BaseHTTPRequestHandler):
                 return self._json(400, {"ok": False, "error": "missing ?t=<token>"})
             wait = self._clamp_wait(qs.get("wait", [str(DEFAULT_WAIT)])[0])
             status, payload = CONVO.recv(token, wait)
-            if status == 204:
-                return self._no_content()
             return self._json(status, payload)
 
         if path == "/unplug":
@@ -720,7 +795,12 @@ class Handler(BaseHTTPRequestHandler):
             w = float(raw)
         except (ValueError, TypeError):
             w = DEFAULT_WAIT
-        return max(0.0, min(w, MAX_WAIT))  # clamp to [0, hard cap]
+        # Clamp to [0, IDLE_WAIT]: the server's idle ceiling wins even when the
+        # client asks for the legacy 600s, so a quiet recv returns a 200 idle
+        # heartbeat at ~IDLE_WAIT (well under the client's curl --max-time) rather
+        # than holding the socket until it looks dropped. MAX_WAIT stays the
+        # absolute backstop in case IDLE_WAIT is ever raised above it.
+        return max(0.0, min(w, IDLE_WAIT, MAX_WAIT))
 
 
 # NOTE: the pid is written by _claim_pidfile_lock() (the O_EXCL lock claim in

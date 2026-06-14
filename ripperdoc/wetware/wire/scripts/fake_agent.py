@@ -120,16 +120,24 @@ def normalize_recv(text: str) -> list[dict[str, Any]]:
 
       * a JSON ARRAY of message entries (the normal "here are new messages"
         reply), or
+      * a JSON OBJECT {"idle": true, "cursor": N, "peers": M, "caught_up": B}
+        -- the IDLE HEARTBEAT a quiet long-poll returns instead of holding the
+        socket until it looks dropped. Nothing new arrived, so we map it to an
+        EMPTY list: the caller logs nothing and just runs recv again (the old
+        204 semantics, now a 200 payload), or
       * a JSON OBJECT {"system": "conversation closed: <reason>"} -- the
         relay's UNAMBIGUOUS terminal signal for an already-closed, drained
-        conversation (the deadlock fix: instead of an ambiguous 204, a closed
-        conversation says so explicitly so the agent stops instead of re-polling
-        forever).
+        conversation (instead of an ambiguous 204, a closed conversation says so
+        explicitly so the agent stops instead of re-polling forever).
 
-    Either way the caller gets a list it can log and run terminal_signal over,
-    so the closed notice is never silently swallowed."""
+    The caller gets a list it can log and run terminal_signal over, so the closed
+    notice is never silently swallowed and the idle heartbeat never looks like a
+    message."""
     obj = json.loads(text)
     if isinstance(obj, dict):
+        if obj.get("idle"):
+            # Idle heartbeat -> nothing actionable; behave like the old 204.
+            return []
         # The explicit closed payload (or any single system object). Present it
         # as a one-element system message list.
         return [{"handle": "system", "body": obj.get("system", json.dumps(obj))}]

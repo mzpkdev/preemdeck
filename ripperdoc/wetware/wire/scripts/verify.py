@@ -579,12 +579,13 @@ def proof_backlog() -> bool:
     backlog -- immediately, NOT block/timeout. This is the host-says-hi-then-
     hands-over-the-jack-URL case: a late joiner has to catch up on its first
     read. We use a SHORT bounded wait (wait=2) so even a regression (cursor
-    starting at the log's end -> nothing to return) surfaces as a quick 204,
-    never a hang."""
+    starting at the log's end -> nothing to return) surfaces as a quick 200 idle
+    heartbeat, never a hang."""
     out_path = str(Path(TDIR) / "proof_backlog.txt")
 
     # Generous caps so A's single 'hello' can't trip a close before B reads it.
-    proc, base = start_relay("backlog", {"RELAY_MAX_TURNS": "40", "RELAY_MAX_SECONDS": "120"})
+    # Low idle wait so the bounded "nothing new" scan returns its 200 heartbeat fast.
+    proc, base = start_relay("backlog", {"RELAY_MAX_TURNS": "40", "RELAY_MAX_SECONDS": "120", "RELAY_IDLE_WAIT": "2"})
     assert base is not None
     passed = False
     with Path(out_path).open("w", buffering=1) as fh:
@@ -627,14 +628,182 @@ def proof_backlog() -> bool:
             print(verdict)
             fh.write(verdict)
 
-            # Sanity: B's SECOND scan (bounded, nothing new) should now 204 -- the
-            # cursor advanced past the backlog, so it doesn't re-deliver 'hello'.
-            status2, _ = get(_k(f"{base}/recv?t={tok_b}&wait=1"), timeout=HTTP_TIMEOUT)
-            line = f"  B second scan (should be 204, no re-delivery) -> HTTP {status2}\n"
+            # Sanity: B's SECOND scan (bounded, nothing new) now returns the 200
+            # idle heartbeat -- the cursor advanced past the backlog, so 'hello' is
+            # NOT re-delivered; instead we get {"idle": true, ...}.
+            status2, body2 = get(_k(f"{base}/recv?t={tok_b}&wait=1"), timeout=HTTP_TIMEOUT)
+            idle_ok = status2 == 200 and '"idle": true' in body2 and "hello, lets discuss X" not in body2
+            line = (
+                f"  B second scan (should be 200 idle, no re-delivery) -> HTTP {status2}: "
+                f"{body2.strip()[:120]} [{'OK' if idle_ok else 'FAIL'}]\n"
+            )
+            print(line, end="")
+            fh.write(line)
+            passed = passed and idle_ok
+
+            # Leave cleanly so the relay closes and self-exits (no stray process).
+            get(_k(f"{base}/unplug?t={tok_a}"), timeout=2)
+            get(_k(f"{base}/unplug?t={tok_b}"), timeout=2)
+        finally:
+            stop_relay(proc)
+    print(f"[saved] {out_path}")
+    return passed
+
+
+def proof_idle() -> bool:
+    """PROOF 9 (idle heartbeat + caught_up): a quiet /recv must return a 200 idle
+    payload {"idle": true, "cursor": N, "peers": M, "caught_up": <bool>} -- never a
+    204, never a dropped socket. We also prove caught_up tracks read state: peer A
+    posts; while peer B has NOT yet read it, A's idle shows caught_up:false (B is
+    behind A's latest); after B recv's that post, A's idle shows caught_up:true
+    (everyone has seen A's latest). We run the relay with a low RELAY_IDLE_WAIT so
+    the idle returns fast instead of sitting the full ~25s default."""
+    out_path = str(Path(TDIR) / "proof_idle.txt")
+
+    # Low idle wait so each "nothing new" scan returns its heartbeat in ~1s.
+    proc, base = start_relay("idle", {"RELAY_MAX_TURNS": "40", "RELAY_MAX_SECONDS": "120", "RELAY_IDLE_WAIT": "1"})
+    assert base is not None
+    passed = False
+    with Path(out_path).open("w", buffering=1) as fh:
+        try:
+            if not wait_health(base):
+                print("relay did not come up", file=sys.stderr)
+                sys.exit(1)
+            banner(fh, "PROOF 9 - IDLE HEARTBEAT (quiet recv -> 200 {idle:true,...}; caught_up tracks reads)")
+
+            # Two peers. A will post; B is the "other" peer whose read state drives
+            # A's caught_up. Each drains the empty backlog first so neither has
+            # anything pending and later idle scans are genuinely "nothing new".
+            tok_a = join_token(base)
+            tok_b = join_token(base)
+
+            # A's very first quiet scan: no posts at all yet -> idle, and caught_up
+            # is true (A has never posted, so nobody can be behind it).
+            st0, b0 = get(_k(f"{base}/recv?t={tok_a}&wait=1"), timeout=HTTP_TIMEOUT)
+            idle_shape = st0 == 200 and '"idle": true' in b0 and '"cursor":' in b0 and '"peers":' in b0
+            never_posted_caught = idle_shape and '"caught_up": true' in b0
+            line = f"  A idle before any post -> HTTP {st0}: {b0.strip()[:140]}\n"
             print(line, end="")
             fh.write(line)
 
-            # Leave cleanly so the relay closes and self-exits (no stray process).
+            # A posts. B has NOT read it yet (B's cursor is behind A's new entry).
+            st_send, _ = post(base, tok_a, "ping from A")
+            line = f"  A posts 'ping from A' -> HTTP {st_send}\n"
+            print(line, end="")
+            fh.write(line)
+
+            # A drains its OWN post so A's next scan is genuinely "nothing new" and
+            # returns the idle heartbeat. This advances A's cursor only -- B is
+            # still at 0, behind A's post, which is what caught_up keys on.
+            get(_k(f"{base}/recv?t={tok_a}&wait=2"), timeout=HTTP_TIMEOUT)
+
+            # A's idle now: B is behind A's latest post -> caught_up must be FALSE.
+            st1, b1 = get(_k(f"{base}/recv?t={tok_a}&wait=1"), timeout=HTTP_TIMEOUT)
+            caught_false = st1 == 200 and '"idle": true' in b1 and '"caught_up": false' in b1
+            line = f"  A idle while B unread -> HTTP {st1}: {b1.strip()[:140]} [caught_up false: {caught_false}]\n"
+            print(line, end="")
+            fh.write(line)
+
+            # B now recv's -- this advances B's cursor PAST A's post.
+            st_b, bb = get(_k(f"{base}/recv?t={tok_b}&wait=2"), timeout=HTTP_TIMEOUT)
+            b_saw = st_b == 200 and "ping from A" in bb
+            line = f"  B recv (reads A's post) -> HTTP {st_b}: {bb.strip()[:120]} [saw A: {b_saw}]\n"
+            print(line, end="")
+            fh.write(line)
+
+            # A's idle again: B has now seen A's latest -> caught_up must be TRUE.
+            st2, b2 = get(_k(f"{base}/recv?t={tok_a}&wait=1"), timeout=HTTP_TIMEOUT)
+            caught_true = st2 == 200 and '"idle": true' in b2 and '"caught_up": true' in b2
+            line = f"  A idle after B read -> HTTP {st2}: {b2.strip()[:140]} [caught_up true: {caught_true}]\n"
+            print(line, end="")
+            fh.write(line)
+
+            passed = idle_shape and never_posted_caught and caught_false and b_saw and caught_true
+            verdict = (
+                "\nVERDICT: quiet recv returns 200 idle payload; caught_up is false while a peer "
+                "is behind and true once it catches up. PASS -- idle heartbeat + caught_up correct.\n"
+                if passed
+                else "\nVERDICT: idle heartbeat / caught_up behaved unexpectedly (see above). FAIL.\n"
+            )
+            print(verdict)
+            fh.write(verdict)
+
+            get(_k(f"{base}/unplug?t={tok_a}"), timeout=2)
+            get(_k(f"{base}/unplug?t={tok_b}"), timeout=2)
+        finally:
+            stop_relay(proc)
+    print(f"[saved] {out_path}")
+    return passed
+
+
+def proof_cross() -> bool:
+    """PROOF 10 (send-echo / cross detection): peer A posts; peer B -- whose read
+    cursor is still BEHIND A's post -- then posts. B's /send response must carry
+    crossed:true with A's message in `missed` (others' posts B hasn't recv'd yet).
+    CRUCIALLY, the echo must NOT advance B's read cursor: we then prove B's NEXT
+    recv still delivers A's message. Echo informs; recv delivers -- recv stays the
+    sole cursor mover. Bounded throughout; no hang."""
+    out_path = str(Path(TDIR) / "proof_cross.txt")
+
+    proc, base = start_relay("cross", {"RELAY_MAX_TURNS": "40", "RELAY_MAX_SECONDS": "120", "RELAY_IDLE_WAIT": "2"})
+    assert base is not None
+    passed = False
+    with Path(out_path).open("w", buffering=1) as fh:
+        try:
+            if not wait_health(base):
+                print("relay did not come up", file=sys.stderr)
+                sys.exit(1)
+            banner(fh, "PROOF 10 - SEND-ECHO (cross detection; echo does NOT move the cursor)")
+
+            tok_a = join_token(base)
+            tok_b = join_token(base)
+
+            # A posts first. B has NOT recv'd anything yet -> B's cursor is at 0,
+            # behind A's entry. So when B posts, A's message crossed the wire.
+            st_a, _ = post(base, tok_a, "A says hi")
+            line = f"  A posts 'A says hi' -> HTTP {st_a}\n"
+            print(line, end="")
+            fh.write(line)
+
+            # B posts WITHOUT having recv'd. Its send response must flag the cross
+            # and list A's message in `missed`, same shape as recv entries.
+            st_b, body_b = post(base, tok_b, "B says hi")
+            crossed_ok = (
+                st_b == 200
+                and '"crossed": true' in body_b
+                and '"missed":' in body_b
+                and "A says hi" in body_b
+                and '"ok": true' in body_b  # existing fields preserved
+                and '"seq":' in body_b
+                and '"handle":' in body_b
+            )
+            # B's own message must NOT appear in its own missed list.
+            own_excluded = "B says hi" not in body_b.split('"missed"')[1]
+            line = f"  B posts 'B says hi' -> HTTP {st_b}: {body_b.strip()[:200]}\n"
+            print(line, end="")
+            fh.write(line)
+            line = f"  crossed:true with A in missed: {crossed_ok}; B's own post excluded from missed: {own_excluded}\n"
+            print(line, end="")
+            fh.write(line)
+
+            # THE cursor-invariant: the echo must NOT have advanced B's read cursor.
+            # B's next recv must STILL deliver A's message (and B's own post too).
+            st_r, body_r = get(_k(f"{base}/recv?t={tok_b}&wait=2"), timeout=HTTP_TIMEOUT)
+            redelivered = st_r == 200 and "A says hi" in body_r
+            line = f"  B recv after its send -> HTTP {st_r}: {body_r.strip()[:200]} [A redelivered: {redelivered}]\n"
+            print(line, end="")
+            fh.write(line)
+
+            passed = crossed_ok and own_excluded and redelivered
+            verdict = (
+                "\nVERDICT: B's send reported crossed:true with A's missed message, and B's cursor was "
+                "NOT advanced -- recv still delivered A's post. PASS -- send-echo informs, recv delivers.\n"
+                if passed
+                else "\nVERDICT: send-echo / cursor invariant behaved unexpectedly (see above). FAIL.\n"
+            )
+            print(verdict)
+            fh.write(verdict)
+
             get(_k(f"{base}/unplug?t={tok_a}"), timeout=2)
             get(_k(f"{base}/unplug?t={tok_b}"), timeout=2)
         finally:
@@ -1016,6 +1185,10 @@ if __name__ == "__main__":
             proof_group()
         if which in ("all", "backlog"):
             results["backlog"] = proof_backlog()
+        if which in ("all", "idle"):
+            results["idle"] = proof_idle()
+        if which in ("all", "cross"):
+            results["cross"] = proof_cross()
         if which in ("all", "brief"):
             results["brief"] = proof_brief()
         if which in ("all", "gate"):
