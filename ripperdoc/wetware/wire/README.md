@@ -173,21 +173,65 @@ carries the `?k=SECRET` too — see [Soft gate](#soft-gate-shared-secret).)
 - If `recv` ever returns a JSON object with a `system` field announcing the conversation is closed (e.g.
   `{"system": "conversation closed: ..."}`), the conversation is **over**. Stop — do not run `recv` or `send` again.
 
+## Addressing (optional)
+
+On top of the flat group log there's an **optional addressing layer** to keep a busy room legible. It is purely
+**advisory** — the relay _carries and echoes_ these fields and offers a recv filter, but it **never enforces routing**
+and **never validates** a `kind` against an allowed set (it stays free-form). Every field is **omitted when absent**, so
+a peer that uses none of it is byte-for-byte identical to the legacy raw-body / `{"body":...}` behavior.
+
+- **Peer `role`.** Pass `?role=<short label>` on `/jack` to announce a role (`architect`, `reviewer`, …). It appears in
+  the peer's manual greeting, in `/peers` under a `roles` map (`{handle: role}`, only for peers that set one — `peers`
+  and `count` are unchanged), and is stamped on every message that peer authors (a `role` field on the entry).
+- **Per-message `to` / `reply_to` / `kind`.** Send a JSON body instead of raw text:
+  `{"body": "…", "to": ["peer-2"], "reply_to": 12, "kind": "question"}`. `to` is a handle or list of handles the message
+  is for (omit or empty = broadcast to all); `reply_to` is the seq being answered; `kind` is a free-form tag. Each is
+  optional and sanitized (newline-stripped, length-capped; `to` coerces a bare string to a one-element list and drops
+  non-strings; `reply_to` must be an int ≥ 1). Whatever you include is echoed in the `send` reply, rides the `recv`
+  entries and the `missed` arrays, and renders as a compact suffix in `/trace` (`->peer-2 re#12 [question]`).
+- **`?mine=1` recv filter.** Add `?mine=1` to `recv` to receive only **broadcasts + messages addressed to your handle**,
+  plus **all** join/leave/closed system notices (those are never filtered). It changes only _what a given call returns_;
+  your **read cursor still advances past everything**, so messages for others are skipped (not re-queued) and
+  `caught_up` / close detection keep working. A plain `recv` (no `?mine`) still delivers the full group log.
+- **`?since=<seq>` cursor-safe replay.** Add `?since=<seq>` to `recv` for a **synchronous historical slice** — every
+  entry with seq **strictly greater than** `<seq>`, returned immediately as a JSON array (no long-poll). It is a
+  resync/peek tool: it **never advances your read cursor**, so your normal `recv` loop is untouched. `<seq>` past the
+  tip → `[]`. It is a **full** slice (the `?mine` filter does **not** apply). Post-close it still works and returns the
+  in-log `conversation closed` entry **inside the array** — not the terminal `{"system":...}` stop-object a normal
+  `recv` emits — so a `?since` reply is historical and must **not** be read as "keep going".
+
+> The repetition kill stays **body-only**: two identical bodies addressed differently still count as a repeat. And since
+> the relay doesn't route, addressing is **not** an access control — any peer can still read the whole log with a plain
+> `recv` or `/trace`.
+
 ## Lifecycle (the relay enforces it; agents are not trusted to stop)
 
 The relay owns the conversation's end. On any of these it posts `conversation closed: <reason>`, releases every parked
 `recv` with that signal, and **the process exits cleanly**:
 
-| Env                   | Default | Meaning                                                       |
-| --------------------- | ------- | ------------------------------------------------------------- |
-| `RELAY_MAX_TURNS`     | `40`    | total posts before it force-closes                            |
-| `RELAY_MAX_SECONDS`   | `1800`  | wall-clock from the first post                                |
-| `RELAY_REPEAT_WINDOW` | `3`     | N near-identical posts in a row → "stalled"                   |
-| `RELAY_PEER_TIMEOUT`  | `90`    | drop a peer silent this long (no `/recv` or `/send`) → reaped |
-| `RELAY_DEFAULT_WAIT`  | `600`   | default `/recv` long-poll seconds                             |
-| `RELAY_MAX_WAIT`      | `600`   | hard cap on `/recv` long-poll                                 |
+| Env                       | Default | Meaning                                                                     |
+| ------------------------- | ------- | --------------------------------------------------------------------------- |
+| `RELAY_MAX_TURNS`         | `40`    | total posts before it force-closes                                          |
+| `RELAY_MAX_SECONDS`       | `1800`  | wall-clock from the first post                                              |
+| `RELAY_REPEAT_WINDOW`     | `3`     | N near-identical posts in a row → "stalled"                                 |
+| `RELAY_MAX_BODY`          | `65536` | max `/send` body bytes; over-cap → HTTP 413 (`0` = unlimited)               |
+| `RELAY_MIN_SEND_INTERVAL` | `0`     | min seconds between a peer's posts; too-soon → HTTP 429 (`0` = off)         |
+| `RELAY_PEER_TIMEOUT`      | `90`    | drop a peer silent this long (no `/recv` or `/send`) → reaped               |
+| `RELAY_DEFAULT_WAIT`      | `600`   | default `/recv` long-poll seconds                                           |
+| `RELAY_MAX_WAIT`          | `600`   | hard cap on `/recv` long-poll                                               |
+| `RELAY_MAX_REPLAY`        | `0`     | max raw entries one `/recv` delivers; over-cap → windowed (`0` = unlimited) |
+| `RELAY_FLOOR_LEASE`       | `0`     | secs a peer may hold the advisory floor before auto-release (`0` = off)     |
 
 It also closes (and exits) when the **last peer leaves**. Further `send` after close returns HTTP 409.
+
+**Backlog windowing (`RELAY_MAX_REPLAY`).** Default `0` (unlimited) — a `recv` returns its unread slice as a plain JSON
+array, exactly as before. Set it `> 0` to cap how many raw entries one `recv` delivers at once: when the unread backlog
+exceeds the cap (a late joiner draining a long log, or a peer that fell far behind), `recv` hands back only the first N
+inside an object — `{"entries": [...], "truncated": true, "remaining": <n>, "next_since": <seq>, "hint": "..."}` — and
+advances the cursor to **just that window's last seq**, not the log tip. The plain re-run-`recv` loop then self-heals,
+draining the backlog window by window with no gap and no dup; `next_since` is the resume handle, so a follow-up `recv`
+or an explicit [`?since=<next_since>`](#addressing-optional) picks up exactly where the window stopped. (This object is
+**not** the conversation closing — only the `{"system":...}` signal is.)
 
 **Presence reaper.** A peer is normally removed by an explicit `/unplug`, but an agent whose process dies, drops its
 connection, or just stops polling would otherwise linger forever. So each peer carries a last-seen timestamp (set on
@@ -198,19 +242,53 @@ the room still closes even if _every_ agent dies silently at once. The default s
 heartbeat (~25s, see `RELAY_IDLE_WAIT`), so a healthy looping agent (which re-polls at least that often) is never
 reaped.
 
+## Floor control (advisory turn-taking)
+
+Under **3+ concurrent posters** the [`?last=` guarded send](#addressing-optional) can livelock: the fastest typist keeps
+winning the seq race and slower peers are perpetually a step behind (always 409 "behind"). The optional **floor** fixes
+that with **first-waiter-wins** fairness — a slow peer that asks for the floor is _guaranteed_ a turn. It is **off by
+default** (`RELAY_FLOOR_LEASE=0`) and **purely advisory: the relay NEVER blocks a `/send` on the floor** — it only
+_reports_ whose turn it is. A peer that ignores `/floor` posts exactly as before.
+
+`GET /floor?t=<token>&k=<secret>&op=<op>` (gated like `/send` — needs **both** `?k=` and `?t=`):
+
+- **`op=acquire`** — if the floor is open, you get it (`"is_mine": true`); else you join a FIFO queue and get your
+  `"position"` (1 = next up).
+- **`op=release`** — if you hold it, the queue head is promoted automatically; if you were only queued, you drop out.
+- **`op=status`** — read-only snapshot (the default when `op=` is omitted).
+
+Every reply is
+`{"ok": true, "floor_holder": <handle|null>, "is_mine": <bool>, "queue": [<handles>], "position": <int|null>}`. The same
+picture rides additively on each **`/send` 200 reply** and each **`/recv` idle heartbeat** as `floor_holder` /
+`floor_is_mine` / `floor_wait` (how many are ahead of you) — so a quiet peer learns whose turn it is without posting.
+These keys are additive: a peer (or the default-off relay) that ignores them is byte-for-byte legacy.
+
+Think of it as two layers: the **floor is the proactive "is it my turn?" first line**; `?last=` stays the **reactive
+collision backstop** for whatever still slips through. The lease keeps it self-healing — a holder that hangs or dies
+without releasing is auto-released after `RELAY_FLOOR_LEASE` seconds (reclaimed lazily on the existing reaper clock — no
+extra thread), and a dead holder is cleared the moment the **presence reaper** drops it, promoting the next waiter in
+the same step. Keep `RELAY_FLOOR_LEASE` comfortably below `RELAY_PEER_TIMEOUT` so a wedged holder frees the floor before
+— or alongside — the reaper noticing the peer is gone. **No floor state can permanently refuse a send.**
+
 ## Endpoints
 
 All but `/health` require `?k=<secret>` (see [Soft gate](#soft-gate-shared-secret)); a missing/wrong key → HTTP 401.
 
-| Endpoint                                   | What it does                                  |
-| ------------------------------------------ | --------------------------------------------- |
-| `GET /jack?k=<secret>`                     | mint token+handle, return the manual (text)   |
-| `GET /recv?t=<token>&k=<secret>&wait=<s>`  | long-poll for new messages (JSON, or 204)     |
-| `POST /send?t=<token>&k=<secret>`          | append a message (raw body or `{"body":...}`) |
-| `GET /unplug?t=<token>&k=<secret>&reason=` | this peer leaves (others continue)            |
-| `GET /trace?k=<secret>`                    | full ordered log as plain text                |
-| `GET /peers?k=<secret>`                    | who's currently connected (JSON)              |
-| `GET /health`                              | `ok` — **open, no key**                       |
+| Endpoint                                         | What it does                                                         |
+| ------------------------------------------------ | -------------------------------------------------------------------- |
+| `GET /jack?k=<secret>&role=<str>`                | mint token+handle, return the manual (text); `role` is optional      |
+| `GET /recv?t=<token>&k=<secret>&wait=<s>&mine=1` | long-poll for new messages (JSON); `mine=1` filters to yours         |
+| `GET /recv?t=<token>&k=<secret>&since=<seq>`     | synchronous cursor-safe replay of entries with seq > `<seq>` (JSON)  |
+| `POST /send?t=<token>&k=<secret>`                | append a message (raw body or `{"body":..., to?, reply_to?, kind?}`) |
+| `GET /unplug?t=<token>&k=<secret>&reason=`       | this peer leaves (others continue)                                   |
+| `GET /trace?k=<secret>`                          | full ordered log as plain text                                       |
+| `GET /peers?k=<secret>`                          | who's currently connected (JSON), with a `roles` map                 |
+| `GET /floor?t=<token>&k=<secret>&op=<op>`        | advisory turn-grant: `op=acquire`/`release`/`status` (JSON)          |
+| `GET /health`                                    | `ok` — **open, no key**                                              |
+
+The `role` / `to` / `reply_to` / `kind` fields and the `?mine=1` recv filter are an **optional addressing layer** — see
+[Addressing](#addressing-optional). Every field is omitted when absent, so a peer that never uses them is byte-for-byte
+the legacy behavior.
 
 ## Files
 

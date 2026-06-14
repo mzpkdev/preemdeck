@@ -41,6 +41,7 @@ Pure stdlib. Starts/stops its own relays; leaves no pids or stray processes.
 """
 
 import contextlib
+import json
 import os
 import re
 import shutil
@@ -50,6 +51,7 @@ import tempfile
 import threading
 import time
 import urllib.error
+import urllib.parse
 import urllib.request
 from pathlib import Path
 from typing import Any, TextIO
@@ -314,6 +316,20 @@ def join_token(base: str, timeout: float = HTTP_TIMEOUT) -> str:
     return m.group(1)
 
 
+def join_with_role(base: str, role: str, timeout: float = HTTP_TIMEOUT) -> tuple[str, str]:
+    """Jack in WITH a ?role= and scrape both the token and the role greeting out
+    of the manual. Returns (token, manual_text) so a proof can assert the manual
+    reflected the role. Mirrors join_token but carries &role= on the URL. The role
+    is URL-encoded so control chars (e.g. a newline, for the sanitize check) reach
+    the relay instead of tripping urllib's own control-char guard client-side."""
+    url = _k(f"{base}/jack") + f"&role={urllib.parse.quote(role, safe='')}"
+    status, manual = get(url, timeout=timeout)
+    m = re.search(r"/recv\?t=([0-9a-f]+)", manual)
+    if not m:
+        raise RuntimeError(f"jack(role) failed ({status}): {manual[:120]}")
+    return m.group(1), manual
+
+
 def show_manual(fh: TextIO, topic: str) -> None:
     """Spin up a THROWAWAY relay on its own port purely to capture the /jack
     manual verbatim, then stop it. Doing this against the REAL conversation's
@@ -564,6 +580,21 @@ def post(base: str, token: str, body: str, timeout: float = HTTP_TIMEOUT) -> tup
     """Raw POST to /send (a real agent would curl this -- key on the URL since
     /send is gated). Returns (status, text)."""
     req = urllib.request.Request(_k(f"{base}/send?t={token}"), data=body.encode("utf-8"), method="POST")
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as r:
+            return r.status, r.read().decode("utf-8", "replace")
+    except urllib.error.HTTPError as e:
+        return e.code, e.read().decode("utf-8", "replace")
+    except Exception as e:
+        return 0, str(e)
+
+
+def post_envelope(base: str, token: str, envelope: dict, timeout: float = HTTP_TIMEOUT) -> tuple[int, str]:
+    """POST a JSON ADDRESSING ENVELOPE body {"body":..., "to":..., ...} to /send
+    (key on the URL). The envelope is json.dumps'd so a real {"body":...} send is
+    exercised end to end. Returns (status, text)."""
+    data = json.dumps(envelope).encode("utf-8")
+    req = urllib.request.Request(_k(f"{base}/send?t={token}"), data=data, method="POST")
     try:
         with urllib.request.urlopen(req, timeout=timeout) as r:
             return r.status, r.read().decode("utf-8", "replace")
@@ -1313,6 +1344,216 @@ def proof_send_cursor_check() -> bool:
     return passed
 
 
+def post_raw(base: str, token: str, raw: bytes, timeout: float = HTTP_TIMEOUT) -> tuple[int, str]:
+    """POST arbitrary RAW bytes to /send (key on the URL). Like post() but takes
+    bytes (not a str), so a proof can send an over-cap body without utf-8 framing
+    getting in the way of the byte count. Returns (status, text). A connection the
+    relay closed under us surfaces as status 0 from get()'s except path -- callers
+    that expect a 413 read the status, not the closed socket."""
+    req = urllib.request.Request(_k(f"{base}/send?t={token}"), data=raw, method="POST")
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as r:
+            return r.status, r.read().decode("utf-8", "replace")
+    except urllib.error.HTTPError as e:
+        return e.code, e.read().decode("utf-8", "replace")
+    except Exception as e:
+        return 0, str(e)
+
+
+def peers_turns(base: str) -> int:
+    """Read the accepted-post count (`turns`) off /peers. The proofs use it as the
+    "did this post actually append?" witness -- a rejected post must leave it
+    unchanged. Returns -1 if /peers can't be read/parsed."""
+    st, body = get(_k(f"{base}/peers"), timeout=HTTP_TIMEOUT)
+    m = re.search(r'"turns":\s*(\d+)', body)
+    return int(m.group(1)) if (st == 200 and m) else -1
+
+
+def floor(base: str, token: str, op: str, timeout: float = HTTP_TIMEOUT) -> tuple[int, dict]:
+    """GET /floor?op=<op> for the floor proofs. Gated like /send: key via _k()
+    first, then &t=<token>&op=<op> appended -- exactly the URL a real agent's
+    manual prints. Returns (status, parsed_json_dict); a non-JSON/transport error
+    yields (status, {}) so callers can assert on .get(...) without a try."""
+    url = _k(f"{base}/floor?t={token}") + f"&op={op}"
+    st, body = get(url, timeout=timeout)
+    try:
+        obj = json.loads(body)
+    except (ValueError, TypeError):
+        obj = {}
+    return st, obj if isinstance(obj, dict) else {}
+
+
+def proof_body_cap() -> bool:
+    """PROOF 14 (body-size cap, RELAY_MAX_BODY): relay launched with
+    RELAY_MAX_BODY=64. (1) An UNDER-cap raw post -> 200 (the cap doesn't break the
+    normal path). (2) An OVER-cap RAW post -> 413 {"ok":false,"error":"body too
+    large","max_bytes":64} -- the body is rejected before it can append. (3) An
+    OVER-cap post via {"body":"<oversized>"} JSON ALSO -> 413, proving the size
+    guard sits in _read_body BEFORE the JSON sniff (so both the raw and JSON paths
+    are capped from the one choke point). After the two rejects we assert the
+    accepted-post count (/peers `turns`) did NOT advance past the single under-cap
+    post -- the oversized bodies never appended. Bounded throughout; no hang."""
+    out_path = str(Path(TDIR) / "proof_body_cap.txt")
+
+    # Tiny 64-byte cap so the proof's strings are small; generous lifecycle caps so
+    # nothing else trips while we probe the body guard.
+    proc, base = start_relay("bodycap", {"RELAY_MAX_BODY": "64", "RELAY_MAX_TURNS": "40", "RELAY_MAX_SECONDS": "120"})
+    assert base is not None
+    passed = False
+    with Path(out_path).open("w", buffering=1) as fh:
+        try:
+            if not wait_health(base):
+                print("relay did not come up", file=sys.stderr)
+                sys.exit(1)
+            banner(
+                fh, "PROOF 14 - BODY-SIZE CAP (RELAY_MAX_BODY=64): under-cap 200; over-cap raw+JSON 413, not appended"
+            )
+
+            tok = join_token(base)
+
+            # 1) Under-cap raw post -> 200 (normal path still works under the cap).
+            st_ok, body_ok = post(base, tok, "small one")
+            under_ok = st_ok == 200 and '"ok": true' in body_ok
+            line = f"  under-cap post ('small one') -> HTTP {st_ok} [accepted: {under_ok}]\n"
+            print(line, end="")
+            fh.write(line)
+            turns_after_ok = peers_turns(base)  # should be 1 (the one accepted post)
+
+            # 2) Over-cap RAW post -> 413 with error + max_bytes. 200 bytes >> 64.
+            big = b"X" * 200
+            st_big, body_big = post_raw(base, tok, big)
+            raw_413_ok = (
+                st_big == 413
+                and '"ok": false' in body_big
+                and '"error": "body too large"' in body_big
+                and '"max_bytes": 64' in body_big
+            )
+            line = f"  over-cap RAW post (200B) -> HTTP {st_big}: {body_big.strip()[:160]} [413: {raw_413_ok}]\n"
+            print(line, end="")
+            fh.write(line)
+
+            # 3) Over-cap via {"body": "<oversized>"} JSON -> ALSO 413. The whole
+            #    JSON envelope is well over 64 bytes, so the size guard (which runs
+            #    BEFORE the JSON sniff in _read_body) must fire first. Proves the cap
+            #    is in the body-read choke point, not bolted onto the raw path only.
+            big_json = b'{"body": "' + b"Y" * 200 + b'"}'
+            st_json, body_json = post_raw(base, tok, big_json)
+            json_413_ok = st_json == 413 and '"error": "body too large"' in body_json and '"max_bytes": 64' in body_json
+            line = f"  over-cap JSON post -> HTTP {st_json}: {body_json.strip()[:160]} [413: {json_413_ok}]\n"
+            print(line, end="")
+            fh.write(line)
+
+            # 4) Neither oversized body appended: turns is still just the 1 under-cap
+            #    post (rejection happens before _append). Re-read /peers now.
+            turns_now = peers_turns(base)
+            not_appended = turns_after_ok == 1 and turns_now == 1
+            line = f"  accepted-post count: after under-cap={turns_after_ok}, after both rejects={turns_now} [not appended: {not_appended}]\n"
+            print(line, end="")
+            fh.write(line)
+
+            passed = under_ok and raw_413_ok and json_413_ok and not_appended
+            verdict = (
+                '\nVERDICT: under-cap 200; over-cap raw AND {"body":...} JSON both 413 (guard in _read_body before '
+                "the JSON sniff) with max_bytes=64; oversized bodies never appended. PASS -- body-size cap enforced.\n"
+                if passed
+                else "\nVERDICT: body-size cap behaved unexpectedly (see above). FAIL.\n"
+            )
+            print(verdict)
+            fh.write(verdict)
+
+            get(_k(f"{base}/unplug?t={tok}"), timeout=2)
+        finally:
+            stop_relay(proc)
+    print(f"[saved] {out_path}")
+    return passed
+
+
+def proof_send_rate() -> bool:
+    """PROOF 15 (per-peer send rate gate, RELAY_MIN_SEND_INTERVAL): relay launched
+    with RELAY_MIN_SEND_INTERVAL=0.5 and a HIGH RELAY_REPEAT_WINDOW (so the
+    repetition kill, not the rate gate, is NOT what fires -- the posts differ
+    anyway). (1) 1st post -> 200. (2) An IMMEDIATE 2nd post -> 429
+    {"ok":false,"error":"rate limited","retry_after":<secs>,"min_interval":0.5}
+    and NOT appended. (3) Sleep ~0.6s (> the 0.5s interval, bounded, well under the
+    watchdog) and post a 3rd -> 200: the window has elapsed. We also assert the
+    throttled post did NOT advance the accepted-post count (/peers `turns`).
+    Bounded sleep + bounded gets; no hang."""
+    out_path = str(Path(TDIR) / "proof_send_rate.txt")
+
+    # 0.5s gate; REPEAT_WINDOW high so identical-consecutive isn't what trips; the
+    # three posts below differ regardless. Generous turn/wall caps.
+    proc, base = start_relay(
+        "sendrate",
+        {
+            "RELAY_MIN_SEND_INTERVAL": "0.5",
+            "RELAY_REPEAT_WINDOW": "50",
+            "RELAY_MAX_TURNS": "40",
+            "RELAY_MAX_SECONDS": "120",
+        },
+    )
+    assert base is not None
+    passed = False
+    with Path(out_path).open("w", buffering=1) as fh:
+        try:
+            if not wait_health(base):
+                print("relay did not come up", file=sys.stderr)
+                sys.exit(1)
+            banner(
+                fh, "PROOF 15 - SEND RATE GATE (RELAY_MIN_SEND_INTERVAL=0.5): too-soon 2nd -> 429; after wait -> 200"
+            )
+
+            tok = join_token(base)
+
+            # 1) First post -> accepted (a peer's first send is never throttled).
+            st1, body1 = post(base, tok, "first post")
+            first_ok = st1 == 200 and '"ok": true' in body1
+            line = f"  1st post -> HTTP {st1} [accepted: {first_ok}]\n"
+            print(line, end="")
+            fh.write(line)
+            turns_after_1 = peers_turns(base)  # expect 1
+
+            # 2) Immediate 2nd post -> 429 (inside the 0.5s window), NOT appended.
+            st2, body2 = post(base, tok, "too soon")
+            rate_ok = (
+                st2 == 429
+                and '"ok": false' in body2
+                and '"error": "rate limited"' in body2
+                and '"retry_after"' in body2
+                and '"min_interval": 0.5' in body2
+            )
+            turns_after_2 = peers_turns(base)  # must STILL be 1 -- throttled post didn't land
+            not_appended = turns_after_1 == 1 and turns_after_2 == 1
+            line = f"  immediate 2nd post -> HTTP {st2}: {body2.strip()[:160]} [429: {rate_ok}; not appended: {not_appended}]\n"
+            print(line, end="")
+            fh.write(line)
+
+            # 3) Wait out the interval (0.6s > 0.5s; bounded, far under the watchdog)
+            #    then post again -> accepted. The window has elapsed.
+            time.sleep(0.6)
+            st3, body3 = post(base, tok, "after the wait")
+            third_ok = st3 == 200 and '"ok": true' in body3
+            turns_after_3 = peers_turns(base)  # expect 2 now (posts 1 and 3)
+            line = f"  3rd post (after ~0.6s) -> HTTP {st3} [accepted: {third_ok}; turns now {turns_after_3}]\n"
+            print(line, end="")
+            fh.write(line)
+
+            passed = first_ok and rate_ok and not_appended and third_ok and turns_after_3 == 2
+            verdict = (
+                "\nVERDICT: 1st post 200; an immediate 2nd 429 ('rate limited', retry_after, min_interval=0.5) and NOT "
+                "appended; after a ~0.6s wait the 3rd posts 200. PASS -- per-peer send rate gate enforced.\n"
+                if passed
+                else "\nVERDICT: send rate gate behaved unexpectedly (see above). FAIL.\n"
+            )
+            print(verdict)
+            fh.write(verdict)
+
+            get(_k(f"{base}/unplug?t={tok}"), timeout=2)
+        finally:
+            stop_relay(proc)
+    print(f"[saved] {out_path}")
+    return passed
+
+
 def proof_presence() -> bool:
     """PROOF 12 (presence: join/leave notices + /peers): jacking a peer appends a
     system "<handle> joined" notice (mirroring the existing "<handle> left" on
@@ -1708,6 +1949,1291 @@ def proof_sigterm_cleanup() -> bool:
     return passed
 
 
+def proof_role_surfaces() -> bool:
+    """PROOF 16 (peer role at /jack): a peer that jacks with ?role=<str> gets the
+    role reflected in its manual greeting, listed in /peers' `roles` map, and
+    stamped onto its authored entries (recv carries the author's `role`). A peer
+    that jacks WITHOUT ?role= has NO `role` key anywhere -- the field is OMITTED
+    WHEN ABSENT, so a roleless room is byte-identical to before. We also prove the
+    relay carries the role verbatim (no enum) and strips newlines / len-caps it.
+    Bounded gets throughout; no hang."""
+    out_path = str(Path(TDIR) / "proof_role_surfaces.txt")
+
+    proc, base = start_relay("role", {"RELAY_MAX_TURNS": "40", "RELAY_MAX_SECONDS": "120", "RELAY_IDLE_WAIT": "2"})
+    assert base is not None
+    passed = False
+    with Path(out_path).open("w", buffering=1) as fh:
+        try:
+            if not wait_health(base):
+                print("relay did not come up", file=sys.stderr)
+                sys.exit(1)
+            banner(fh, "PROOF 16 - PEER ROLE (?role= at /jack: manual greeting + /peers roles + entry author role)")
+
+            # A jacks WITH a role; the manual greeting must name it.
+            tok_a, manual_a = join_with_role(base, "architect")
+            greet_ok = "role: architect" in manual_a
+            line = f"  A jacked role=architect; manual greeting names it: {greet_ok}\n"
+            print(line, end="")
+            fh.write(line)
+
+            # B jacks WITHOUT a role -- proves the absent case stays absent.
+            tok_b = join_token(base)
+            line = "  B jacked with NO role\n"
+            print(line, end="")
+            fh.write(line)
+
+            # /peers `roles` map: A present with its role, B absent (no role key
+            # for B), and `peers` + `count` unchanged (both handles, count 2).
+            st_p, body_p = get(_k(f"{base}/peers"), timeout=HTTP_TIMEOUT)
+            roles_ok = (
+                st_p == 200
+                and '"roles":' in body_p
+                and '"peer-1": "architect"' in body_p
+                and '"peer-2"' not in body_p.split('"roles"')[1].split("}")[0]  # B not in the roles map
+                and '"count": 2' in body_p  # count unchanged
+                and '"peer-1"' in body_p
+                and '"peer-2"' in body_p  # both still in `peers`
+            )
+            line = f"  /peers -> HTTP {st_p}: {body_p.strip()[:200]} [roles map A-only, count==2: {roles_ok}]\n"
+            print(line, end="")
+            fh.write(line)
+
+            # A posts; A's entry (echoed on recv) must carry the AUTHOR role.
+            post(base, tok_a, "design proposal from A")
+            # B recv's to read A's post and check the stamped role; B's view of A's
+            # entry carries role=architect (author role), and is NOT is_me for B.
+            st_r, body_r = get(_k(f"{base}/recv?t={tok_b}&wait=2"), timeout=HTTP_TIMEOUT)
+            entry_role_ok = st_r == 200 and "design proposal from A" in body_r and '"role": "architect"' in body_r
+            line = f"  B recv reads A's post -> HTTP {st_r}: {body_r.strip()[:200]} [entry carries author role: {entry_role_ok}]\n"
+            print(line, end="")
+            fh.write(line)
+
+            # B posts; B has NO role -> B's entry must carry NO `role` key. Read it
+            # back via A's recv (A drains, finds B's entry, asserts role absent).
+            post(base, tok_b, "reply from roleless B")
+            st_ra, body_ra = get(_k(f"{base}/recv?t={tok_a}&wait=2"), timeout=HTTP_TIMEOUT)
+            # Find B's entry in A's recv batch and confirm no role key rode with it.
+            # (A's own 'design proposal' entry has a role; we check B's specifically.)
+            b_entry_roleless = st_ra == 200 and "reply from roleless B" in body_ra
+            if b_entry_roleless:
+                # Crude slice: the chunk around B's body must not contain a role key
+                # before the next entry boundary. B authored it, so handle=peer-2.
+                chunk = body_ra.split("reply from roleless B")[0]
+                # the LAST '{' before B's body opens B's entry object
+                b_obj = chunk.rsplit("{", 1)[-1]
+                b_entry_roleless = '"role"' not in b_obj
+            line = f"  A recv reads B's post -> HTTP {st_ra}: {body_ra.strip()[:200]} [B entry has NO role key: {b_entry_roleless}]\n"
+            print(line, end="")
+            fh.write(line)
+
+            # Hygiene: a role with embedded newlines + over-length is sanitized
+            # (newlines stripped, capped) -- the relay carries it, never an enum.
+            tok_c, _manual_c = join_with_role(base, "x" * 60 + "\nINJECTED")
+            st_pc, body_pc = get(_k(f"{base}/peers"), timeout=HTTP_TIMEOUT)
+            # The stored role for peer-3 must have no newline and be capped to the
+            # 24-char x-run (ROLE_MAX) -- the trailing "\nINJECTED" is stripped to a
+            # space then truncated away. Re-derive it straight from the roles map.
+            m = re.search(r'"peer-3":\s*"([^"]*)"', body_pc)
+            stored = m.group(1) if m else ""
+            sanit_ok = stored == "x" * 24 and "\n" not in stored and "INJECTED" not in stored
+            line = f"  C jacked role with newline+overlong -> stored {stored!r} [sanitized to 24 x's, no newline: {sanit_ok}]\n"
+            print(line, end="")
+            fh.write(line)
+
+            passed = greet_ok and roles_ok and entry_role_ok and b_entry_roleless and sanit_ok
+            verdict = (
+                "\nVERDICT: ?role= reflects in the manual greeting + /peers roles map + the author's entries; a "
+                "roleless peer has NO role key anywhere; the role is carried verbatim (no enum) but newline-stripped "
+                "and len-capped. PASS -- peer role surfaces, omitted when absent.\n"
+                if passed
+                else "\nVERDICT: peer role behaved unexpectedly (see above). FAIL.\n"
+            )
+            print(verdict)
+            fh.write(verdict)
+
+            get(_k(f"{base}/unplug?t={tok_a}"), timeout=2)
+            get(_k(f"{base}/unplug?t={tok_b}"), timeout=2)
+            get(_k(f"{base}/unplug?t={tok_c}"), timeout=2)
+        finally:
+            stop_relay(proc)
+    print(f"[saved] {out_path}")
+    return passed
+
+
+def proof_envelope_roundtrip() -> bool:
+    """PROOF 17 (send envelope round-trips): a {"body", to, reply_to, kind} send is
+    accepted, the fields are echoed in the send reply, ride the recv entry, show in
+    the missed[] arrays, and render in the /trace suffix. We also prove sanitizing:
+    a bare-string `to` is coerced to a 1-elem list; a non-string `to` element is
+    dropped; a `reply_to` < 1 is dropped; `kind` is carried FREE-FORM (no enum) but
+    newline-stripped. Bounded throughout; no hang."""
+    out_path = str(Path(TDIR) / "proof_envelope_roundtrip.txt")
+
+    proc, base = start_relay("envrt", {"RELAY_MAX_TURNS": "40", "RELAY_MAX_SECONDS": "120", "RELAY_IDLE_WAIT": "2"})
+    assert base is not None
+    passed = False
+    with Path(out_path).open("w", buffering=1) as fh:
+        try:
+            if not wait_health(base):
+                print("relay did not come up", file=sys.stderr)
+                sys.exit(1)
+            banner(
+                fh, "PROOF 17 - SEND ENVELOPE ROUND-TRIP (to/reply_to/kind echoed, on recv entry, in missed, /trace)"
+            )
+
+            tok_a = join_token(base)
+            tok_b = join_token(base)
+
+            # A sends a fully-populated envelope. `to` is a LIST, reply_to a valid
+            # seq, kind free-form. The send reply must echo all three back.
+            st_a, body_a = post_envelope(
+                base, tok_a, {"body": "addressed hello", "to": ["peer-2"], "reply_to": 1, "kind": "proposal"}
+            )
+            echo_ok = (
+                st_a == 200
+                and '"ok": true' in body_a
+                and '"to": ["peer-2"]' in body_a
+                and '"reply_to": 1' in body_a
+                and '"kind": "proposal"' in body_a
+            )
+            line = f"  A sends envelope -> HTTP {st_a}: {body_a.strip()[:200]} [reply echoes to/reply_to/kind: {echo_ok}]\n"
+            print(line, end="")
+            fh.write(line)
+
+            # B recv's: the entry for A's post must carry the same three fields,
+            # alongside the base shape (seq/handle/body/is_me).
+            st_r, body_r = get(_k(f"{base}/recv?t={tok_b}&wait=2"), timeout=HTTP_TIMEOUT)
+            recv_ok = (
+                st_r == 200
+                and "addressed hello" in body_r
+                and '"to": ["peer-2"]' in body_r
+                and '"reply_to": 1' in body_r
+                and '"kind": "proposal"' in body_r
+            )
+            line = f"  B recv reads it -> HTTP {st_r}: {body_r.strip()[:220]} [entry carries envelope: {recv_ok}]\n"
+            print(line, end="")
+            fh.write(line)
+
+            # The /trace suffix renders the envelope compactly: ->peer-2 re#1 [proposal].
+            st_t, trace = get(_k(f"{base}/trace"), timeout=HTTP_TIMEOUT)
+            trace_ok = st_t == 200 and "->peer-2" in trace and "re#1" in trace and "[proposal]" in trace
+            line = f"  /trace suffix shows ->peer-2 re#1 [proposal]: {trace_ok}\n"
+            print(line, end="")
+            fh.write(line)
+
+            # missed[] also carries the envelope: B (cursor behind) sends without
+            # recv'ing A's NEXT post, so A's post shows in B's missed with fields.
+            post_envelope(base, tok_a, {"body": "second from A", "to": "peer-2", "kind": "note"})  # bare-str `to`
+            st_m, body_m = post(base, tok_b, "B posts blind")
+            # A's "second from A" crossed; B's missed must carry it with to coerced
+            # to a 1-elem list (bare string -> ["peer-2"]) and kind=note.
+            missed_chunk = body_m.split('"missed"')[1] if '"missed"' in body_m else ""
+            missed_ok = (
+                st_m == 200
+                and "second from A" in missed_chunk
+                and '"to": ["peer-2"]' in missed_chunk  # bare string coerced to list
+                and '"kind": "note"' in missed_chunk
+            )
+            line = f"  B send -> missed[] carries A's envelope (bare-str to coerced): {missed_ok}\n"
+            print(line, end="")
+            fh.write(line)
+
+            # Sanitizing: a non-string `to` element is dropped; reply_to < 1 dropped.
+            st_s, body_s = post_envelope(
+                base, tok_a, {"body": "sanitize me", "to": ["peer-2", 99, ""], "reply_to": 0, "kind": "q\nx"}
+            )
+            sanitize_ok = (
+                st_s == 200
+                and '"to": ["peer-2"]' in body_s  # 99 (int) and "" dropped -> just peer-2
+                and '"reply_to"' not in body_s  # reply_to 0 (<1) dropped entirely
+                and '"kind": "q x"' in body_s  # newline in kind -> space, carried free-form
+            )
+            line = f"  A sends messy envelope -> HTTP {st_s}: {body_s.strip()[:200]} [bad parts dropped/normalized: {sanitize_ok}]\n"
+            print(line, end="")
+            fh.write(line)
+
+            passed = echo_ok and recv_ok and trace_ok and missed_ok and sanitize_ok
+            verdict = (
+                "\nVERDICT: a {body,to,reply_to,kind} send is accepted; the fields echo in the reply, ride the recv "
+                "entry + missed[], and render in /trace; bad parts are dropped and kind stays free-form. "
+                "PASS -- envelope round-trips.\n"
+                if passed
+                else "\nVERDICT: send envelope behaved unexpectedly (see above). FAIL.\n"
+            )
+            print(verdict)
+            fh.write(verdict)
+
+            get(_k(f"{base}/unplug?t={tok_a}"), timeout=2)
+            get(_k(f"{base}/unplug?t={tok_b}"), timeout=2)
+        finally:
+            stop_relay(proc)
+    print(f"[saved] {out_path}")
+    return passed
+
+
+def proof_envelope_backcompat() -> bool:
+    """PROOF 18 (envelope back-compat): a RAW-body send and a plain {"body":...}
+    send (NO addressing keys) must each produce an entry carrying NONE of the new
+    keys (no to/reply_to/kind in the send reply, the recv entry, or /trace) -- byte-
+    identical to before the envelope existed. We ALSO prove the repetition kill
+    stays BODY-ONLY: two IDENTICAL bodies sent with DIFFERENT `to` still count as a
+    repeat (the envelope can't dodge the stall). We run a LOW RELAY_REPEAT_WINDOW
+    (2) so two identical bodies trip it; generous other caps. Bounded; no hang."""
+    out_path = str(Path(TDIR) / "proof_envelope_backcompat.txt")
+
+    # REPEAT_WINDOW=2 so two identical-consecutive bodies close it (proves body-only
+    # repeat kill ignores differing envelopes). Generous turn/wall caps otherwise.
+    proc, base = start_relay(
+        "envbc",
+        {"RELAY_MAX_TURNS": "40", "RELAY_MAX_SECONDS": "120", "RELAY_REPEAT_WINDOW": "2", "RELAY_IDLE_WAIT": "2"},
+    )
+    assert base is not None
+    passed = False
+    with Path(out_path).open("w", buffering=1) as fh:
+        try:
+            if not wait_health(base):
+                print("relay did not come up", file=sys.stderr)
+                sys.exit(1)
+            banner(
+                fh, "PROOF 18 - ENVELOPE BACK-COMPAT (raw + {body:} sends omit the keys; repeat-kill stays body-only)"
+            )
+
+            # --- (1) RAW body send: no envelope keys anywhere ------------------
+            tok = join_token(base)
+            st_raw, body_raw = post(base, tok, "plain raw body")
+            raw_clean = (
+                st_raw == 200
+                and '"ok": true' in body_raw
+                and '"to"' not in body_raw
+                and '"reply_to"' not in body_raw
+                and '"kind"' not in body_raw
+            )
+            line = f"  RAW send -> HTTP {st_raw}: {body_raw.strip()[:160]} [no envelope keys in reply: {raw_clean}]\n"
+            print(line, end="")
+            fh.write(line)
+
+            # --- (2) plain {"body":...} JSON, NO addressing keys ---------------
+            st_j, body_j = post_envelope(base, tok, {"body": "plain json body"})
+            json_clean = (
+                st_j == 200
+                and '"ok": true' in body_j
+                and '"to"' not in body_j
+                and '"reply_to"' not in body_j
+                and '"kind"' not in body_j
+            )
+            line = (
+                f"  {{body:}} send -> HTTP {st_j}: {body_j.strip()[:160]} [no envelope keys in reply: {json_clean}]\n"
+            )
+            print(line, end="")
+            fh.write(line)
+
+            # The recv entries + /trace for both must be free of envelope keys too.
+            st_r, body_r = get(_k(f"{base}/recv?t={tok}&wait=2"), timeout=HTTP_TIMEOUT)
+            st_t, trace = get(_k(f"{base}/trace"), timeout=HTTP_TIMEOUT)
+            entries_clean = (
+                st_r == 200
+                and "plain raw body" in body_r
+                and "plain json body" in body_r
+                and '"to"' not in body_r
+                and '"reply_to"' not in body_r
+                and '"kind"' not in body_r
+            )
+            # /trace lines for these posts carry no addressing suffix. The header
+            # and timestamps legitimately use brackets ("=== wire ... ===",
+            # "[HH:MM:SS]"), so we don't blanket-ban "[" -- instead we assert there's
+            # no to-arrow / reply marker, AND each body line ENDS right after the
+            # body (a "[kind]" suffix, if leaked, would trail it on the same line).
+            trace_clean = (
+                st_t == 200
+                and "->" not in trace
+                and "re#" not in trace
+                and "plain raw body\n" in trace  # body line ends at the body -> no suffix
+                and "plain json body\n" in trace
+            )
+            line = f"  recv entries clean: {entries_clean}; /trace has no addressing suffix: {trace_clean}\n"
+            print(line, end="")
+            fh.write(line)
+
+            # --- (3) repeat-kill is BODY-ONLY: identical body, different `to` ---
+            # Two IDENTICAL bodies sent with DIFFERENT `to`. If the envelope leaked
+            # into the repeat comparison they'd look distinct and NOT trip; because
+            # the kill is body-only (REPEAT_WINDOW=2), the 2nd identical body closes
+            # the conversation. We use a fresh pair of peers on a 2nd relay so the
+            # earlier posts above don't interfere with the consecutive-dupe count.
+            stop_relay(proc)
+            proc2, base2 = start_relay(
+                "envbc2",
+                {
+                    "RELAY_MAX_TURNS": "40",
+                    "RELAY_MAX_SECONDS": "120",
+                    "RELAY_REPEAT_WINDOW": "2",
+                    "RELAY_IDLE_WAIT": "2",
+                },
+            )
+            assert base2 is not None
+            if not wait_health(base2):
+                print("relay2 did not come up", file=sys.stderr)
+                sys.exit(1)
+            tok2 = join_token(base2)
+            st_d1, _ = post_envelope(base2, tok2, {"body": "SAME body", "to": ["peer-9"]})
+            st_d2, body_d2 = post_envelope(base2, tok2, {"body": "SAME body", "to": ["peer-7"]})
+            # The 2nd identical body trips REPEAT_WINDOW=2 -> the conversation closes.
+            # A 3rd send must now be refused (409 closed), proving the dupe counted
+            # despite the differing `to`.
+            st_d3, body_d3 = post(base2, tok2, "after close?")
+            repeat_body_only = (
+                st_d1 == 200
+                and st_d2 == 200  # both identical bodies accepted (the 2nd trips+records)
+                and st_d3 == 409
+                and "closed" in body_d3  # 3rd refused: conversation closed by the repeat kill
+            )
+            line = (
+                f"  two IDENTICAL bodies w/ different `to` -> d1={st_d1} d2={st_d2}; "
+                f"next send d3={st_d3} ({body_d3.strip()[:80]}) [repeat-kill body-only: {repeat_body_only}]\n"
+            )
+            print(line, end="")
+            fh.write(line)
+
+            passed = raw_clean and json_clean and entries_clean and trace_clean and repeat_body_only
+            verdict = (
+                "\nVERDICT: raw + {body:} sends carry NONE of to/reply_to/kind (reply, recv entry, /trace all clean); "
+                "two identical bodies with different `to` still trip the repeat kill. "
+                "PASS -- envelope is omitted-when-absent and the repeat-kill stays body-only.\n"
+                if passed
+                else "\nVERDICT: envelope back-compat behaved unexpectedly (see above). FAIL.\n"
+            )
+            print(verdict)
+            fh.write(verdict)
+
+            with contextlib.suppress(Exception):
+                get(_k(f"{base2}/unplug?t={tok2}"), timeout=2)
+            stop_relay(proc2)
+        finally:
+            stop_relay(proc)
+    print(f"[saved] {out_path}")
+    return passed
+
+
+def proof_recv_mine_filter() -> bool:
+    """PROOF 19 (optional ?mine=1 recv filter): a filtering peer sees broadcasts +
+    messages addressed to it + ALL system entries, but NOT others-addressed
+    messages. CRUCIALLY the cursor still advances past EVERYTHING: a follow-up
+    filtered recv returns idle (the hidden others-addressed message is NOT
+    re-delivered). A closed signal still reaches a ?mine recv. A DEFAULT recv (no
+    filter) sees everything, unchanged. Bounded throughout; no hang."""
+    out_path = str(Path(TDIR) / "proof_recv_mine_filter.txt")
+
+    proc, base = start_relay("mine", {"RELAY_MAX_TURNS": "40", "RELAY_MAX_SECONDS": "120", "RELAY_IDLE_WAIT": "1"})
+    assert base is not None
+    passed = False
+    with Path(out_path).open("w", buffering=1) as fh:
+        try:
+            if not wait_health(base):
+                print("relay did not come up", file=sys.stderr)
+                sys.exit(1)
+            banner(fh, "PROOF 19 - RECV ?mine=1 FILTER (broadcast + own-addressed + system; cursor advances past all)")
+
+            tok_a = join_token(base)  # peer-1, the sender
+            tok_b = join_token(base)  # peer-2, reads the full log (default recv)
+            tok_c = join_token(base)  # peer-3, the FILTERING peer (?mine=1)
+
+            # Drain C's join-notice backlog so the test posts below are what its
+            # filtered recv evaluates (a fresh cursor starts at 0 -> would otherwise
+            # return the seq-1.. join notices first).
+            get(_k(f"{base}/recv?t={tok_c}&wait=1"), timeout=HTTP_TIMEOUT)
+
+            # A posts three messages: a broadcast, one addressed to C (peer-3), and
+            # one addressed to B (peer-2) -- the last is OTHERS-addressed for C.
+            post(base, tok_a, "broadcast to all")
+            post_envelope(base, tok_a, {"body": "for C only", "to": ["peer-3"]})
+            post_envelope(base, tok_a, {"body": "for B only", "to": ["peer-2"]})
+
+            # C's FILTERED recv: must include the broadcast + the C-addressed, must
+            # EXCLUDE the B-addressed. (System entries already drained above.)
+            st_c, body_c = get(_k(f"{base}/recv?t={tok_c}&wait=1&mine=1"), timeout=HTTP_TIMEOUT)
+            filtered_ok = (
+                st_c == 200
+                and "broadcast to all" in body_c
+                and "for C only" in body_c
+                and "for B only" not in body_c  # others-addressed -> hidden
+            )
+            line = f"  C ?mine=1 recv -> HTTP {st_c}: {body_c.strip()[:200]} [broadcast+own shown, others hidden: {filtered_ok}]\n"
+            print(line, end="")
+            fh.write(line)
+
+            # Cursor advanced past EVERYTHING (incl. the hidden 'for B only'): C's
+            # FOLLOW-UP filtered recv must be a 200 idle heartbeat, NOT a re-delivery
+            # of the skipped message. This is the read-position invariant.
+            st_c2, body_c2 = get(_k(f"{base}/recv?t={tok_c}&wait=1&mine=1"), timeout=HTTP_TIMEOUT)
+            cursor_advanced = st_c2 == 200 and '"idle": true' in body_c2 and "for B only" not in body_c2
+            line = f"  C follow-up ?mine=1 recv -> HTTP {st_c2}: {body_c2.strip()[:160]} [idle, skipped msg NOT redelivered: {cursor_advanced}]\n"
+            print(line, end="")
+            fh.write(line)
+
+            # A DEFAULT recv (no filter), peer B, must see ALL THREE messages -- the
+            # filter is per-call and opt-in; the group log is unchanged for B.
+            st_b, body_b = get(_k(f"{base}/recv?t={tok_b}&wait=1"), timeout=HTTP_TIMEOUT)
+            default_sees_all = (
+                st_b == 200 and "broadcast to all" in body_b and "for C only" in body_b and "for B only" in body_b
+            )
+            line = f"  B default recv (no filter) sees all three: {default_sees_all}\n"
+            print(line, end="")
+            fh.write(line)
+
+            # A closed signal STILL reaches a ?mine recv. With A and B gone, C is the
+            # lone peer: park a ?mine recv for C (valid token, parks on cond.wait),
+            # THEN unplug C -> last-peer-out closes the room and the close wakes the
+            # parked recv carrying the closed signal. (System entries are never
+            # filtered, and the closed path sits below the filter regardless.)
+            get(_k(f"{base}/unplug?t={tok_a}"), timeout=2)
+            get(_k(f"{base}/unplug?t={tok_b}"), timeout=2)
+            # Drain C's cursor first: A's + B's "left" system notices are now unread
+            # past C's cursor, so without this the parked recv would return them
+            # immediately instead of parking until the close. After draining, the
+            # parked ?mine recv has nothing pending -> only the close releases it.
+            get(_k(f"{base}/recv?t={tok_c}&wait=1&mine=1"), timeout=HTTP_TIMEOUT)
+            results: dict[int, dict[str, Any]] = {}
+
+            def _park_mine() -> None:
+                t0 = time.time()
+                stt, bod = get(_k(f"{base}/recv?t={tok_c}&wait=600&mine=1"), timeout=HTTP_TIMEOUT + 1)
+                results[0] = {"elapsed": round(time.time() - t0, 3), "status": stt, "body": bod.strip()[:160]}
+
+            parker = threading.Thread(target=_park_mine)
+            parker.start()
+            time.sleep(0.5)  # ensure the ?mine recv is genuinely parked
+            get(_k(f"{base}/unplug?t={tok_c}"), timeout=2)  # last peer out -> close
+            parker.join(timeout=HTTP_TIMEOUT + 3)
+            r = results.get(0, {"elapsed": -1, "status": "NO-RESULT", "body": ""})
+            closed_reaches_mine = r["status"] == 200 and "conversation closed" in r["body"]
+            line = f"  parked C ?mine recv released after {r['elapsed']}s (status {r['status']}) <- {r['body']} [closed reaches ?mine: {closed_reaches_mine}]\n"
+            print(line, end="")
+            fh.write(line)
+
+            passed = filtered_ok and cursor_advanced and default_sees_all and closed_reaches_mine
+            verdict = (
+                "\nVERDICT: ?mine=1 shows broadcasts + own-addressed + system entries and hides others-addressed; the "
+                "cursor advances past everything (skipped msg not re-delivered); the closed signal still reaches a "
+                "?mine recv; a default recv sees the full log. PASS -- ?mine filter is advisory, cursor-safe.\n"
+                if passed
+                else "\nVERDICT: ?mine filter behaved unexpectedly (see above). FAIL.\n"
+            )
+            print(verdict)
+            fh.write(verdict)
+        finally:
+            stop_relay(proc)
+    print(f"[saved] {out_path}")
+    return passed
+
+
+def proof_since() -> bool:
+    """PROOF 20 (?since=<seq> cursor-safe replay): a ?since recv returns ONLY the
+    entries with seq STRICTLY GREATER than the given seq (not <=). HEADLINE: it is
+    cursor-SAFE -- it NEVER advances the server-held read position, so after a
+    ?since a NORMAL recv still delivers the FULL backlog from the real cursor.
+    `since` past the tip -> [] (200). And POST-CLOSE a ?since still works, returning
+    the in-log 'conversation closed' entry INSIDE the array (NOT the terminal
+    {"system":...} stop-object a normal recv emits). Bounded throughout; no hang."""
+    out_path = str(Path(TDIR) / "proof_since.txt")
+
+    # Defaults for windowing (RELAY_MAX_REPLAY unset) so the backlog comes back in
+    # one slice; low idle wait so the "nothing new" recv heartbeat returns fast.
+    proc, base = start_relay("since", {"RELAY_MAX_TURNS": "40", "RELAY_MAX_SECONDS": "120", "RELAY_IDLE_WAIT": "1"})
+    assert base is not None
+    passed = False
+    with Path(out_path).open("w", buffering=1) as fh:
+        try:
+            if not wait_health(base):
+                print("relay did not come up", file=sys.stderr)
+                sys.exit(1)
+            banner(
+                fh,
+                "PROOF 20 - ?since=<seq> CURSOR-SAFE REPLAY (seq>since only; never moves cursor; post-close in-array)",
+            )
+
+            tok_a = join_token(base)  # peer-1, the sender
+            tok_b = join_token(base)  # peer-2, the resync peer -- never recvs until the end
+
+            # A posts three messages. With peer-1/peer-2 join notices at seq 1/2,
+            # these land at seq 3,4,5.
+            post(base, tok_a, "msg one")
+            post(base, tok_a, "msg two")
+            post(base, tok_a, "msg three")
+
+            # ?since=3 must return ONLY seq 4 and 5 (strictly > 3), never seq 3.
+            st_s, body_s = get(_k(f"{base}/recv?t={tok_b}&since=3"), timeout=HTTP_TIMEOUT)
+            arr = json.loads(body_s)
+            seqs = [e.get("seq") for e in arr] if isinstance(arr, list) else []
+            since_strict = st_s == 200 and isinstance(arr, list) and seqs == [4, 5] and "msg three" in body_s
+            line = f"  B ?since=3 -> HTTP {st_s}: seqs={seqs} (want [4,5], strictly > 3) [{since_strict}]\n"
+            print(line, end="")
+            fh.write(line)
+
+            # HEADLINE: that ?since did NOT move B's cursor. A NORMAL recv for B now
+            # STILL returns the WHOLE backlog from the real cursor (0) -- joins +
+            # all three msgs (seq 1..5), proving ?since was a pure peek.
+            st_n, body_n = get(_k(f"{base}/recv?t={tok_b}&wait=1"), timeout=HTTP_TIMEOUT)
+            full = json.loads(body_n)
+            full_seqs = [e.get("seq") for e in full] if isinstance(full, list) else []
+            cursor_untouched = (
+                st_n == 200
+                and isinstance(full, list)
+                and full_seqs == [1, 2, 3, 4, 5]
+                and "msg one" in body_n
+                and "msg three" in body_n
+            )
+            line = f"  B normal recv AFTER ?since -> HTTP {st_n}: seqs={full_seqs} (want full [1..5] -- cursor NOT moved) [{cursor_untouched}]\n"
+            print(line, end="")
+            fh.write(line)
+
+            # since past the tip -> [] (200). Tip is seq 5; ?since=99 is empty.
+            st_p, body_p = get(_k(f"{base}/recv?t={tok_b}&since=99"), timeout=HTTP_TIMEOUT)
+            past_tip = st_p == 200 and json.loads(body_p) == []
+            line = f"  B ?since=99 (past tip) -> HTTP {st_p}: {body_p.strip()} (want []) [{past_tip}]\n"
+            print(line, end="")
+            fh.write(line)
+
+            # POST-CLOSE: ?since must STILL work and return the in-log 'conversation
+            # closed' entry INSIDE the array (not the terminal {"system":...} object).
+            # We need a CLOSED room with a peer's token still LIVE -- but last-peer-out
+            # close pops every peer, leaving no valid token. The turn cap closes the
+            # room WITHOUT removing peers, so spin a dedicated relay with
+            # RELAY_MAX_TURNS=2: two posts close it while the resync peer stays jacked.
+            get(_k(f"{base}/unplug?t={tok_a}"), timeout=2)
+            get(_k(f"{base}/unplug?t={tok_b}"), timeout=2)
+            stop_relay(proc)
+
+            proc2, base2 = start_relay(
+                "since2", {"RELAY_MAX_TURNS": "2", "RELAY_MAX_SECONDS": "120", "RELAY_IDLE_WAIT": "1"}
+            )
+            assert base2 is not None
+            if not wait_health(base2):
+                print("relay2 did not come up", file=sys.stderr)
+                sys.exit(1)
+            tok_e = join_token(base2)  # sender (peer-1)
+            tok_f = join_token(base2)  # resync peer (peer-2) -- token stays live post-close
+            post(base2, tok_e, "first")  # turn 1
+            post(base2, tok_e, "second")  # turn 2 -> trips cap -> close (peers NOT popped)
+            # Confirm the room is closed: a NORMAL recv for F returns the backlog then
+            # the terminal stop-object; we just check /peers reports closed.
+            _, peers_body = get(_k(f"{base2}/peers"), timeout=2)
+            closed_now = '"closed": true' in peers_body
+            # POST-CLOSE ?since: F asks ?since=0 -> the WHOLE log incl. the
+            # 'conversation closed' entry, INSIDE the array; NOT the {"system":...}
+            # terminal object a normal recv would emit once drained.
+            st_pc, body_pc = get(_k(f"{base2}/recv?t={tok_f}&since=0"), timeout=HTTP_TIMEOUT)
+            pc = json.loads(body_pc)
+            post_close_in_array = (
+                st_pc == 200
+                and isinstance(pc, list)  # an ARRAY, not the terminal object
+                and any("conversation closed" in str(e.get("body", "")) for e in pc)
+            )
+            line = (
+                f"  post-close ?since=0 -> HTTP {st_pc} (room closed={closed_now}): "
+                f"closed-entry INSIDE array (not terminal object): {post_close_in_array}\n"
+            )
+            print(line, end="")
+            fh.write(line)
+            # And a normal recv post-close (after draining) IS the terminal object --
+            # the contrast that proves ?since is historical, recv is the live signal.
+            get(_k(f"{base2}/recv?t={tok_f}&wait=1"), timeout=HTTP_TIMEOUT)  # drain backlog
+            st_term, body_term = get(_k(f"{base2}/recv?t={tok_f}&wait=1"), timeout=HTTP_TIMEOUT)
+            term = json.loads(body_term)
+            normal_is_terminal = st_term == 200 and isinstance(term, dict) and "system" in term
+            line = f"  contrast: normal recv post-close -> HTTP {st_term}: {body_term.strip()[:120]} [terminal object: {normal_is_terminal}]\n"
+            print(line, end="")
+            fh.write(line)
+
+            passed = since_strict and cursor_untouched and past_tip and post_close_in_array and normal_is_terminal
+            verdict = (
+                "\nVERDICT: ?since returns seq>since only; it NEVER advances the cursor (a normal recv after still "
+                "delivers the full backlog); since past the tip is []; post-close ?since returns the closed entry "
+                "INSIDE the array while a normal recv returns the terminal object. PASS -- ?since is a cursor-safe "
+                "historical peek.\n"
+                if passed
+                else "\nVERDICT: ?since behaved unexpectedly (see above). FAIL.\n"
+            )
+            print(verdict)
+            fh.write(verdict)
+        finally:
+            stop_relay(proc)
+            with contextlib.suppress(Exception):
+                stop_relay(proc2)  # type: ignore[possibly-undefined]
+    print(f"[saved] {out_path}")
+    return passed
+
+
+def proof_replay_window() -> bool:
+    """PROOF 21 (RELAY_MAX_REPLAY backlog windowing): with the knob at 3 and a
+    backlog over 3, the FIRST recv returns the truncation OBJECT -- truncated:true,
+    EXACTLY 3 entries, a next_since, a remaining count, and a hint naming the
+    '?since=' escape hatch. DRAIN CONTINUITY: a plain re-run recv returns the next
+    batch starting right after next_since (no gap, no dup). CROSS-CHECK: a
+    ?since=next_since fetch returns the same remainder. REGRESSION GUARD: with the
+    knob UNSET, the first recv on the same backlog is a BARE ARRAY (no object).
+    Bounded throughout; no hang."""
+    out_path = str(Path(TDIR) / "proof_replay_window.txt")
+
+    # Windowing ON at 3. Generous turn cap so 6 posts don't close the room.
+    proc, base = start_relay(
+        "replaywin",
+        {"RELAY_MAX_TURNS": "40", "RELAY_MAX_SECONDS": "120", "RELAY_IDLE_WAIT": "1", "RELAY_MAX_REPLAY": "3"},
+    )
+    assert base is not None
+    passed = False
+    with Path(out_path).open("w", buffering=1) as fh:
+        try:
+            if not wait_health(base):
+                print("relay did not come up", file=sys.stderr)
+                sys.exit(1)
+            banner(
+                fh,
+                "PROOF 21 - RELAY_MAX_REPLAY WINDOWING (truncation object, drain continuity, ?since cross-check, default bare array)",
+            )
+
+            tok_a = join_token(base)  # sender (peer-1)
+            tok_b = join_token(base)  # the draining peer (peer-2), reads nothing until now
+
+            # Six body posts. With peer-1/peer-2 joins at seq 1,2 these are seq 3..8;
+            # B's unread backlog from cursor 0 is the full seq 1..8 (8 raw entries).
+            for i in range(1, 7):
+                post(base, tok_a, f"backlog {i}")
+
+            # FIRST recv (B): backlog is 8 raw > 3 -> truncation OBJECT, exactly 3
+            # entries (seq 1,2,3), next_since=3, remaining=5, hint mentions ?since=.
+            st1, b1 = get(_k(f"{base}/recv?t={tok_b}&wait=1"), timeout=HTTP_TIMEOUT)
+            o1 = json.loads(b1)
+            is_obj = isinstance(o1, dict) and o1.get("truncated") is True
+            three = is_obj and len(o1.get("entries", [])) == 3
+            first_seqs = [e.get("seq") for e in o1.get("entries", [])] if is_obj else []
+            next_since = o1.get("next_since") if is_obj else None
+            has_fields = is_obj and next_since == 3 and o1.get("remaining") == 5 and "?since=" in o1.get("hint", "")
+            window_obj_ok = is_obj and three and first_seqs == [1, 2, 3] and has_fields
+            line = (
+                f"  B first recv (backlog 8, cap 3) -> HTTP {st1}: truncated={o1.get('truncated') if is_obj else 'N/A'} "
+                f"entries={first_seqs} next_since={next_since} remaining={o1.get('remaining') if is_obj else 'N/A'} "
+                f"hint_has_since={'?since=' in o1.get('hint', '') if is_obj else False} [{window_obj_ok}]\n"
+            )
+            print(line, end="")
+            fh.write(line)
+
+            # DRAIN CONTINUITY: a plain re-run recv resumes at next_since+1 (seq 4),
+            # the NEXT 3 (seq 4,5,6) -- no gap (doesn't skip 4), no dup (doesn't
+            # repeat 3). Still truncated (2 remain).
+            st2, b2 = get(_k(f"{base}/recv?t={tok_b}&wait=1"), timeout=HTTP_TIMEOUT)
+            o2 = json.loads(b2)
+            second_seqs = [e.get("seq") for e in o2.get("entries", [])] if isinstance(o2, dict) else []
+            drain_ok = (
+                st2 == 200
+                and isinstance(o2, dict)
+                and o2.get("truncated") is True
+                and second_seqs == [4, 5, 6]
+                and o2.get("next_since") == 6
+                and o2.get("remaining") == 2
+            )
+            line = f"  B re-run recv (drain) -> HTTP {st2}: entries={second_seqs} (want [4,5,6], no gap/dup) next_since={o2.get('next_since') if isinstance(o2, dict) else 'N/A'} [{drain_ok}]\n"
+            print(line, end="")
+            fh.write(line)
+
+            # ?since=next_since CROSS-CHECK: fetching ?since=3 (the FIRST window's
+            # next_since) returns the WHOLE remainder seq 4..8 in one slice (?since
+            # is not windowed) -- proving next_since is a faithful resume handle.
+            st_x, bx = get(_k(f"{base}/recv?t={tok_b}&since=3"), timeout=HTTP_TIMEOUT)
+            arr_x = json.loads(bx)
+            xseqs = [e.get("seq") for e in arr_x] if isinstance(arr_x, list) else []
+            cross_ok = st_x == 200 and isinstance(arr_x, list) and xseqs == [4, 5, 6, 7, 8]
+            line = f"  ?since=3 (first next_since) cross-check -> HTTP {st_x}: seqs={xseqs} (want remainder [4..8]) [{cross_ok}]\n"
+            print(line, end="")
+            fh.write(line)
+            stop_relay(proc)
+
+            # COMPOSE WITH ?mine (no regress to proof_recv_mine_filter): a windowed
+            # batch whose first N raw entries are ALL others-addressed -> the ?mine
+            # filter empties what's SHOWN, but recv must STILL return the truncation
+            # OBJECT (never []) AND the cursor must advance over the whole window, so
+            # those hidden entries are skipped, not re-queued. Fresh relay, cap 2:
+            # peer-1 (E) sends 3 messages all addressed to peer-2 (G); peer-3 (M)
+            # filters with ?mine and is not a recipient.
+            proc3, base3 = start_relay(
+                "replaymine",
+                {"RELAY_MAX_TURNS": "40", "RELAY_MAX_SECONDS": "120", "RELAY_IDLE_WAIT": "1", "RELAY_MAX_REPLAY": "2"},
+            )
+            assert base3 is not None
+            if not wait_health(base3):
+                print("relay3 did not come up", file=sys.stderr)
+                sys.exit(1)
+            tok_e = join_token(base3)  # peer-1, sender
+            join_token(base3)  # peer-2 -- the (real) recipient every message is addressed to
+            tok_m = join_token(base3)  # peer-3, the FILTERING non-recipient
+            # Drain M to a CONFIRMED idle (loop until we get the idle heartbeat, not
+            # an array) so its cursor is at the tip deterministically -- the staggered
+            # joins can otherwise span more than one recv. The idle object's `cursor`
+            # is M's exact read position right before the posts below.
+            mcur_before = None
+            for _ in range(10):
+                r_body = get(_k(f"{base3}/recv?t={tok_m}&wait=1"), timeout=HTTP_TIMEOUT)[1]
+                r_obj = json.loads(r_body)
+                if isinstance(r_obj, dict) and r_obj.get("idle") is True:
+                    mcur_before = r_obj.get("cursor")
+                    break
+            for _ in range(3):
+                post_envelope(base3, tok_e, {"body": "for G only", "to": ["peer-2"]})
+            # M's ?mine recv: window is the first 2 (both G-addressed) -> shown empties,
+            # but we MUST get the truncation object (truncated:true, entries==[]), and
+            # the cursor must have advanced past the 2 windowed entries.
+            st_m, bm = get(_k(f"{base3}/recv?t={tok_m}&wait=1&mine=1"), timeout=HTTP_TIMEOUT)
+            om = json.loads(bm)
+            mine_obj_ok = (
+                st_m == 200
+                and isinstance(om, dict)
+                and om.get("truncated") is True
+                and om.get("entries") == []  # all windowed entries hidden by ?mine
+                and om.get("next_since") == mcur_before + 2  # cursor moved over the 2-entry window
+            )
+            line = f"  ?mine + windowing (all-hidden window) -> HTTP {st_m}: truncated={om.get('truncated') if isinstance(om, dict) else 'N/A'} entries={om.get('entries') if isinstance(om, dict) else 'N/A'} next_since={om.get('next_since') if isinstance(om, dict) else 'N/A'} (cursor advanced past hidden window, object not []) [{mine_obj_ok}]\n"
+            print(line, end="")
+            fh.write(line)
+            stop_relay(proc3)
+
+            # REGRESSION GUARD: same backlog, knob UNSET -> first recv is a BARE
+            # ARRAY (all 8 entries), NOT a truncation object. Zero regression.
+            proc2, base2 = start_relay(
+                "replaynocap", {"RELAY_MAX_TURNS": "40", "RELAY_MAX_SECONDS": "120", "RELAY_IDLE_WAIT": "1"}
+            )
+            assert base2 is not None
+            if not wait_health(base2):
+                print("relay2 did not come up", file=sys.stderr)
+                sys.exit(1)
+            tok_c = join_token(base2)  # sender
+            tok_d = join_token(base2)  # drainer
+            for i in range(1, 7):
+                post(base2, tok_c, f"backlog {i}")
+            st_d, bd = get(_k(f"{base2}/recv?t={tok_d}&wait=1"), timeout=HTTP_TIMEOUT)
+            od = json.loads(bd)
+            bare_array = st_d == 200 and isinstance(od, list) and len(od) == 8
+            line = f"  default (knob unset) first recv on same backlog -> HTTP {st_d}: type={'array' if isinstance(od, list) else 'object'} len={len(od) if isinstance(od, list) else 'N/A'} (want bare array of 8) [{bare_array}]\n"
+            print(line, end="")
+            fh.write(line)
+
+            passed = window_obj_ok and drain_ok and cross_ok and mine_obj_ok and bare_array
+            verdict = (
+                "\nVERDICT: RELAY_MAX_REPLAY=3 windows an 8-entry backlog into a truncation OBJECT (truncated:true, "
+                "exactly 3 entries, next_since, remaining, hint naming ?since=); a plain re-run recv drains the next "
+                "batch with no gap/dup; ?since=next_since returns the remainder; ?mine composes (an all-hidden window "
+                "still returns the object, cursor advanced past it); with the knob unset the same backlog is a BARE "
+                "ARRAY. PASS -- windowing composes and the default is unchanged.\n"
+                if passed
+                else "\nVERDICT: backlog windowing behaved unexpectedly (see above). FAIL.\n"
+            )
+            print(verdict)
+            fh.write(verdict)
+        finally:
+            stop_relay(proc)
+            with contextlib.suppress(Exception):
+                stop_relay(proc2)  # type: ignore[possibly-undefined]
+            with contextlib.suppress(Exception):
+                stop_relay(proc3)  # type: ignore[possibly-undefined]
+    print(f"[saved] {out_path}")
+    return passed
+
+
+def proof_floor_grant_and_queue() -> bool:
+    """PROOF 22 (advisory floor -- grant + FIFO queue, anti-livelock): three peers
+    A,B,C. A op=acquire -> granted (is_mine, no queue). B,C op=acquire -> queued at
+    position 1 and 2 (A still holds). The holder + the waits are visible to all
+    (op=status from C, and on a quiet recv idle heartbeat: floor_holder=peer-1,
+    floor_wait reflecting the queue ahead). A op=release -> B is promoted (is_mine);
+    B op=release -> C is promoted. FIFO fairness: the slow 3rd peer is GUARANTEED a
+    turn, which is the whole point (it kills the fastest-poster ?last= livelock).
+    Lease ON but long (>> the test) so ONLY explicit release moves the floor here.
+    Bounded throughout; no hang."""
+    out_path = str(Path(TDIR) / "proof_floor_grant_and_queue.txt")
+    # Long lease + short idle so the idle heartbeat returns fast but the lease never
+    # lapses mid-test (this proof exercises explicit release, not expiry).
+    proc, base = start_relay(
+        "floorgq",
+        {"RELAY_MAX_TURNS": "40", "RELAY_MAX_SECONDS": "120", "RELAY_FLOOR_LEASE": "60", "RELAY_IDLE_WAIT": "1"},
+    )
+    assert base is not None
+    passed = False
+    with Path(out_path).open("w", buffering=1) as fh:
+        try:
+            if not wait_health(base):
+                print("relay did not come up", file=sys.stderr)
+                sys.exit(1)
+            banner(fh, "PROOF 22 - FLOOR GRANT + FIFO QUEUE (first-waiter-wins; slow peer guaranteed a turn)")
+
+            tok_a = join_token(base)  # peer-1
+            tok_b = join_token(base)  # peer-2
+            tok_c = join_token(base)  # peer-3
+
+            # A acquires -> granted: is_mine true, holder peer-1, empty queue.
+            st_a, a = floor(base, tok_a, "acquire")
+            a_granted = (
+                st_a == 200 and a.get("is_mine") is True and a.get("floor_holder") == "peer-1" and a.get("queue") == []
+            )
+            line = (
+                f"  A acquire -> HTTP {st_a}: holder={a.get('floor_holder')} "
+                f"is_mine={a.get('is_mine')} queue={a.get('queue')} [granted: {a_granted}]\n"
+            )
+            print(line, end="")
+            fh.write(line)
+
+            # B then C acquire -> queued behind A at positions 1 and 2 (NOT granted).
+            st_b, b = floor(base, tok_b, "acquire")
+            b_queued = (
+                st_b == 200
+                and b.get("is_mine") is False
+                and b.get("floor_holder") == "peer-1"
+                and b.get("position") == 1
+            )
+            line = (
+                f"  B acquire -> HTTP {st_b}: holder={b.get('floor_holder')} "
+                f"is_mine={b.get('is_mine')} position={b.get('position')} [queued@1: {b_queued}]\n"
+            )
+            print(line, end="")
+            fh.write(line)
+
+            st_c, c = floor(base, tok_c, "acquire")
+            c_queued = (
+                st_c == 200
+                and c.get("is_mine") is False
+                and c.get("position") == 2
+                and c.get("queue")
+                == [
+                    "peer-2",
+                    "peer-3",
+                ]
+            )
+            line = (
+                f"  C acquire -> HTTP {st_c}: holder={c.get('floor_holder')} "
+                f"position={c.get('position')} queue={c.get('queue')} [queued@2: {c_queued}]\n"
+            )
+            print(line, end="")
+            fh.write(line)
+
+            # Holder + waits are visible on a QUIET recv idle heartbeat too (the
+            # connection-level turn fields ride the idle payload). C is 2nd in line,
+            # so from C's view floor_holder=peer-1, floor_is_mine=false, wait=1
+            # (one ahead: peer-2). C's FIRST recv drains its join-backlog (a plain
+            # array), so we re-run recv until we get the idle OBJECT, then assert the
+            # turn fields on it. This proves the turn state surfaces WITHOUT /floor.
+            body_idle = ""
+            for _ in range(6):
+                st_idle, body_idle = get(_k(f"{base}/recv?t={tok_c}&wait=1"), timeout=HTTP_TIMEOUT)
+                if st_idle == 200 and '"idle": true' in body_idle:
+                    break
+            idle_shows = (
+                '"idle": true' in body_idle
+                and '"floor_holder": "peer-1"' in body_idle
+                and '"floor_is_mine": false' in body_idle
+                and '"floor_wait": 1' in body_idle
+            )
+            line = (
+                f"  C recv idle heartbeat surfaces turn state: "
+                f"{body_idle.strip()[:170]} [holder+wait visible: {idle_shows}]\n"
+            )
+            print(line, end="")
+            fh.write(line)
+
+            # A releases -> FIFO head (B) is promoted to holder.
+            st_ra, ra = floor(base, tok_a, "release")
+            b_promoted = st_ra == 200 and ra.get("floor_holder") == "peer-2"
+            # Confirm from B's own perspective: B now holds the floor.
+            st_bs, bs = floor(base, tok_b, "status")
+            b_is_holder = st_bs == 200 and bs.get("is_mine") is True and bs.get("floor_holder") == "peer-2"
+            line = (
+                f"  A release -> holder now {ra.get('floor_holder')} [B promoted: {b_promoted}]; "
+                f"B status is_mine={bs.get('is_mine')} [B holds: {b_is_holder}]\n"
+            )
+            print(line, end="")
+            fh.write(line)
+
+            # B releases -> C (the slow 3rd peer) is finally promoted -> its turn.
+            st_rb, rb = floor(base, tok_b, "release")
+            c_promoted = st_rb == 200 and rb.get("floor_holder") == "peer-3"
+            st_cs, cs = floor(base, tok_c, "status")
+            c_is_holder = st_cs == 200 and cs.get("is_mine") is True and cs.get("queue") == []
+            line = (
+                f"  B release -> holder now {rb.get('floor_holder')} [C promoted: {c_promoted}]; "
+                f"C status is_mine={cs.get('is_mine')} queue={cs.get('queue')} [C holds: {c_is_holder}]\n"
+            )
+            print(line, end="")
+            fh.write(line)
+
+            passed = (
+                a_granted
+                and b_queued
+                and c_queued
+                and idle_shows
+                and b_promoted
+                and b_is_holder
+                and c_promoted
+                and c_is_holder
+            )
+            verdict = (
+                "\nVERDICT: A granted; B,C queued FIFO at 1,2; holder+waits visible via status AND the recv idle "
+                "heartbeat; release promoted B then C in order -- the slow 3rd peer got its guaranteed turn. "
+                "PASS -- advisory floor is first-waiter-wins (anti-livelock).\n"
+                if passed
+                else "\nVERDICT: floor grant/queue behaved unexpectedly (see above). FAIL.\n"
+            )
+            print(verdict)
+            fh.write(verdict)
+
+            for t in (tok_a, tok_b, tok_c):
+                with contextlib.suppress(Exception):
+                    get(_k(f"{base}/unplug?t={t}"), timeout=2)
+        finally:
+            stop_relay(proc)
+    print(f"[saved] {out_path}")
+    return passed
+
+
+def proof_floor_lease_expiry() -> bool:
+    """PROOF 23 (floor lease expiry -- lease clock alone hands off the turn): a SHORT
+    RELAY_FLOOR_LEASE. A acquires the floor and NEVER releases (a hung holder). B
+    queues behind A. Within ~lease+slack, WITHOUT any release call, the lease lapses
+    and B becomes the holder purely on the lease clock -- proven both via B's
+    op=status and via B's recv idle heartbeat (floor_is_mine flips true). This is the
+    anti-livelock backstop: a holder that hangs cannot pin the floor forever. We keep
+    BOTH peers alive (periodic recv) so the REAPER never fires -- the handoff here is
+    the LEASE, not a peer drop (that is proof_floor_holder_reaped). Bounded; no hang."""
+    out_path = str(Path(TDIR) / "proof_floor_lease_expiry.txt")
+    # Short lease (2s) << peer timeout (default 90s) so the lease lapses while both
+    # peers are still very much alive. Short idle so heartbeats return fast.
+    proc, base = start_relay(
+        "floorlease",
+        {"RELAY_MAX_TURNS": "40", "RELAY_MAX_SECONDS": "120", "RELAY_FLOOR_LEASE": "2", "RELAY_IDLE_WAIT": "1"},
+    )
+    assert base is not None
+    passed = False
+    with Path(out_path).open("w", buffering=1) as fh:
+        try:
+            if not wait_health(base):
+                print("relay did not come up", file=sys.stderr)
+                sys.exit(1)
+            banner(fh, "PROOF 23 - FLOOR LEASE EXPIRY (hung holder auto-released; waiter promoted on the clock alone)")
+
+            tok_a = join_token(base)  # peer-1
+            tok_b = join_token(base)  # peer-2
+
+            st_a, a = floor(base, tok_a, "acquire")
+            a_holds = st_a == 200 and a.get("is_mine") is True and a.get("floor_holder") == "peer-1"
+            st_b, b = floor(base, tok_b, "acquire")
+            b_queued = st_b == 200 and b.get("is_mine") is False and b.get("position") == 1
+            line = (
+                f"  A acquire -> holder={a.get('floor_holder')} [A holds: {a_holds}]; "
+                f"B acquire -> position={b.get('position')} [B queued: {b_queued}]\n"
+            )
+            print(line, end="")
+            fh.write(line)
+            line = "  A now HANGS (never releases). Waiting out the lease -- NO release call is made...\n"
+            print(line, end="")
+            fh.write(line)
+
+            # Poll B's view until the lease lapses and B becomes holder -- WITHOUT
+            # ever calling release. We drive B's OWN recv each turn: it both keeps B
+            # alive (last_seen refreshes on arrival -> never reaped) AND drains B's
+            # join-backlog so a later recv is a true idle heartbeat. We also keep A
+            # alive so this is the LEASE handing off, not the reaper. Bounded window
+            # of ~lease + a couple sweep/slack seconds. We accept the flip when B's
+            # recv idle heartbeat itself shows floor_is_mine:true (turn handed over by
+            # the lease clock, surfaced to a quiet peer with no send).
+            b_became_holder = False
+            idle_flip = False
+            deadline = time.time() + 8  # 2s lease + slack; well under any cap
+            while time.time() < deadline:
+                get(_k(f"{base}/recv?t={tok_a}&wait=1"), timeout=HTTP_TIMEOUT)  # keep A present
+                st_i, body_i = get(_k(f"{base}/recv?t={tok_b}&wait=1"), timeout=HTTP_TIMEOUT)
+                st_bs, bs = floor(base, tok_b, "status")
+                if st_bs == 200 and bs.get("is_mine") is True and bs.get("floor_holder") == "peer-2":
+                    b_became_holder = True
+                    # The idle heartbeat (when B's backlog is drained) shows the flip.
+                    idle_flip = (
+                        st_i == 200
+                        and '"idle": true' in body_i
+                        and '"floor_holder": "peer-2"' in body_i
+                        and '"floor_is_mine": true' in body_i
+                    )
+                    if not idle_flip:
+                        # One more recv now that the backlog is surely drained.
+                        st_i, body_i = get(_k(f"{base}/recv?t={tok_b}&wait=1"), timeout=HTTP_TIMEOUT)
+                        idle_flip = (
+                            st_i == 200
+                            and '"idle": true' in body_i
+                            and '"floor_holder": "peer-2"' in body_i
+                            and '"floor_is_mine": true' in body_i
+                        )
+                    line = (
+                        f"  lease lapsed -> B status is_mine={bs.get('is_mine')} "
+                        f"holder={bs.get('floor_holder')} (NO release was called) [promoted: {b_became_holder}]\n"
+                    )
+                    print(line, end="")
+                    fh.write(line)
+                    line = (
+                        f"  B recv idle heartbeat: {body_i.strip()[:150]} [floor_is_mine flipped true: {idle_flip}]\n"
+                    )
+                    print(line, end="")
+                    fh.write(line)
+                    break
+                time.sleep(0.3)
+            if not b_became_holder:
+                line = "  B did NOT become holder within the lease window (FAIL)\n"
+                print(line, end="")
+                fh.write(line)
+
+            passed = a_holds and b_queued and b_became_holder and idle_flip
+            verdict = (
+                "\nVERDICT: a holder that never released was auto-released by the lease, and the queued waiter became "
+                "holder on the lease clock ALONE (no release call, both peers still alive). "
+                "PASS -- lease expiry guarantees the turn advances.\n"
+                if passed
+                else "\nVERDICT: floor lease expiry behaved unexpectedly (see above). FAIL.\n"
+            )
+            print(verdict)
+            fh.write(verdict)
+
+            for t in (tok_a, tok_b):
+                with contextlib.suppress(Exception):
+                    get(_k(f"{base}/unplug?t={t}"), timeout=2)
+        finally:
+            stop_relay(proc)
+    print(f"[saved] {out_path}")
+    return passed
+
+
+def proof_floor_advisory_nonblocking() -> bool:
+    """PROOF 24 (floor is ADVISORY + default-off back-compat): two parts.
+
+      (1) ADVISORY -- a held floor NEVER refuses a send. On a relay with the lease
+          ON, A op=acquire (holds the floor). A DIFFERENT peer B that NEVER called
+          /floor does a plain /send -> 200 (never refused), and B's send reply still
+          carries floor_holder:"peer-1" + floor_is_mine:false (it only REPORTS whose
+          turn it is). No floor state can permanently refuse a send.
+
+      (2) DEFAULT-OFF -- a SECOND relay with RELAY_FLOOR_LEASE=0: /floor op=status
+          still answers but floor_holder is null, and a recv idle heartbeat OMITS or
+          NULLS the turn fields meaningfully (floor_holder:null, floor_is_mine:false,
+          floor_wait:0) -- nothing populated, byte-for-byte legacy for non-callers.
+
+    Bounded throughout; no hang."""
+    out_path = str(Path(TDIR) / "proof_floor_advisory_nonblocking.txt")
+    proc, base = start_relay(
+        "flooradv",
+        {"RELAY_MAX_TURNS": "40", "RELAY_MAX_SECONDS": "120", "RELAY_FLOOR_LEASE": "60", "RELAY_IDLE_WAIT": "1"},
+    )
+    assert base is not None
+    passed = False
+    proc2: subprocess.Popen[str] | None = None
+    with Path(out_path).open("w", buffering=1) as fh:
+        try:
+            if not wait_health(base):
+                print("relay did not come up", file=sys.stderr)
+                sys.exit(1)
+            banner(fh, "PROOF 24 - FLOOR ADVISORY (send never refused) + DEFAULT-OFF back-compat")
+
+            # --- (1) A holds the floor; B (never touched /floor) still posts ----
+            tok_a = join_token(base)  # peer-1
+            tok_b = join_token(base)  # peer-2
+            st_a, a = floor(base, tok_a, "acquire")
+            a_holds = st_a == 200 and a.get("is_mine") is True and a.get("floor_holder") == "peer-1"
+            line = f"  A acquire -> holder={a.get('floor_holder')} [A holds: {a_holds}]\n"
+            print(line, end="")
+            fh.write(line)
+
+            turns_before = peers_turns(base)
+            st_send, body_send = post(base, tok_b, "B posts despite not holding the floor")
+            b_posted = st_send == 200 and '"ok": true' in body_send
+            turns_after = peers_turns(base)
+            appended = turns_after == turns_before + 1
+            # B's send reply REPORTS the floor (advisory): holder peer-1, not mine.
+            reply_reports = '"floor_holder": "peer-1"' in body_send and '"floor_is_mine": false' in body_send
+            line = f"  B plain send (A holds floor) -> HTTP {st_send}: {body_send.strip()[:180]}\n"
+            print(line, end="")
+            fh.write(line)
+            line = (
+                f"    [send accepted: {b_posted}; turns {turns_before}->{turns_after} appended: {appended}; "
+                f"reply reports holder peer-1 + not-mine: {reply_reports}]\n"
+            )
+            print(line, end="")
+            fh.write(line)
+
+            advisory_ok = a_holds and b_posted and appended and reply_reports
+
+            # --- (2) DEFAULT-OFF: a second relay with the lease at 0 -------------
+            proc2, base2 = start_relay(
+                "flooroff",
+                {"RELAY_MAX_TURNS": "40", "RELAY_MAX_SECONDS": "120", "RELAY_FLOOR_LEASE": "0", "RELAY_IDLE_WAIT": "1"},
+            )
+            assert base2 is not None
+            if not wait_health(base2):
+                print("relay2 did not come up", file=sys.stderr)
+                sys.exit(1)
+            tok_off = join_token(base2)  # peer-1 on the off relay
+            # /floor status still answers, but the floor is open (holder null).
+            st_off, off = floor(base2, tok_off, "status")
+            status_null = st_off == 200 and off.get("ok") is True and off.get("floor_holder") is None
+            line = (
+                f"  [lease=0 relay] /floor status -> HTTP {st_off}: holder={off.get('floor_holder')} "
+                f"queue={off.get('queue')} [answers, holder null: {status_null}]\n"
+            )
+            print(line, end="")
+            fh.write(line)
+
+            # A recv idle heartbeat: turn fields present-but-inert (holder null,
+            # is_mine false, wait 0) -- nothing populated. Default-off = legacy. The
+            # first recv drains the join-backlog (array), so loop to the idle OBJECT.
+            body_io = ""
+            for _ in range(6):
+                st_io, body_io = get(_k(f"{base2}/recv?t={tok_off}&wait=1"), timeout=HTTP_TIMEOUT)
+                if st_io == 200 and '"idle": true' in body_io:
+                    break
+            idle_inert = (
+                '"idle": true' in body_io
+                and '"floor_holder": null' in body_io
+                and '"floor_is_mine": false' in body_io
+                and '"floor_wait": 0' in body_io
+            )
+            line = (
+                f"  [lease=0 relay] recv idle heartbeat: {body_io.strip()[:170]} "
+                f"[turn fields inert (null/false/0): {idle_inert}]\n"
+            )
+            print(line, end="")
+            fh.write(line)
+
+            default_off_ok = status_null and idle_inert
+
+            passed = advisory_ok and default_off_ok
+            verdict = (
+                "\nVERDICT: a held floor NEVER refused B's plain send (it appended; the reply only REPORTED holder "
+                "peer-1); and with RELAY_FLOOR_LEASE=0 /floor status answers holder:null while the recv idle "
+                "heartbeat carries inert turn fields. PASS -- floor is advisory + default-off back-compatible.\n"
+                if passed
+                else "\nVERDICT: floor advisory/default-off behaved unexpectedly (see above). FAIL.\n"
+            )
+            print(verdict)
+            fh.write(verdict)
+
+            for t in (tok_a, tok_b):
+                with contextlib.suppress(Exception):
+                    get(_k(f"{base}/unplug?t={t}"), timeout=2)
+            with contextlib.suppress(Exception):
+                get(_k(f"{base2}/unplug?t={tok_off}"), timeout=2)
+        finally:
+            stop_relay(proc)
+            with contextlib.suppress(Exception):
+                stop_relay(proc2)  # type: ignore[possibly-undefined]
+    print(f"[saved] {out_path}")
+    return passed
+
+
+def proof_floor_holder_reaped() -> bool:
+    """PROOF 25 (floor holder reaped -- dead holder clears the floor under the lock):
+    SHORT RELAY_PEER_TIMEOUT, LONGER RELAY_FLOOR_LEASE (so it is the REAPER, not the
+    lease, that frees the floor here). A acquires the floor then goes SILENT (never
+    polls/sends again). B queues behind A and KEEPS polling (so B is never reaped).
+    Within the reap window the reaper drops A -- '/trace' shows 'peer-1 left (timed
+    out)' -- AND, in the SAME critical section as the holder-pop, the floor advances
+    to B: B becomes holder. Proves a DEAD holder cannot pin the floor (the reaper
+    holder-pop clears/advances it under the lock). Room mode so /trace is readable.
+    Bounded; no hang."""
+    out_path = str(Path(TDIR) / "proof_floor_holder_reaped.txt")
+    sd = tempfile.mkdtemp(prefix="wire-floorreap-")
+    room = "floorreap"
+    passed = False
+    proc: subprocess.Popen[str] | None = None
+    with Path(out_path).open("w", buffering=1) as fh:
+        try:
+            banner(fh, "PROOF 25 - FLOOR HOLDER REAPED (dead holder cleared; queued waiter promoted under the lock)")
+            # Short peer timeout (2s) so the silent holder is reaped fast; LONG floor
+            # lease (60s) so the lease can't be what frees the floor -- it must be the
+            # reaper's holder-pop. Generous caps so only the reaper ends nothing else.
+            proc, base = start_relay(
+                "floorreap",
+                {
+                    "RELAY_MAX_TURNS": "40",
+                    "RELAY_MAX_SECONDS": "120",
+                    "RELAY_PEER_TIMEOUT": "2",
+                    "RELAY_FLOOR_LEASE": "60",
+                    "RELAY_IDLE_WAIT": "1",
+                },
+                room=room,
+                statedir=sd,
+            )
+            assert base is not None
+            if not wait_health(base):
+                print("relay did not come up", file=sys.stderr)
+                sys.exit(1)
+
+            tok_a = join_token(base)  # peer-1 -- will hold then go silent
+            tok_b = join_token(base)  # peer-2 -- queues + keeps polling
+
+            st_a, a = floor(base, tok_a, "acquire")
+            a_holds = st_a == 200 and a.get("is_mine") is True and a.get("floor_holder") == "peer-1"
+            st_b, b = floor(base, tok_b, "acquire")
+            b_queued = st_b == 200 and b.get("is_mine") is False and b.get("position") == 1
+            line = (
+                f"  A acquire -> holder={a.get('floor_holder')} [A holds: {a_holds}]; "
+                f"B acquire -> position={b.get('position')} [B queued: {b_queued}]\n"
+            )
+            print(line, end="")
+            fh.write(line)
+            line = (
+                "  A goes SILENT (holds floor, never polls). B keeps polling. "
+                "Reaper must drop A AND advance the floor to B...\n"
+            )
+            print(line, end="")
+            fh.write(line)
+
+            # Keep B alive across the reap window (B's recv refreshes its last_seen
+            # on arrival). Watch for BOTH: A's 'timed out' line in /trace AND the
+            # floor advancing to B -- they happen in the same reaper critical section.
+            a_reaped_line = False
+            b_became_holder = False
+            deadline = time.time() + 10  # 2s timeout + sweep + slack
+            while time.time() < deadline:
+                get(_k(f"{base}/recv?t={tok_b}&wait=1"), timeout=HTTP_TIMEOUT)
+                _, tr = get(_k(f"{base}/trace"), timeout=HTTP_TIMEOUT)
+                st_bs, bs = floor(base, tok_b, "status")
+                if "peer-1 left (timed out)" in tr and st_bs == 200 and bs.get("is_mine") is True:
+                    a_reaped_line = True
+                    b_became_holder = bs.get("floor_holder") == "peer-2"
+                    line = (
+                        f"  /trace shows 'peer-1 left (timed out)': {a_reaped_line}; "
+                        f"B status holder={bs.get('floor_holder')} is_mine={bs.get('is_mine')} "
+                        f"[B promoted by reaper: {b_became_holder}]\n"
+                    )
+                    print(line, end="")
+                    fh.write(line)
+                    break
+                time.sleep(0.3)
+            if not b_became_holder:
+                line = "  reaper did NOT both drop A and promote B within the window (FAIL)\n"
+                print(line, end="")
+                fh.write(line)
+
+            passed = a_holds and b_queued and a_reaped_line and b_became_holder
+            verdict = (
+                "\nVERDICT: the silent floor-holder was reaped ('peer-1 left (timed out)') and the queued waiter B "
+                "became holder in the SAME reaper sweep -- a dead holder cannot pin the floor. "
+                "PASS -- the reaper holder-pop clears/advances the floor under the lock.\n"
+                if passed
+                else "\nVERDICT: floor holder-reaped behaved unexpectedly (see above). FAIL.\n"
+            )
+            print(verdict)
+            fh.write(verdict)
+
+            with contextlib.suppress(Exception):
+                get(_k(f"{base}/unplug?t={tok_b}"), timeout=2)
+        finally:
+            if proc is not None:
+                stop_relay(proc)
+            shutil.rmtree(sd, ignore_errors=True)
+    print(f"[saved] {out_path}")
+    return passed
+
+
 if __name__ == "__main__":
     Path(TDIR).mkdir(parents=True, exist_ok=True)
     which = sys.argv[1] if len(sys.argv) > 1 else "all"
@@ -1727,6 +3253,10 @@ if __name__ == "__main__":
             results["cross"] = proof_cross()
         if which in ("all", "cursorcheck"):
             results["send_cursor_check"] = proof_send_cursor_check()
+        if which in ("all", "bodycap"):
+            results["body_cap"] = proof_body_cap()
+        if which in ("all", "sendrate"):
+            results["send_rate"] = proof_send_rate()
         if which in ("all", "presence"):
             results["presence"] = proof_presence()
         if which in ("all", "lastpeer"):
@@ -1739,12 +3269,32 @@ if __name__ == "__main__":
             results["brief"] = proof_brief()
         if which in ("all", "gate"):
             results["gate"] = proof_gate()
+        if which in ("all", "role"):
+            results["role_surfaces"] = proof_role_surfaces()
+        if which in ("all", "envrt"):
+            results["envelope_roundtrip"] = proof_envelope_roundtrip()
+        if which in ("all", "envbc"):
+            results["envelope_backcompat"] = proof_envelope_backcompat()
+        if which in ("all", "mine"):
+            results["recv_mine_filter"] = proof_recv_mine_filter()
         if which in ("all", "rooms"):
             results["rooms_isolation"] = proof_rooms_isolation()
         if which in ("all", "rooms", "lock"):
             results["room_lock"] = proof_room_lock()
         if which in ("all", "rooms", "stale"):
             results["room_stale_reclaim"] = proof_room_stale_reclaim()
+        if which in ("all", "since"):
+            results["since"] = proof_since()
+        if which in ("all", "replaywin"):
+            results["replay_window"] = proof_replay_window()
+        if which in ("all", "floor"):
+            results["floor_grant_and_queue"] = proof_floor_grant_and_queue()
+        if which in ("all", "floor", "floorlease"):
+            results["floor_lease_expiry"] = proof_floor_lease_expiry()
+        if which in ("all", "floor", "flooradv"):
+            results["floor_advisory_nonblocking"] = proof_floor_advisory_nonblocking()
+        if which in ("all", "floor", "floorreap"):
+            results["floor_holder_reaped"] = proof_floor_holder_reaped()
         if which in ("all", "safety"):
             proof_safety()
         if results:
