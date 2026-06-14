@@ -18,12 +18,15 @@ read_transcript = mod.read_transcript
 passes_prefilter = mod.passes_prefilter
 passes_rapport_prefilter = mod.passes_rapport_prefilter
 apply_rapport_deltas = mod.apply_rapport_deltas
+_damp_toward_good = mod._damp_toward_good
 score_rapport = mod.score_rapport
 init_db = mod.init_db
 PERSONA_RE = mod.PERSONA_RE
 RAPPORT_FIELDS = mod.RAPPORT_FIELDS
 DELTA_CAP = mod.DELTA_CAP
 TOTAL_CAP = mod.TOTAL_CAP
+GOOD_DIRECTION = mod.GOOD_DIRECTION
+GAIN_FACTOR = mod.GAIN_FACTOR
 
 
 # ── _extract_text ─────────────────────────────────────────────────────────────
@@ -582,9 +585,23 @@ class TestApplyRapportDeltas:
         db_path = self._setup_db(monkeypatch)
         try:
             # Pass a value comfortably above DELTA_CAP so the test stays meaningful
-            # if the cap is retuned later.
+            # if the cap is retuned later. trust+ is a toward-good move, so the
+            # capped value is then damped: the cap fires FIRST (DELTA_CAP), then
+            # _damp_toward_good scales it. Asserting the post-cap-post-damp value
+            # still proves the cap clamped the input — without the cap, DELTA_CAP+5
+            # would damp to a larger magnitude.
             result = apply_rapport_deltas({"trust": DELTA_CAP + 5})
-            assert result["trust"] == DELTA_CAP
+            assert result["trust"] == _damp_toward_good("trust", DELTA_CAP)
+        finally:
+            db_path.unlink(missing_ok=True)
+
+    def test_cap_negative_delta_full_strength(self, monkeypatch):
+        # trust- is away-from-good, so it passes through damping unchanged: the
+        # cap is observable at full strength here (fast fall, no slow-climb damp).
+        db_path = self._setup_db(monkeypatch)
+        try:
+            result = apply_rapport_deltas({"trust": -(DELTA_CAP + 5)})
+            assert result["trust"] == -DELTA_CAP
         finally:
             db_path.unlink(missing_ok=True)
 
@@ -597,9 +614,13 @@ class TestApplyRapportDeltas:
             db_path.unlink(missing_ok=True)
 
     def test_clamp_at_positive_total_cap(self, monkeypatch):
+        # trust+ is a toward-good move and is damped (~3x slower climb), so it
+        # takes many more steps to saturate than the symmetric era. Enough
+        # iterations still drive it to TOTAL_CAP — the climb is slow, not capped
+        # below the ceiling.
         db_path = self._setup_db(monkeypatch)
         try:
-            for _ in range(60):
+            for _ in range(200):
                 apply_rapport_deltas({"trust": 2})
             assert self._read_row(db_path)["trust"] == TOTAL_CAP
         finally:
@@ -647,11 +668,111 @@ class TestApplyRapportDeltas:
     def test_returned_dict_matches_db(self, monkeypatch):
         db_path = self._setup_db(monkeypatch)
         try:
-            # instability floors at 0, so the -1 delta from a fresh (0) start
-            # yields 0 — not -1. trust/attachment are bipolar and move freely.
+            # trust+2 and attachment+1 are toward-good moves, so each is damped to
+            # +1 (ceil(2*0.33)=1, ceil(1*0.33)=1). instability-1 is toward-good too
+            # (cooling), damped to -1, but instability floors at 0 from a fresh
+            # start, yielding 0. The point of this test is that the returned dict
+            # equals the persisted row.
             result = apply_rapport_deltas({"trust": 2, "attachment": 1, "instability": -1})
-            assert result == {"trust": 2, "attachment": 1, "instability": 0}
+            assert result == {"trust": 1, "attachment": 1, "instability": 0}
             assert result == self._read_row(db_path)
+        finally:
+            db_path.unlink(missing_ok=True)
+
+
+# ── _damp_toward_good ─────────────────────────────────────────────────────────
+# Asymmetric rapport gain: toward-good deltas are damped (slow climb), away-from-good
+# and zero pass through full-strength (fast fall). Truth table verified against the
+# locked design with GAIN_FACTOR=0.33 and ceil-away-from-zero rounding.
+
+
+class TestDampTowardGood:
+    @pytest.mark.parametrize(
+        ("field", "delta", "expected"),
+        [
+            # trust: good = high (+1). Positive = toward good (damped); negative = away (full).
+            ("trust", 3, 1),  # ceil(3*0.33)=ceil(0.99)=1
+            ("trust", 10, 4),  # ceil(3.3)=4
+            ("trust", 1, 1),  # ceil(0.33)=1 — the +1 nudge survives
+            ("trust", -3, -3),  # away from good — full strength
+            ("trust", -10, -10),
+            ("trust", 0, 0),  # zero passes through
+            # attachment: good = high (+1), same polarity as trust.
+            ("attachment", 6, 2),  # ceil(1.98)=2
+            ("attachment", -6, -6),  # away — full
+            ("attachment", 1, 1),  # nudge survives
+            # instability: good = 0/low (-1). NEGATIVE = toward good (damped, cools slow);
+            # POSITIVE = away from good (full, spikes fast). Inverted vs trust/attachment.
+            ("instability", 5, 5),  # away from good — full
+            ("instability", 10, 10),
+            ("instability", -5, -2),  # toward 0 — ceil(1.65)=2 -> -2
+            ("instability", -10, -4),  # ceil(3.3)=4 -> -4
+            ("instability", -1, -1),  # cooling nudge survives
+            ("instability", 0, 0),
+        ],
+    )
+    def test_damp_truth_table(self, field, delta, expected):
+        assert _damp_toward_good(field, delta) == expected
+
+    def test_nudge_survives_for_every_field(self):
+        # A single-step move toward good must never be damped to 0 — ceil keeps it >=1.
+        for field in RAPPORT_FIELDS:
+            toward_good = GOOD_DIRECTION[field]  # +1 unit in the good direction
+            out = _damp_toward_good(field, toward_good)
+            assert out == toward_good
+            assert abs(out) == 1
+
+    def test_instability_polarity_is_inverted(self):
+        # Sanity-check the inversion explicitly: for instability, going DOWN (toward 0)
+        # is the damped/good direction while going UP (away) is full-strength.
+        assert _damp_toward_good("instability", -10) == -4  # toward good, damped
+        assert _damp_toward_good("instability", 10) == 10  # away from good, full
+
+
+# ── apply_rapport_deltas: asymmetric climb vs fall ────────────────────────────
+
+
+class TestRapportAsymmetry:
+    def _setup_db(self, monkeypatch):
+        with tempfile.NamedTemporaryFile(suffix=".db", delete=False) as tmp:
+            db_path = Path(tmp.name)
+        db_path.unlink()
+        monkeypatch.setattr(mod, "DB_PATH", db_path)
+        init_db()
+        return db_path
+
+    def test_trust_gain_climbs_slower_than_equal_loss_drops(self, monkeypatch):
+        # From the SAME fresh state, an equal-magnitude gain and loss are NOT
+        # symmetric: +6 trust (toward good) is damped to +2, while -6 trust (away)
+        # falls the full -6. Easy to lose a good state, slow to earn it back.
+        db_path = self._setup_db(monkeypatch)
+        try:
+            gain = apply_rapport_deltas({"trust": 6})  # ceil(6*0.33)=ceil(1.98)=2
+            assert gain["trust"] == 2
+        finally:
+            db_path.unlink(missing_ok=True)
+
+        db_path = self._setup_db(monkeypatch)
+        try:
+            loss = apply_rapport_deltas({"trust": -6})  # away from good — full
+            assert loss["trust"] == -6
+        finally:
+            db_path.unlink(missing_ok=True)
+
+        # The drop is strictly larger in magnitude than the climb.
+        assert abs(-6) > abs(2)
+
+    def test_instability_spikes_fast_cools_slow(self, monkeypatch):
+        # instability inverts the polarity: a +6 provocation spike lands full (+6),
+        # but cooling it back down is damped. Starting from an elevated 6, a -6
+        # cooling delta is damped to -2, so it only drops to 4 — combusts fast,
+        # cools slow.
+        db_path = self._setup_db(monkeypatch)
+        try:
+            spike = apply_rapport_deltas({"instability": 6})  # away from good — full
+            assert spike["instability"] == 6
+            cool = apply_rapport_deltas({"instability": -6})  # toward 0 — ceil(1.98)=2 -> -2
+            assert cool["instability"] == 4
         finally:
             db_path.unlink(missing_ok=True)
 

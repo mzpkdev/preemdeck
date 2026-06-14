@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 
 import json
+import math
 import re
 import sqlite3
 import subprocess
@@ -145,6 +146,29 @@ TOTAL_CAP = 100
 # instability is unipolar (0..+100) — provocation only; it never goes negative
 # ("Johnny doesn't cave, he combusts"). trust/attachment stay bipolar.
 FIELD_FLOOR = {"trust": -TOTAL_CAP, "attachment": -TOTAL_CAP, "instability": 0}
+
+# Each rapport field has a "good" pole. A delta moving TOWARD it is damped
+# (slow climb); a delta moving AWAY stays full-strength (fast fall). Asymmetric
+# by design: easy to lose a good state, slow to earn it back.
+#   trust / attachment: good = high (+1)
+#   instability:        good = 0 / composed (-1)  -> spikes fast, cools slow
+GOOD_DIRECTION = {"trust": 1, "attachment": 1, "instability": -1}
+GAIN_FACTOR = 0.33  # toward-good deltas scaled by this (~3x slower climb)
+
+
+def _damp_toward_good(field: str, delta: int) -> int:
+    """Slow a delta that moves FIELD toward its good pole; pass away-from-good through.
+
+    A toward-good delta keeps its sign but its magnitude is scaled by GAIN_FACTOR
+    and rounded UP (away from zero) so any nonzero signal still moves at least 1 --
+    small gains survive, big gains slow ~3x. Away-from-good deltas (and zero) pass
+    through unchanged, so losing a good state stays fast while earning it back is slow.
+    """
+    if delta * GOOD_DIRECTION[field] <= 0:
+        return delta
+    mag = math.ceil(abs(delta) * GAIN_FACTOR)
+    return mag if delta > 0 else -mag
+
 
 # Per-harness model pin flag. All three CLIs use --model, but kept as a map
 # in case any harness later diverges (e.g. positional or differently-named arg).
@@ -467,13 +491,17 @@ def score_rapport(transcript: str, harness_cli: str, model: str | None = None) -
 
 
 def apply_rapport_deltas(deltas: dict[str, int]) -> dict[str, int]:
-    """Apply signed deltas. Each delta capped to ±DELTA_CAP, totals clamped to ±TOTAL_CAP (instability floored at 0). Returns new state."""  # noqa: E501
+    """Apply signed deltas. Each delta capped to ±DELTA_CAP, then asymmetrically damped:
+    toward-good moves are slowed via _damp_toward_good (slow climb) while away-from-good
+    moves pass through full-strength (fast fall). Totals clamped to ±TOTAL_CAP
+    (instability floored at 0). Returns new state."""
     capped = {f: max(-DELTA_CAP, min(DELTA_CAP, int(deltas.get(f, 0)))) for f in RAPPORT_FIELDS}
+    damped = {f: _damp_toward_good(f, capped[f]) for f in RAPPORT_FIELDS}
     try:
         with sqlite3.connect(DB_PATH) as db:
             row = db.execute(f"SELECT {','.join(RAPPORT_FIELDS)} FROM rapport WHERE id=1").fetchone()
             current = dict(zip(RAPPORT_FIELDS, row, strict=True))
-            new = {f: max(FIELD_FLOOR[f], min(TOTAL_CAP, current[f] + capped[f])) for f in RAPPORT_FIELDS}
+            new = {f: max(FIELD_FLOOR[f], min(TOTAL_CAP, current[f] + damped[f])) for f in RAPPORT_FIELDS}
             set_clause = ",".join(f"{f}=?" for f in RAPPORT_FIELDS)
             db.execute(
                 f"UPDATE rapport SET {set_clause}, updated_at=datetime('now') WHERE id=1",
