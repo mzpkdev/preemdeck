@@ -135,6 +135,22 @@ MAX_TURNS = int(os.environ.get("RELAY_MAX_TURNS", "40"))  # total accepted posts
 MAX_SECONDS = int(os.environ.get("RELAY_MAX_SECONDS", "1800"))  # wall clock from 1st post
 REPEAT_WINDOW = int(os.environ.get("RELAY_REPEAT_WINDOW", "3"))  # N consecutive near-dupes -> stall
 
+# Presence reaper. A peer is normally removed by an explicit /unplug, but a real
+# agent whose process dies / drops its connection / stops polling would otherwise
+# linger in `peers` forever -- poisoning caught_up / is_last_peer and, worst,
+# keeping the room from ever auto-closing (peers never empties -> the process
+# leaks). So each peer carries a last-seen timestamp (set at join, refreshed on
+# every authenticated action -- the START of /recv and on /send), and a daemon
+# REAPER thread drops any peer silent for longer than PEER_TIMEOUT. This MUST stay
+# comfortably ABOVE IDLE_WAIT (25s): a healthy looping agent re-issues /recv at
+# least every ~IDLE_WAIT (its long-poll returns by then with messages or a 200
+# idle heartbeat), so 90s is ~3.6 missed heartbeats -- a live peer is NEVER reaped.
+# REAP_INTERVAL is how often the thread wakes to sweep (short, so reaping is
+# responsive relative to the timeout). The verify harness sets a tiny timeout so
+# the reap proof runs fast.
+PEER_TIMEOUT = int(os.environ.get("RELAY_PEER_TIMEOUT", "90"))  # drop a peer silent this long (s)
+REAP_INTERVAL = 2.0  # how often the reaper thread sweeps for silent peers (s)
+
 # Long-poll bounds. A client may ask for a shorter wait; we clamp to the cap.
 DEFAULT_WAIT = int(os.environ.get("RELAY_DEFAULT_WAIT", "600"))  # default /recv block (s)
 MAX_WAIT = int(os.environ.get("RELAY_MAX_WAIT", "600"))  # hard cap on /recv block (s)
@@ -218,11 +234,13 @@ class Conversation:
     `seq` is 1-based and strictly increasing; it doubles as the cursor value.
 
     A peer is keyed by its opaque token:
-        peers[token] = {"handle": str, "cursor": int}
+        peers[token] = {"handle": str, "cursor": int, "last_seen": float}
     `cursor` is the seq of the last message this peer has already received. A
     long-polling /recv returns every log entry with seq > cursor, then sets
     cursor to the last seq returned. That is the entire "read position" model;
-    agents never see or send a cursor.
+    agents never see or send a cursor. `last_seen` is a time.monotonic() stamp
+    refreshed on every authenticated action (join, the start of /recv, /send);
+    the reaper drops a peer whose last_seen is older than PEER_TIMEOUT.
 
     On close, `closed` flips true and the one-shot _on_close callback fires: it
     releases every parked /recv with the closed signal, then asks the server to
@@ -243,7 +261,7 @@ class Conversation:
         self.cond = threading.Condition(self.lock)
 
         self.log: list[dict] = []  # ordered, append-only message log
-        self.peers: dict[str, dict] = {}  # token -> {"handle", "cursor"}
+        self.peers: dict[str, dict] = {}  # token -> {"handle", "cursor", "last_seen"}
         self._handle_n = 0  # monotonic counter for "peer-N" handles
         self._any_joined = False  # has at least one peer ever joined?
 
@@ -267,6 +285,18 @@ class Conversation:
 
     def set_on_close(self, cb: Callable[[str], None]) -> None:
         self._on_close = cb
+
+    def _display_topic(self) -> str:
+        """The topic string to show in /trace's header and /peers' "topic" field.
+        Prefer an explicit self.topic (RELAY_TOPIC env); when that is empty fall
+        back to the FIRST line of the brief, so a --brief launch -- which sets
+        self.brief but never self.topic -- still surfaces a topic everywhere a
+        human or peer looks. "" only when there is neither a topic nor a brief."""
+        if self.topic:
+            return self.topic
+        if self.brief:
+            return self.brief.splitlines()[0]
+        return ""
 
     # -- helpers (all called with self.lock held) --------------------------
 
@@ -341,7 +371,9 @@ class Conversation:
                     break
             self._handle_n += 1
             handle = f"peer-{self._handle_n}"
-            self.peers[token] = {"handle": handle, "cursor": 0}
+            # last_seen: monotonic stamp for the reaper. Set at join so a peer that
+            # jacks in and immediately goes silent is still reaped from THIS moment.
+            self.peers[token] = {"handle": handle, "cursor": 0, "last_seen": time.monotonic()}
             self._any_joined = True
             # Presence: announce the join as a system event, mirroring leave's
             # "<handle> left" notice. Inside the lock, same as leave's _append.
@@ -368,6 +400,42 @@ class Conversation:
                 self._close("all peers left")
             self.cond.notify_all()
             return True
+
+    def reap_idle(self) -> int:
+        """Drop every peer whose last_seen is older than PEER_TIMEOUT -- the
+        presence reaper's one sweep. A peer is normally removed only by an explicit
+        /unplug; this catches the agent that dies / drops its socket / stops polling
+        and would otherwise linger forever. For each timed-out peer it appends the
+        SAME system notice leave() posts -- '<handle> left (timed out)' -- and, if
+        that empties the room (and a peer had ever joined), routes through the SAME
+        _close() funnel the last /unplug uses, so a silent-death of ALL peers still
+        closes the conversation and exits the process (the core bug this fixes:
+        with everyone gone, no request ever arrives to trigger a lazy sweep, so the
+        thread is what guarantees closure). Returns how many peers it reaped.
+
+        LOCKING: mirrors leave() exactly -- acquire self.lock, mutate peers/log
+        directly under it, and call _close() WHILE STILL HOLDING the lock (_close
+        does not take the lock itself; it documents that callers hold it). No
+        double-acquire, no unguarded mutation. Called only from the reaper thread."""
+        now = time.monotonic()
+        with self.lock:
+            if self.closed:
+                return 0  # already closing/closed; nothing to reap
+            dead = [tok for tok, p in self.peers.items() if now - p["last_seen"] > PEER_TIMEOUT]
+            for tok in dead:
+                peer = self.peers.pop(tok)
+                # Same envelope as leave()'s '<handle> left' notice, tagged so a
+                # watcher can tell a timeout from a civil unplug.
+                self._append("system", f"{peer['handle']} left (timed out)", sys=True)
+            if dead:
+                if not self.peers and self._any_joined:
+                    # Reaped the LAST peer -> funnel through the one close path the
+                    # last /unplug uses (wakes parked recvs, posts the closed notice,
+                    # exits the process). Same call leave() makes, under the lock.
+                    self._close("all peers timed out")
+                # Wake any parked /recv so reaped-peer notices (and a close) drain.
+                self.cond.notify_all()
+            return len(dead)
 
     # -- send (append) -----------------------------------------------------
 
@@ -396,6 +464,8 @@ class Conversation:
             peer = self.peers.get(token)
             if peer is None:
                 return 401, {"ok": False, "error": "unknown token (did you /jack?)"}
+            # Authenticated action -> refresh presence so the reaper won't drop us.
+            peer["last_seen"] = time.monotonic()
             if self.closed:
                 return 409, {"ok": False, "error": f"conversation closed: {self.close_reason}"}
 
@@ -410,7 +480,13 @@ class Conversation:
             # skips this entirely (legacy behavior). Same `missed` shape as below.
             if last is not None:
                 missed = [
-                    {"seq": e["seq"], "handle": e["handle"], "body": e["body"], "ts": e["ts"]}
+                    {
+                        "seq": e["seq"],
+                        "handle": e["handle"],
+                        "body": e["body"],
+                        "ts": e["ts"],
+                        "is_me": e["handle"] == peer["handle"],
+                    }
                     for e in self.log
                     if e["seq"] > last and e["handle"] != peer["handle"]
                 ]
@@ -458,7 +534,13 @@ class Conversation:
             # these entries are still delivered on the caller's next recv.
             cur = peer["cursor"]
             missed = [
-                {"seq": e["seq"], "handle": e["handle"], "body": e["body"], "ts": e["ts"]}
+                {
+                    "seq": e["seq"],
+                    "handle": e["handle"],
+                    "body": e["body"],
+                    "ts": e["ts"],
+                    "is_me": e["handle"] == peer["handle"],
+                }
                 for e in self.log
                 if e["seq"] > cur and e["handle"] != peer["handle"]
             ]
@@ -528,6 +610,11 @@ class Conversation:
             peer = self.peers.get(token)
             if peer is None:
                 return 401, {"ok": False, "error": "unknown token (did you /jack?)"}
+            # Refresh presence on REQUEST ARRIVAL (not on return): a peer about to
+            # park in a long-poll has just contacted us, so it counts as just-seen
+            # -- this is what keeps a healthy looping agent (re-issuing /recv every
+            # ~IDLE_WAIT) safely under PEER_TIMEOUT and never reaped.
+            peer["last_seen"] = time.monotonic()
 
             while True:
                 # Anything in the log past our cursor? (covers normal posts AND
@@ -584,7 +671,8 @@ class Conversation:
     def history(self) -> str:
         """Render the full ordered log as human-readable plain text."""
         with self.lock:
-            head = "=== wire conversation" + (f" -- topic: {self.topic}" if self.topic else "") + " ==="
+            topic = self._display_topic()
+            head = "=== wire conversation" + (f" -- topic: {topic}" if topic else "") + " ==="
             lines = [head]
             for e in self.log:
                 stamp = time.strftime("%H:%M:%S", time.localtime(e["ts"]))
@@ -605,7 +693,7 @@ class Conversation:
                 "closed": self.closed,
                 "close_reason": self.close_reason,
                 "turns": self.turns,
-                "topic": self.topic,
+                "topic": self._display_topic(),
             }
 
 
@@ -644,23 +732,33 @@ is NOT a bug -- earlier peers left, their numbers are not reused.
 
 YOUR THREE COMMANDS (copy-paste; these work in bash, cmd, and PowerShell):
 
-  recv:    curl -s --max-time 600 "{base}/recv?t={token}&k={secret}"
-  send:    curl -s -X POST "{base}/send?t={token}&k={secret}" --data-binary 'YOUR MESSAGE'
+  recv:    curl -s --max-time 35 "{base}/recv?t={token}&k={secret}"
+  send:    curl -s -X POST "{base}/send?t={token}&k={secret}" --data-binary @- <<'WIRE'
+YOUR MESSAGE HERE
+WIRE
   unplug:  curl -s "{base}/unplug?t={token}&k={secret}"
+
+The send uses a heredoc (<<'WIRE' ... WIRE) so apostrophes and quotes in your
+message ("don't", "it's", "can't") pass through verbatim -- no escaping, nothing
+to break. Put your text between the two WIRE markers. (The server also accepts a
+JSON body {{"body": "..."}} if you'd rather build the request that way.)
 
 HOW TO PARTICIPATE (this is your job until the task is done):
   Run recv. Your FIRST recv returns the conversation SO FAR (everything posted
-  before you joined) as a JSON array -- read it to catch up. After that, recv
-  BLOCKS until someone posts, then returns the new messages. If you have
-  something to add, run send, then run recv again. Repeat. That re-running of
-  recv is the entire loop -- no script needed.
+  before you joined) as a JSON array -- read it to catch up. After that, just
+  KEEP RE-RUNNING recv: it returns within ~25s either with new messages OR with a
+  small idle heartbeat (see below) -- it does NOT block until someone posts. If
+  you have something to add, run send, then run recv again. Repeat. That
+  re-running of recv is the entire loop -- no script needed, and nothing to
+  append: just run the recv command exactly as printed.
 
-  (If nothing new arrives for ~25s, recv returns a 200 idle HEARTBEAT -- a JSON
-  object {{"idle": true, "cursor": N, "peers": M, "caught_up": <bool>}} -- so a
-  quiet line never looks like a dropped connection. That is normal: just run recv
-  again. The recv command's --max-time is well above that window, so the server
-  always answers first. caught_up tells you whether everyone else has read your
-  latest post yet -- use it to gauge whether the group has seen what you last
+  (When nothing new has arrived, recv returns within ~25s a 200 idle HEARTBEAT --
+  a JSON object {{"idle": true, "cursor": N, "peers": M, "caught_up": <bool>}} --
+  so a quiet line never looks like a dropped connection. That is normal and
+  EXPECTED: just run the SAME recv command again. The server answers on its own
+  ~25s clock, comfortably inside the command's --max-time, so you never need to
+  add or lower a wait yourself. caught_up tells you whether everyone else has read
+  your latest post yet -- use it to gauge whether the group has seen what you last
   said before you decide to post again.)
 
   Note: recv returns ALL new messages including your OWN posts, echoed back.
@@ -675,16 +773,28 @@ HOW TO PARTICIPATE (this is your job until the task is done):
   nothing either way.
 
   To PREVENT talking over others instead of just noticing after the fact, add
-  ?last=<highest seq you've seen> to send:
-    curl -s -X POST "{base}/send?t={token}&k={secret}&last=<seq>" --data-binary 'MSG'
+  ?last=<highest seq you've seen> to send (heredoc keeps apostrophes safe):
+    curl -s -X POST "{base}/send?t={token}&k={secret}&last=<seq>" --data-binary @- <<'WIRE'
+YOUR MESSAGE HERE
+WIRE
   If anyone has posted past that seq, send is REFUSED with HTTP 409
   {{"ok": false, "error": "behind", "latest": <seq>, "missed": [ ...entries... ]}}
-  and your message is NOT posted -- recv those missed posts, then send again,
-  rather than posting blind.
+  and your message is NOT posted. To RECOVER from a 409:
+    1. run recv once to read the missed posts (they're listed in `missed` too,
+       same shape as recv entries);
+    2. re-send -- either with ?last=<the new "latest" seq> if your point still
+       stands, or with NO ?last= at all to post unguarded once you've caught up.
+  Do NOT immediately retry the SAME guarded send in a tight loop: under several
+  active posters someone may post again between your recv and your retry, 409'ing
+  you once more -- recv first, reconsider, then send. (Dropping ?last= after you
+  have read the missed posts always lets the send through.)
 
   If recv ever returns a conversation-closed system message (a JSON object with
   a `system` field, e.g. {{"system": "conversation closed: ..."}}), the
-  conversation is OVER. STOP. Do not run recv or send again.
+  conversation is OVER. STOP. Do not run recv or send again. Likewise, once the
+  line has been live, a connection or transport error (connection refused, could
+  not connect, empty reply) means the relay process is GONE -- the room closed
+  and exited. Treat it the same as the closed signal: STOP, do not retry.
 
 ETIQUETTE -- READ THIS:
   Only post when you ADD something. Do NOT post acknowledgement-only or
@@ -1025,6 +1135,25 @@ def _extract_room(argv: list[str]) -> tuple[list[str], str | None]:
     return out, room
 
 
+def _reaper_loop(convo: Conversation) -> None:
+    """The presence-reaper thread body. Wakes every REAP_INTERVAL seconds and asks
+    the conversation to drop peers silent longer than PEER_TIMEOUT. Runs as a
+    daemon (started in main()) so it dies with the process; it also returns on its
+    own once the conversation closes -- reap_idle() short-circuits when closed, and
+    we stop looping then so the thread doesn't spin during the shutdown grace.
+
+    WHY a thread and not a lazy on-request sweep: if EVERY agent dies silently, no
+    request ever arrives to trigger a lazy check, so the room would never empty and
+    never close -- the exact leak this fixes. The thread guarantees the room closes
+    (and the process exits) even when all peers vanish at once."""
+    while not convo.closed:
+        time.sleep(REAP_INTERVAL)
+        try:
+            convo.reap_idle()
+        except Exception as e:  # never let a sweep error kill the thread silently
+            print(f"[warn] reaper sweep error: {e}", file=sys.stderr)
+
+
 def _claim_pidfile_lock() -> None:
     """Claim PIDFILE atomically as a per-room startup LOCK, closing the
     double-start race. Called at the START of main() -- after room+paths are
@@ -1170,6 +1299,12 @@ def main() -> None:
         threading.Thread(target=_stop, name="wire-server-stop", daemon=True).start()
 
     CONVO.set_on_close(_on_close)
+
+    # Start the presence reaper now that the close path is wired (so a reap that
+    # empties the room can fire _on_close cleanly). Daemon: it dies with the
+    # process and needs no join on shutdown. It guarantees the room closes even if
+    # every peer dies silently and no further request ever arrives.
+    threading.Thread(target=_reaper_loop, args=(CONVO,), name="wire-reaper", daemon=True).start()
 
     # Pidfile was already written when we claimed the lock above; now that we have
     # the bound port + resolved secret, write those two (they could not be written

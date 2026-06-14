@@ -780,6 +780,9 @@ def proof_cross() -> bool:
                 and '"ok": true' in body_b  # existing fields preserved
                 and '"seq":' in body_b
                 and '"handle":' in body_b
+                # missed entries must carry is_me, same shape as recv entries (the
+                # manual claims so). A's post is someone else's -> is_me false.
+                and '"is_me": false' in body_b.split('"missed"')[1]
             )
             # B's own message must NOT appear in its own missed list.
             own_excluded = "B says hi" not in body_b.split('"missed"')[1]
@@ -824,9 +827,11 @@ def proof_brief() -> bool:
     sees. We pass --brief on the relay's argv (alongside the host/port the
     harness already sets via env) to prove the argv path -- the same path
     /uplink uses -- not just the env fallback. The brief is multiline to prove
-    embedded newlines survive argv -> log -> /recv JSON intact. Bounded wait
-    (wait=2) so even a regression (no seed) surfaces as a quick 204, never a
-    hang."""
+    embedded newlines survive argv -> log -> /recv JSON intact. We ALSO assert the
+    brief surfaces as the topic in /peers JSON and the /trace header: no
+    RELAY_TOPIC is set, so both must FALL BACK to the brief's first line (the
+    topic-brief-invisible-to-/peers fix). Bounded wait (wait=2) so even a
+    regression (no seed) surfaces as a quick 204, never a hang."""
     out_path = str(Path(TDIR) / "proof_brief.txt")
 
     brief = "SOME TEST TOPIC\nsecond line of the brief"
@@ -893,6 +898,32 @@ def proof_brief() -> bool:
             print(line, end="")
             fh.write(line)
             passed = passed and manual_has_topic
+
+            # And prove /peers surfaces the topic too. No RELAY_TOPIC was set -- only
+            # --brief -- so this exercises the brief-fallback fix: with self.topic
+            # empty, /peers' "topic" field must show the brief's FIRST line (NOT the
+            # second line, NOT empty). Regression guard for the old bug where /peers
+            # (and the /trace header) read self.topic only and rendered blank under a
+            # --brief launch.
+            st_p, body_p = get(_k(f"{base}/peers"), timeout=HTTP_TIMEOUT)
+            peers_topic_ok = (
+                st_p == 200
+                and '"topic": "SOME TEST TOPIC"' in body_p  # first brief line, exact
+                and "second line of the brief" not in body_p  # only the first line
+            )
+            line = f"  /peers topic (brief fallback) -> HTTP {st_p}: {body_p.strip()[:160]} [first-line topic: {peers_topic_ok}]\n"
+            print(line, end="")
+            fh.write(line)
+            passed = passed and peers_topic_ok
+
+            # /trace header must carry the same fallback topic (reads self.topic ->
+            # brief first line). Proves both readers share the fallback.
+            st_t, trace = get(_k(f"{base}/trace"), timeout=HTTP_TIMEOUT)
+            trace_topic_ok = st_t == 200 and "topic: SOME TEST TOPIC" in trace.splitlines()[0]
+            line = f"  /trace header topic (brief fallback): {'YES' if trace_topic_ok else 'NO'} (status {st_t})\n"
+            print(line, end="")
+            fh.write(line)
+            passed = passed and trace_topic_ok
 
             # Leave cleanly so the relay closes and self-exits (no stray process).
             get(_k(f"{base}/unplug?t={tok}"), timeout=2)
@@ -1239,6 +1270,9 @@ def proof_send_cursor_check() -> bool:
                 and '"missed":' in body_stale
                 and '"missed": []' not in body_stale  # non-empty missed
                 and "A's first message" in body_stale  # A's post is what we're behind on
+                # 409 missed entries carry is_me too (same shape as recv); A's post
+                # is someone else's -> is_me false. Shape-consistency guard.
+                and '"is_me": false' in body_stale.split('"missed"')[1]
             )
             line = f"  B send last=0 (STALE) -> HTTP {st_stale}: {body_stale.strip()[:180]} [refused: {stale_ok}]\n"
             print(line, end="")
@@ -1460,6 +1494,142 @@ def proof_last_peer_closes() -> bool:
     return passed
 
 
+def proof_peer_reap() -> bool:
+    """PROOF 15 (presence reaper): a peer that jacks in and then goes SILENT
+    (never polls, never sends) must be REAPED -- dropped from /peers within
+    ~PEER_TIMEOUT with a '<handle> left (timed out)' system line -- and, when the
+    LONE remaining peer times out, the conversation must CLOSE (closed system
+    message) and the process EXIT, exactly like the last /unplug. We run with a
+    SHORT RELAY_PEER_TIMEOUT (2s) so it's fast. Two parts:
+
+      (a) DROP: jack A and B (raw HTTP jack, then we simply never poll for A), but
+          keep B alive by re-issuing /recv just inside the timeout. Within ~timeout
+          A is gone from /peers (count drops to just B) and /trace shows
+          'peer-1 left (timed out)', while the room stays OPEN (B still here).
+      (b) CLOSE-ON-EMPTY: then we stop polling B too. With every peer silent, the
+          reaper thread -- not any request -- must empty the room, post
+          'conversation closed: all peers timed out', and the process must self-exit.
+          This is the core bug: if all agents die at once, nothing else would ever
+          close the room.
+
+    Room mode so the state-file paths are known and we can confirm the close path
+    removed them. Bounded polling throughout; no hang."""
+    out_path = str(Path(TDIR) / "proof_peer_reap.txt")
+    sd = tempfile.mkdtemp(prefix="wire-reap-")
+    room = "reap"
+    passed = False
+    proc: subprocess.Popen[str] | None = None
+    with Path(out_path).open("w", buffering=1) as fh:
+        try:
+            banner(fh, "PROOF 15 - PRESENCE REAPER (silent peer dropped + lone-silent-peer close-on-empty)")
+            # Short peer timeout so the silent peer is reaped fast. Generous caps so
+            # only the reaper -- not a turn/wall cap -- can end this run.
+            proc, base = start_relay(
+                "reap",
+                {"RELAY_MAX_TURNS": "40", "RELAY_MAX_SECONDS": "120", "RELAY_PEER_TIMEOUT": "2"},
+                room=room,
+                statedir=sd,
+            )
+            assert base is not None
+            if not wait_health(base):
+                print("relay did not come up", file=sys.stderr)
+                sys.exit(1)
+
+            trio = [Path(sd) / f".relay.{room}.{ext}" for ext in ("pid", "port", "secret")]
+
+            # --- (a) DROP a silent peer while another stays alive --------------
+            # A and B both jack in (raw HTTP -- the suite's existing helper). We
+            # NEVER poll for A, so A goes silent immediately. B we keep alive by
+            # re-issuing /recv (each recv refreshes B's last_seen on arrival).
+            tok_a = join_token(base)
+            tok_b = join_token(base)
+            line = "jacked A (peer-1) and B (peer-2); A will go SILENT, B keeps polling\n"
+            print(line, end="")
+            fh.write(line)
+
+            # Keep B alive across the timeout window: poll B a few times with a
+            # bounded wait while we wait out A's ~2s timeout (+ a sweep interval).
+            a_dropped = False
+            a_timed_out_line = False
+            deadline = time.time() + 8
+            while time.time() < deadline:
+                # B's recv refreshes B's presence on every call (arrival), so B is
+                # never reaped; the bounded wait also paces this loop.
+                get(_k(f"{base}/recv?t={tok_b}&wait=1"), timeout=HTTP_TIMEOUT)
+                st_p, body_p = get(_k(f"{base}/peers"), timeout=HTTP_TIMEOUT)
+                _, tr = get(_k(f"{base}/trace"), timeout=HTTP_TIMEOUT)
+                # A gone, B still present, room still open == the drop landed.
+                if st_p == 200 and '"peer-1"' not in body_p and '"peer-2"' in body_p and '"closed": false' in body_p:
+                    a_dropped = True
+                    a_timed_out_line = "peer-1 left (timed out)" in tr
+                    line = f"  A reaped: /peers={body_p.strip()[:140]} [peer-1 gone, peer-2 stays, open: {a_dropped}]\n"
+                    print(line, end="")
+                    fh.write(line)
+                    line = f"  /trace shows 'peer-1 left (timed out)': {a_timed_out_line}\n"
+                    print(line, end="")
+                    fh.write(line)
+                    break
+            if not a_dropped:
+                line = "  A was NOT reaped within the window (FAIL)\n"
+                print(line, end="")
+                fh.write(line)
+
+            # --- (b) CLOSE-ON-EMPTY when the lone peer also goes silent --------
+            # Now stop polling B entirely. With every peer silent, the reaper thread
+            # must drop B, close the conversation, and exit the process -- no request
+            # is made here, proving the thread (not a lazy sweep) guarantees closure.
+            line = "now B goes silent too (no more polling) -> reaper must close the room + exit the process\n"
+            print(line, end="")
+            fh.write(line)
+
+            exited = False
+            deadline = time.time() + 8  # ~2s timeout + sweep interval + 0.4s grace + slack
+            while time.time() < deadline:
+                if proc.poll() is not None:
+                    exited = True
+                    break
+                time.sleep(0.1)
+            line = f"  relay process self-exited on all-peers-timed-out: {'YES' if exited else 'NO'} (exit={proc.poll()})\n"
+            print(line, end="")
+            fh.write(line)
+
+            # The close path posts the closed notice and removes the state files.
+            # Process is gone, so read the closed notice from the captured stdout
+            # ([close] all peers timed out ...) and confirm the files are removed.
+            close_logged = False
+            with contextlib.suppress(Exception):
+                if proc.stdout is not None:
+                    relay_out = proc.stdout.read() or ""
+                    close_logged = "all peers timed out" in relay_out
+            files_gone = False
+            d2 = time.time() + 3
+            while time.time() < d2:
+                if not any(p.exists() for p in trio):
+                    files_gone = True
+                    break
+                time.sleep(0.1)
+            line = f"  relay logged 'all peers timed out' close: {close_logged}; state files removed: {files_gone}\n"
+            print(line, end="")
+            fh.write(line)
+
+            passed = a_dropped and a_timed_out_line and exited and close_logged and files_gone
+            verdict = (
+                "\nVERDICT: a silent peer was reaped (dropped from /peers + 'left (timed out)' line) while another "
+                "stayed; then the lone silent peer's timeout closed the conversation and exited the process. "
+                "PASS -- presence reaper drops dead peers and guarantees close-on-empty.\n"
+                if passed
+                else "\nVERDICT: presence reaper behaved unexpectedly (see above). FAIL.\n"
+            )
+            print(verdict)
+            fh.write(verdict)
+        finally:
+            if proc is not None:
+                stop_relay(proc)
+            shutil.rmtree(sd, ignore_errors=True)
+    print(f"[saved] {out_path}")
+    return passed
+
+
 def proof_sigterm_cleanup() -> bool:
     """PROOF 14 (SIGTERM cleanup): start a relay (room mode -> known state-file
     paths), capture its pid and the .relay.<room>.{pid,port,secret} paths, then
@@ -1561,6 +1731,8 @@ if __name__ == "__main__":
             results["presence"] = proof_presence()
         if which in ("all", "lastpeer"):
             results["last_peer_closes"] = proof_last_peer_closes()
+        if which in ("all", "reap"):
+            results["peer_reap"] = proof_peer_reap()
         if which in ("all", "sigterm"):
             results["sigterm_cleanup"] = proof_sigterm_cleanup()
         if which in ("all", "brief"):

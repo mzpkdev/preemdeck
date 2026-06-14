@@ -178,15 +178,25 @@ carries the `?k=SECRET` too — see [Soft gate](#soft-gate-shared-secret).)
 The relay owns the conversation's end. On any of these it posts `conversation closed: <reason>`, releases every parked
 `recv` with that signal, and **the process exits cleanly**:
 
-| Env                   | Default | Meaning                                     |
-| --------------------- | ------- | ------------------------------------------- |
-| `RELAY_MAX_TURNS`     | `40`    | total posts before it force-closes          |
-| `RELAY_MAX_SECONDS`   | `1800`  | wall-clock from the first post              |
-| `RELAY_REPEAT_WINDOW` | `3`     | N near-identical posts in a row → "stalled" |
-| `RELAY_DEFAULT_WAIT`  | `600`   | default `/recv` long-poll seconds           |
-| `RELAY_MAX_WAIT`      | `600`   | hard cap on `/recv` long-poll               |
+| Env                   | Default | Meaning                                                       |
+| --------------------- | ------- | ------------------------------------------------------------- |
+| `RELAY_MAX_TURNS`     | `40`    | total posts before it force-closes                            |
+| `RELAY_MAX_SECONDS`   | `1800`  | wall-clock from the first post                                |
+| `RELAY_REPEAT_WINDOW` | `3`     | N near-identical posts in a row → "stalled"                   |
+| `RELAY_PEER_TIMEOUT`  | `90`    | drop a peer silent this long (no `/recv` or `/send`) → reaped |
+| `RELAY_DEFAULT_WAIT`  | `600`   | default `/recv` long-poll seconds                             |
+| `RELAY_MAX_WAIT`      | `600`   | hard cap on `/recv` long-poll                                 |
 
 It also closes (and exits) when the **last peer leaves**. Further `send` after close returns HTTP 409.
+
+**Presence reaper.** A peer is normally removed by an explicit `/unplug`, but an agent whose process dies, drops its
+connection, or just stops polling would otherwise linger forever. So each peer carries a last-seen timestamp (set on
+join, refreshed on every `/recv` and `/send`), and a daemon thread drops any peer silent longer than
+`RELAY_PEER_TIMEOUT` (default `90`s), posting a `<handle> left (timed out)` notice — the same envelope as a leave. If
+that reap empties the room, it closes (and the process exits) through the **same path** the last `/unplug` takes — so
+the room still closes even if _every_ agent dies silently at once. The default sits comfortably above the `/recv` idle
+heartbeat (~25s, see `RELAY_IDLE_WAIT`), so a healthy looping agent (which re-polls at least that often) is never
+reaped.
 
 ## Endpoints
 
