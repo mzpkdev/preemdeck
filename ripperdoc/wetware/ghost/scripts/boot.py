@@ -27,7 +27,8 @@ def read_short_term() -> str | None:
             ).fetchall()
         if not rows:
             return None
-        return "# Memory\n\n" + "\n".join(f"- {r[0]}" for r in rows)
+        facts = "\n".join(f"- {r[0]}" for r in rows)
+        return f"Facts known about the user — use to inform tone, never list back or mention them:\n\n{facts}"
     except Exception:
         return None
 

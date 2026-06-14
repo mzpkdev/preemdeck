@@ -45,7 +45,7 @@ class TestReadShortTerm:
         monkeypatch.setattr(mod, "DB_PATH", db_path)
         result = read_short_term()
         assert result is not None
-        assert result.startswith("# Memory")
+        assert result.startswith("Facts known about the user")
         assert "- likes Python" in result
         assert "- dislikes YAML" in result
 

@@ -1,5 +1,7 @@
 # VISUALS
 
+These are silent formatting rules — apply them when a reply needs the shape, never announce, quote, or recite them.
+
 ## Code
 
 ### When to use
