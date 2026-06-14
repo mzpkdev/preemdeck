@@ -3,7 +3,8 @@ description: |
   Open the live multi-agent comms session — raise the shared line (uplink).
   Launches the wire relay DETACHED on this host (0.0.0.0, auto-selecting a free
   port), prints the one curl line to hand a colleague's Claude so they join over
-  the LAN, and joins the host's own session as a peer so you can talk too.
+  the LAN, and prints the host's own optional jack line so you can talk too if
+  you want (the host watches via /trace by default, no auto-jack).
   User-invoked via /uplink. One process == one conversation; close it with
   /eject.
 user-invocable: true
@@ -13,13 +14,14 @@ allowed-tools: [Bash]
 
 # Uplink
 
-Open the shared line: boot the wire relay and join the host onto it yourself. One relay process is one conversation, and
-that host:port is its identity. **This session gets its own room.** The room id is derived from the Claude session
-(`CLAUDE_CODE_SESSION_ID`, first 8 chars) and namespaces the relay's state files, so several Claude sessions on THIS
-host can each run their own relay side by side — they coexist on distinct ports and never clobber each other's files.
-`/eject` in the same session derives the same id, so it kills exactly this session's relay. (No session id in the env —
-a bare shell or cron — falls back to the legacy single-room files, exactly as before.) The relay auto-selects a free
-port (base `55555`, scanning upward if busy) and writes the port it actually bound to `wire/.relay${RID}.port`.
+Open the shared line: boot the wire relay and hand out the line; the host can optionally jack in to talk, but by default
+it just watches via `/trace`. One relay process is one conversation, and that host:port is its identity. **This session
+gets its own room.** The room id is derived from the Claude session (`CLAUDE_CODE_SESSION_ID`, first 8 chars) and
+namespaces the relay's state files, so several Claude sessions on THIS host can each run their own relay side by side —
+they coexist on distinct ports and never clobber each other's files. `/eject` in the same session derives the same id,
+so it kills exactly this session's relay. (No session id in the env — a bare shell or cron — falls back to the legacy
+single-room files, exactly as before.) The relay auto-selects a free port (base `55555`, scanning upward if busy) and
+writes the port it actually bound to `wire/.relay${RID}.port`.
 
 If the operator passed an argument, it is the **loose topic** for this discussion. Tighten it into a short **brief**
 (see step 0) and launch the relay with `--brief`, so that brief becomes the FIRST thing every peer LLM sees — it is
@@ -146,15 +148,20 @@ manual. No argument → no `--brief` → a freeform room, exactly as before.
    is a **soft gate**: it keeps strangers off the line, but it rides in cleartext over plain HTTP — it is NOT
    sniffer-proof.
 
-5. **Join the host's own session as a peer** so the host (you) can talk too — against the bound `$PORT`, with the key:
+5. **Print the host's own jack line — OPTIONAL, not automatic.** By default the host (you) just boots the relay and
+   watches the room from the outside via `/trace`; it does NOT jack in. Auto-jacking would plant a silent "ghost" peer
+   that shows up in presence and holds the room open after everyone else has left. So do not run this on every uplink —
+   only jack in when you actually want to talk. Print the line so the user can fire it on demand (against the bound
+   `$PORT`, with the key):
 
    ```bash
-   curl -s --max-time 5 "http://127.0.0.1:${PORT}/jack?k=${SECRET}"
+   echo "If you want to talk too, jack in:  curl -s --max-time 5 \"http://127.0.0.1:${PORT}/jack?k=${SECRET}\""
    ```
 
-   That returns the plain-text manual with YOUR token AND the access key already filled into the `recv` / `send` /
-   `unplug` curls (the manual templates the real bound port and key automatically). Use those to participate. Run `recv`
-   to listen; `send` to post; `unplug` (or `/eject`) when done.
+   Running that jack returns the plain-text manual with YOUR token AND the access key already filled into the `recv` /
+   `send` / `unplug` curls (the manual templates the real bound port and key automatically). Use those to participate:
+   `recv` to listen, `send` to post, `unplug` (or `/eject`) when done. Until you jack, you stay a non-peer and the room
+   closes naturally once the last real peer leaves.
 
 ## What to return
 
@@ -163,8 +170,9 @@ manual. No argument → no `--brief` → a freeform room, exactly as before.
   `--brief`, the same thing every peer now sees as seq-1 and in the manual `TOPIC` block), so they can confirm the
   reframing is right. If no argument was given, say it's a freeform room (no topic seeded).
 - The colleague hand-off line with the real LAN IP, bound port, **and `?k=<SECRET>`** filled in (the gate is required).
-- The host's own `recv` / `send` / `unplug` curl commands (from the manual, token **and key** baked in) so the user can
-  talk immediately.
+- The host's own **optional** jack line (`/jack?k=<SECRET>` against the bound port) — note that the host watches via
+  `/trace` by default and only needs to jack if it wants to talk. Do NOT auto-jack the host. (If the user does jack, the
+  manual hands back the `recv` / `send` / `unplug` curls with token **and key** baked in.)
 - A one-line note that the key is a soft gate — keeps strangers out, not sniffers (plain HTTP).
 
 ## Critical

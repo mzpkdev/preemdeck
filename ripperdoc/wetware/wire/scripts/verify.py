@@ -672,10 +672,14 @@ def proof_idle() -> bool:
             banner(fh, "PROOF 9 - IDLE HEARTBEAT (quiet recv -> 200 {idle:true,...}; caught_up tracks reads)")
 
             # Two peers. A will post; B is the "other" peer whose read state drives
-            # A's caught_up. Each drains the empty backlog first so neither has
-            # anything pending and later idle scans are genuinely "nothing new".
+            # A's caught_up. The log already carries the system "peer-N joined"
+            # presence notices, so A drains that backlog first -- only then is A's
+            # next scan genuinely "nothing new" and returns the idle heartbeat. We
+            # deliberately do NOT drain B: B must stay behind A's later post so the
+            # caught_up:false step below is real (recv is B's only cursor mover).
             tok_a = join_token(base)
             tok_b = join_token(base)
+            get(_k(f"{base}/recv?t={tok_a}&wait=2"), timeout=HTTP_TIMEOUT)  # drain join notices
 
             # A's very first quiet scan: no posts at all yet -> idle, and caught_up
             # is true (A has never posted, so nobody can be behind it).
@@ -1172,6 +1176,368 @@ def proof_room_stale_reclaim() -> bool:
     return passed
 
 
+def post_last(base: str, token: str, body: str, last: int, timeout: float = HTTP_TIMEOUT) -> tuple[int, str]:
+    """POST to /send WITH ?last=<seq> -- the opt-in cursor-checked send. Same as
+    post() but adds &last= so we can exercise the relay's "behind" guard. The key
+    rides via _k() first, then we append &last= (a real agent appends it the same
+    way -- see the manual's guarded send curl)."""
+    url = _k(f"{base}/send?t={token}") + f"&last={last}"
+    req = urllib.request.Request(url, data=body.encode("utf-8"), method="POST")
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as r:
+            return r.status, r.read().decode("utf-8", "replace")
+    except urllib.error.HTTPError as e:
+        return e.code, e.read().decode("utf-8", "replace")
+    except Exception as e:
+        return 0, str(e)
+
+
+def proof_send_cursor_check() -> bool:
+    """PROOF 11 (opt-in cursor-checked send via ?last=): peers A,B jack in. A
+    posts. B then tries to send WITH a STALE ?last= (0) -- since A posted past
+    seq 0, the relay must REFUSE with 409 {"ok":false,"error":"behind", latest,
+    missed:[...non-empty]} and NOT append. B then sends with ?last=<current max
+    seq> -> 200 ok (it has "caught up", nothing newer from others). B then sends
+    with NO ?last= at all -> 200 (the legacy, unguarded path is untouched). NOTE:
+    system join notices are other-authored, so they legitimately show up in
+    `missed` -- expected, not a bug. Bounded throughout; no hang."""
+    out_path = str(Path(TDIR) / "proof_send_cursor_check.txt")
+
+    # Generous caps so none trips before we finish probing the guard.
+    proc, base = start_relay(
+        "cursorcheck", {"RELAY_MAX_TURNS": "40", "RELAY_MAX_SECONDS": "120", "RELAY_IDLE_WAIT": "2"}
+    )
+    assert base is not None
+    passed = False
+    with Path(out_path).open("w", buffering=1) as fh:
+        try:
+            if not wait_health(base):
+                print("relay did not come up", file=sys.stderr)
+                sys.exit(1)
+            banner(fh, "PROOF 11 - CURSOR-CHECKED SEND (?last=): stale last -> 409 behind; fresh/none -> 200")
+
+            tok_a = join_token(base)
+            tok_b = join_token(base)
+
+            # A posts. Capture the seq the relay assigned A's message (the current
+            # max log seq) from A's own send echo -- B's fresh ?last= will use it.
+            st_a, body_a = post(base, tok_a, "A's first message")
+            m = re.search(r'"seq":\s*(\d+)', body_a)
+            a_seq = int(m.group(1)) if m else -1
+            line = f"  A posts -> HTTP {st_a}, assigned seq {a_seq}\n"
+            print(line, end="")
+            fh.write(line)
+
+            # 1) B sends with a STALE last=0. A (someone else) posted past seq 0, so
+            #    the guard must REFUSE: 409, error "behind", non-empty missed.
+            st_stale, body_stale = post_last(base, tok_b, "B talks over A (stale)", last=0)
+            stale_ok = (
+                st_stale == 409
+                and '"ok": false' in body_stale
+                and '"error": "behind"' in body_stale
+                and '"latest":' in body_stale
+                and '"missed":' in body_stale
+                and '"missed": []' not in body_stale  # non-empty missed
+                and "A's first message" in body_stale  # A's post is what we're behind on
+            )
+            line = f"  B send last=0 (STALE) -> HTTP {st_stale}: {body_stale.strip()[:180]} [refused: {stale_ok}]\n"
+            print(line, end="")
+            fh.write(line)
+
+            # 2) B sends with last=<current max seq>. Nothing from others is newer
+            #    than a_seq, so the guard passes and the post is accepted (200 ok).
+            st_fresh, body_fresh = post_last(base, tok_b, "B caught up, posting", last=a_seq)
+            fresh_ok = st_fresh == 200 and '"ok": true' in body_fresh
+            line = (
+                f"  B send last={a_seq} (FRESH) -> HTTP {st_fresh}: {body_fresh.strip()[:160]} [accepted: {fresh_ok}]\n"
+            )
+            print(line, end="")
+            fh.write(line)
+
+            # 3) B sends with NO ?last= at all -> backward-compatible unguarded path.
+            st_none, body_none = post(base, tok_b, "B posts with no guard")
+            none_ok = st_none == 200 and '"ok": true' in body_none
+            line = f"  B send (NO last=, legacy) -> HTTP {st_none}: {body_none.strip()[:160]} [accepted: {none_ok}]\n"
+            print(line, end="")
+            fh.write(line)
+
+            passed = stale_ok and fresh_ok and none_ok
+            verdict = (
+                "\nVERDICT: stale ?last= refused with 409 'behind' (+ non-empty missed) and NOT appended; a "
+                "fresh ?last= and an omitted ?last= both 200. PASS -- cursor-checked send guards correctly.\n"
+                if passed
+                else "\nVERDICT: cursor-checked send behaved unexpectedly (see above). FAIL.\n"
+            )
+            print(verdict)
+            fh.write(verdict)
+
+            get(_k(f"{base}/unplug?t={tok_a}"), timeout=2)
+            get(_k(f"{base}/unplug?t={tok_b}"), timeout=2)
+        finally:
+            stop_relay(proc)
+    print(f"[saved] {out_path}")
+    return passed
+
+
+def proof_presence() -> bool:
+    """PROOF 12 (presence: join/leave notices + /peers): jacking a peer appends a
+    system "<handle> joined" notice (mirroring the existing "<handle> left" on
+    leave). We jack A -> assert "peer-1 joined" shows in /trace; jack B -> assert
+    "peer-2 joined"; GET /peers -> assert count==2 with both handles listed; then
+    A unplugs -> assert "peer-1 left" shows and /peers count drops to 1 (B remains,
+    so the conversation stays open). Bounded gets throughout; no hang."""
+    out_path = str(Path(TDIR) / "proof_presence.txt")
+
+    proc, base = start_relay("presence", {"RELAY_MAX_TURNS": "40", "RELAY_MAX_SECONDS": "120"})
+    assert base is not None
+    passed = False
+    with Path(out_path).open("w", buffering=1) as fh:
+        try:
+            if not wait_health(base):
+                print("relay did not come up", file=sys.stderr)
+                sys.exit(1)
+            banner(fh, "PROOF 12 - PRESENCE (join/leave system notices + /peers count)")
+
+            # Jack A. The join must land as a system "peer-1 joined" notice -- read
+            # the log via /trace (a watcher view, doesn't mint a peer or move cursors).
+            tok_a = join_token(base)
+            _, tr1 = get(_k(f"{base}/trace"), timeout=HTTP_TIMEOUT)
+            a_joined = "peer-1 joined" in tr1
+            line = f"  jacked A (peer-1); '/trace' shows 'peer-1 joined': {a_joined}\n"
+            print(line, end="")
+            fh.write(line)
+
+            # Jack B -> "peer-2 joined".
+            tok_b = join_token(base)
+            _, tr2 = get(_k(f"{base}/trace"), timeout=HTTP_TIMEOUT)
+            b_joined = "peer-2 joined" in tr2
+            line = f"  jacked B (peer-2); '/trace' shows 'peer-2 joined': {b_joined}\n"
+            print(line, end="")
+            fh.write(line)
+
+            # /peers must now report count==2 with BOTH handles present.
+            st_p, body_p = get(_k(f"{base}/peers"), timeout=HTTP_TIMEOUT)
+            two_here = st_p == 200 and '"count": 2' in body_p and '"peer-1"' in body_p and '"peer-2"' in body_p
+            line = f"  /peers -> HTTP {st_p}: {body_p.strip()[:160]} [count==2 + both: {two_here}]\n"
+            print(line, end="")
+            fh.write(line)
+
+            # A unplugs. B remains, so the conversation stays open. The leave must
+            # land as "peer-1 left" and /peers must drop to count==1 (just peer-2).
+            get(_k(f"{base}/unplug?t={tok_a}"), timeout=2)
+            _, tr3 = get(_k(f"{base}/trace"), timeout=HTTP_TIMEOUT)
+            a_left = "peer-1 left" in tr3
+            st_p2, body_p2 = get(_k(f"{base}/peers"), timeout=HTTP_TIMEOUT)
+            one_here = st_p2 == 200 and '"count": 1' in body_p2 and '"peer-2"' in body_p2 and '"peer-1"' not in body_p2
+            line = (
+                f"  A unplugged; '/trace' shows 'peer-1 left': {a_left}; "
+                f"/peers -> {body_p2.strip()[:120]} [count==1 (only peer-2): {one_here}]\n"
+            )
+            print(line, end="")
+            fh.write(line)
+
+            passed = a_joined and b_joined and two_here and a_left and one_here
+            verdict = (
+                "\nVERDICT: join appends '<handle> joined'; both peers list at count 2; a leave appends "
+                "'<handle> left' and drops the count to 1. PASS -- presence notices + /peers correct.\n"
+                if passed
+                else "\nVERDICT: presence notices / peer count behaved unexpectedly (see above). FAIL.\n"
+            )
+            print(verdict)
+            fh.write(verdict)
+
+            get(_k(f"{base}/unplug?t={tok_b}"), timeout=2)
+        finally:
+            stop_relay(proc)
+    print(f"[saved] {out_path}")
+    return passed
+
+
+def proof_last_peer_closes() -> bool:
+    """PROOF 13 (last peer leaves -> close cascade): a SINGLE agent jacks in; we
+    park a long-poll /recv on a thread, then that one peer unplugs -- the LAST peer
+    out. Three things must follow: (1) the parked /recv is RELEASED carrying the
+    closed signal ({"system":"conversation closed..."}), not left to sit out its
+    600s; (2) the relay PROCESS self-exits within a few seconds (lifecycle ==
+    process); (3) the room's state files (.relay.<room>.{pid,port,secret}) are all
+    removed by the close path. This is the path that couldn't be checked live in an
+    earlier proof -- here it's made solid with bounded polling. We use room mode so
+    the exact state-file paths are known. Bounded throughout; no hang."""
+    out_path = str(Path(TDIR) / "proof_last_peer_closes.txt")
+    sd = tempfile.mkdtemp(prefix="wire-lastpeer-")
+    room = "solo"
+    passed = False
+    proc: subprocess.Popen[str] | None = None
+    with Path(out_path).open("w", buffering=1) as fh:
+        try:
+            banner(fh, "PROOF 13 - LAST PEER LEAVES (parked recv released + process exits + files removed)")
+            proc, base = start_relay(
+                "lastpeer", {"RELAY_MAX_TURNS": "40", "RELAY_MAX_SECONDS": "120"}, room=room, statedir=sd
+            )
+            assert base is not None
+            if not wait_health(base):
+                print("relay did not come up", file=sys.stderr)
+                sys.exit(1)
+
+            trio = [Path(sd) / f".relay.{room}.{ext}" for ext in ("pid", "port", "secret")]
+            files_before = {p.name: p.exists() for p in trio}
+            line = f"  state files present before close: {files_before}\n"
+            print(line, end="")
+            fh.write(line)
+
+            # ONE peer. Drain its OWN join-notice backlog first (a fresh peer's
+            # cursor starts at 0, so the seq-1 "peer-1 joined" system entry would
+            # otherwise satisfy the parked recv immediately and it would never see
+            # the close). After draining, the parked long-poll has nothing pending,
+            # so when the peer unplugs it is the CLOSE that releases it -- carrying
+            # the closed signal, which is exactly what we assert. (Same backlog-drain
+            # the idle proof does before its idle assertion.)
+            tok = join_token(base)
+            get(_k(f"{base}/recv?t={tok}&wait=2"), timeout=HTTP_TIMEOUT)  # drain join notice
+            results: dict[int, dict[str, Any]] = {}
+            parker = threading.Thread(target=park_recv, args=(base, tok, results, 0))
+            parker.start()
+            time.sleep(0.5)  # ensure the recv is genuinely parked on cond.wait
+
+            get(_k(f"{base}/unplug?t={tok}"), timeout=2)  # last peer leaves -> close
+            line = "  the sole peer unplugged (last peer out -> conversation must close)\n"
+            print(line, end="")
+            fh.write(line)
+
+            # (1) the parked recv must release quickly carrying the closed signal.
+            parker.join(timeout=HTTP_TIMEOUT + 3)
+            r = results.get(0, {"elapsed": -1, "status": "NO-RESULT(STILL BLOCKED)", "body": ""})
+            recv_released = (
+                isinstance(r["elapsed"], (int, float))
+                and 0 <= r["elapsed"] < 5.0
+                and r["status"] == 200
+                and "conversation closed" in r["body"]
+            )
+            line = f"  parked recv released after {r['elapsed']}s (status {r['status']}) <- {r['body']}\n"
+            print(line, end="")
+            fh.write(line)
+
+            # (2) the process must self-exit within a few seconds (0.4s grace + slack).
+            exited = False
+            deadline = time.time() + 5
+            while time.time() < deadline:
+                if proc.poll() is not None:
+                    exited = True
+                    break
+                time.sleep(0.1)
+            line = f"  relay process self-exited on last-peer close: {'YES' if exited else 'NO'} (exit={proc.poll()})\n"
+            print(line, end="")
+            fh.write(line)
+
+            # (3) all three state files must be gone (the close path removes them).
+            #     Poll briefly: removal happens in the shutdown thread alongside exit.
+            files_gone = False
+            deadline = time.time() + 3
+            while time.time() < deadline:
+                if not any(p.exists() for p in trio):
+                    files_gone = True
+                    break
+                time.sleep(0.1)
+            files_after = {p.name: p.exists() for p in trio}
+            line = f"  state files after close: {files_after} [all removed: {files_gone}]\n"
+            print(line, end="")
+            fh.write(line)
+
+            passed = recv_released and exited and files_gone
+            verdict = (
+                "\nVERDICT: last peer's leave released the parked recv with the closed signal, the process "
+                "self-exited, and all state files were removed. PASS -- last-peer close cascade solid.\n"
+                if passed
+                else "\nVERDICT: last-peer close cascade behaved unexpectedly (see above). FAIL.\n"
+            )
+            print(verdict)
+            fh.write(verdict)
+        finally:
+            if proc is not None:
+                stop_relay(proc)
+            shutil.rmtree(sd, ignore_errors=True)
+    print(f"[saved] {out_path}")
+    return passed
+
+
+def proof_sigterm_cleanup() -> bool:
+    """PROOF 14 (SIGTERM cleanup): start a relay (room mode -> known state-file
+    paths), capture its pid and the .relay.<room>.{pid,port,secret} paths, then
+    send SIGTERM. The signal handler turns the term into a clean exit so atexit
+    fires: the process must be GONE and all three state files removed -- never
+    stranded (a stranded pidfile would wedge the room's startup lock). This guards
+    the regression where the default `kill` left the files behind. Bounded polling;
+    no hang."""
+    out_path = str(Path(TDIR) / "proof_sigterm_cleanup.txt")
+    sd = tempfile.mkdtemp(prefix="wire-sigterm-")
+    room = "term"
+    passed = False
+    proc: subprocess.Popen[str] | None = None
+    with Path(out_path).open("w", buffering=1) as fh:
+        try:
+            banner(fh, "PROOF 14 - SIGTERM CLEANUP (term -> process gone + .relay.<room>.* all removed)")
+            proc, base = start_relay(
+                "sigterm", {"RELAY_MAX_TURNS": "40", "RELAY_MAX_SECONDS": "120"}, room=room, statedir=sd
+            )
+            assert base is not None
+            if not wait_health(base):
+                print("relay did not come up", file=sys.stderr)
+                sys.exit(1)
+
+            trio = [Path(sd) / f".relay.{room}.{ext}" for ext in ("pid", "port", "secret")]
+            files_before = {p.name: p.exists() for p in trio}
+            line = f"  relay up (pid {proc.pid}); state files present: {files_before}\n"
+            print(line, end="")
+            fh.write(line)
+
+            # Send SIGTERM -- the default `kill`. proc.terminate() IS SIGTERM on
+            # POSIX (this harness is localhost/unix). The relay's handler runs
+            # cleanup + exit(0), so atexit's file removal fires.
+            proc.terminate()
+            line = f"  sent SIGTERM (terminate) to pid {proc.pid}\n"
+            print(line, end="")
+            fh.write(line)
+
+            # Process must terminate promptly.
+            try:
+                rc: int | None = proc.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                rc = None
+            gone = rc is not None
+            line = f"  process exited after SIGTERM: {'YES' if gone else 'NO'} (exit={rc})\n"
+            print(line, end="")
+            fh.write(line)
+
+            # All three state files must be removed (atexit cleanup via the handler).
+            files_gone = False
+            deadline = time.time() + 3
+            while time.time() < deadline:
+                if not any(p.exists() for p in trio):
+                    files_gone = True
+                    break
+                time.sleep(0.1)
+            files_after = {p.name: p.exists() for p in trio}
+            line = f"  state files after SIGTERM: {files_after} [all removed: {files_gone}]\n"
+            print(line, end="")
+            fh.write(line)
+
+            passed = gone and files_gone
+            verdict = (
+                "\nVERDICT: SIGTERM exited the process and removed .relay.<room>.{pid,port,secret}. "
+                "PASS -- signal cleanup leaves no stranded files.\n"
+                if passed
+                else "\nVERDICT: SIGTERM cleanup behaved unexpectedly (see above). FAIL.\n"
+            )
+            print(verdict)
+            fh.write(verdict)
+        finally:
+            if proc is not None:
+                stop_relay(proc)
+            shutil.rmtree(sd, ignore_errors=True)
+    print(f"[saved] {out_path}")
+    return passed
+
+
 if __name__ == "__main__":
     Path(TDIR).mkdir(parents=True, exist_ok=True)
     which = sys.argv[1] if len(sys.argv) > 1 else "all"
@@ -1189,6 +1555,14 @@ if __name__ == "__main__":
             results["idle"] = proof_idle()
         if which in ("all", "cross"):
             results["cross"] = proof_cross()
+        if which in ("all", "cursorcheck"):
+            results["send_cursor_check"] = proof_send_cursor_check()
+        if which in ("all", "presence"):
+            results["presence"] = proof_presence()
+        if which in ("all", "lastpeer"):
+            results["last_peer_closes"] = proof_last_peer_closes()
+        if which in ("all", "sigterm"):
+            results["sigterm_cleanup"] = proof_sigterm_cleanup()
         if which in ("all", "brief"):
             results["brief"] = proof_brief()
         if which in ("all", "gate"):

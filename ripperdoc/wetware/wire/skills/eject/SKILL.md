@@ -2,7 +2,7 @@
 description: |
   Close the live multi-agent comms session — eject. Terminates this session's
   wire relay (via its room-namespaced pidfile, falling back to a scoped pkill),
-  confirms it's down, and cleans up that room's pid/port/secret files. Pass
+  confirms it's down, and cleans up that room's pid/port/secret/log files. Pass
   --all to eject every relay on this host, or --room <id> to eject another
   session's. User-invoked via /eject.
 user-invocable: true
@@ -73,9 +73,9 @@ loops) — never block.
    else
      echo "relay down (no portfile — nothing listening)"
    fi
-   # Clean up this room's trio (relay removes them on clean exit, but make sure —
-   # the secret is a credential, don't leave it lying around).
-   rm -f "$PLUGIN/.relay${RID}.pid" "$PLUGIN/.relay${RID}.port" "$PLUGIN/.relay${RID}.secret"
+   # Clean up this room's state files — pid/port/secret/log (relay removes them on
+   # clean exit, but make sure — the secret is a credential, don't leave it lying around).
+   rm -f "$PLUGIN/.relay${RID}.pid" "$PLUGIN/.relay${RID}.port" "$PLUGIN/.relay${RID}.secret" "$PLUGIN/.relay${RID}.log"
    ```
 
 ### `--all` — eject every relay on this host
@@ -96,7 +96,7 @@ for pf in "$PLUGIN"/.relay*.pid; do
     for i in $(seq 1 15); do kill -0 "$PID" 2>/dev/null || break; sleep 0.2; done
     kill -9 "$PID" 2>/dev/null || true
   fi
-  rm -f "${base}.pid" "${base}.port" "${base}.secret"
+  rm -f "${base}.pid" "${base}.port" "${base}.secret" "${base}.log"
   n=$((n+1)); ids="${ids:+$ids, }$id"
 done
 if [ "$n" -eq 0 ]; then echo "no wire relays were running."; else echo "ejected $n relay(s): $ids"; fi
@@ -123,16 +123,16 @@ if [ -f "$PORTFILE" ] && [ -n "$(cat "$PORTFILE" 2>/dev/null)" ]; then
   PORT="$(cat "$PORTFILE")"
   curl -s --max-time 1 "http://127.0.0.1:${PORT}/health" | grep -q ok && echo "STILL UP — room $ID did not stop" || echo "room $ID down"
 fi
-rm -f "$PLUGIN/.relay.${ID}.pid" "$PLUGIN/.relay.${ID}.port" "$PLUGIN/.relay.${ID}.secret"
+rm -f "$PLUGIN/.relay.${ID}.pid" "$PLUGIN/.relay.${ID}.port" "$PLUGIN/.relay.${ID}.secret" "$PLUGIN/.relay.${ID}.log"
 ```
 
 ## What to return
 
-- **Default:** `wire session closed — this session's relay down, pid/port/secret files cleared.` (or, if nothing was
+- **Default:** `wire session closed — this session's relay down, pid/port/secret/log files cleared.` (or, if nothing was
   running for this session, `nothing to eject for this session — try /eject --all or /rooms`).
 - **`--all`:** the count + room ids ejected (e.g. `ejected 2 relay(s): default, ff49f4c0`), or
   `no wire relays were running.`
-- **`--room <id>`:** `room <id> down — pid/port/secret cleared.` (or that it wasn't running).
+- **`--room <id>`:** `room <id> down — pid/port/secret/log cleared.` (or that it wasn't running).
 
 ## Critical
 

@@ -98,12 +98,14 @@ STATE FILES + ROOM NAMESPACING
   precedence per file: explicit RELAY_*FILE > RELAY_STATEDIR+infix > plugindir+infix
 """
 
+import atexit
 import contextlib
 import errno
 import hmac
 import json
 import os
 import secrets
+import signal
 import sys
 import threading
 import time
@@ -341,6 +343,9 @@ class Conversation:
             handle = f"peer-{self._handle_n}"
             self.peers[token] = {"handle": handle, "cursor": 0}
             self._any_joined = True
+            # Presence: announce the join as a system event, mirroring leave's
+            # "<handle> left" notice. Inside the lock, same as leave's _append.
+            self._append("system", f"{handle} joined", sys=True)
             return token, handle, peers_before
 
     def leave(self, token: str, reason: str = "") -> bool:
@@ -366,7 +371,7 @@ class Conversation:
 
     # -- send (append) -----------------------------------------------------
 
-    def send(self, token: str, body: str) -> tuple[int, dict]:
+    def send(self, token: str, body: str, last: int | None = None) -> tuple[int, dict]:
         """Append a peer's message to the shared log and wake all long-pollers.
         Enforces the caps. Returns (http_status, json_payload).
 
@@ -377,7 +382,16 @@ class Conversation:
         bool(missed). This is informational ONLY: it does NOT advance the caller's
         read cursor. recv stays the SOLE mover of a peer's read position, so every
         `missed` entry is STILL delivered on the caller's next recv. Echo informs;
-        recv delivers."""
+        recv delivers.
+
+        OPT-IN CURSOR-CHECKED SEND: `last` is the highest seq the caller claims to
+        have seen (from ?last=<seq>). When given, it PREVENTS talking over others:
+        if ANY entry exists with seq > last authored by SOMEONE ELSE, the post is
+        REFUSED (409 "behind") and we hand back `latest` + the `missed` posts
+        instead of appending blind -- the caller should recv those, then retry. When
+        `last is None` (the default) there is NO guard and behavior is exactly as
+        before -- fully backward-compatible. The check is independent of the per-peer
+        cursor; it trusts only the seq the caller passes."""
         with self.lock:
             peer = self.peers.get(token)
             if peer is None:
@@ -388,6 +402,21 @@ class Conversation:
             body = body.rstrip("\n")
             if not body.strip():
                 return 400, {"ok": False, "error": "empty body"}
+
+            # OPT-IN CURSOR GUARD (?last=<seq>): refuse to post over unread posts.
+            # If the caller pinned the highest seq it has seen and SOMEONE ELSE has
+            # since posted past it, don't append -- hand back the latest seq + the
+            # missed posts so the caller can recv them first, then retry. last=None
+            # skips this entirely (legacy behavior). Same `missed` shape as below.
+            if last is not None:
+                missed = [
+                    {"seq": e["seq"], "handle": e["handle"], "body": e["body"], "ts": e["ts"]}
+                    for e in self.log
+                    if e["seq"] > last and e["handle"] != peer["handle"]
+                ]
+                if missed:
+                    latest = self.log[-1]["seq"] if self.log else 0
+                    return 409, {"ok": False, "error": "behind", "latest": latest, "missed": missed}
 
             now = time.time()
             if self.started_at is None:
@@ -506,7 +535,16 @@ class Conversation:
                 if len(self.log) > peer["cursor"]:
                     new = self.log[peer["cursor"] :]
                     peer["cursor"] = self.log[-1]["seq"]  # advance to latest seq
-                    out = [{"seq": e["seq"], "handle": e["handle"], "body": e["body"], "ts": e["ts"]} for e in new]
+                    out = [
+                        {
+                            "seq": e["seq"],
+                            "handle": e["handle"],
+                            "body": e["body"],
+                            "ts": e["ts"],
+                            "is_me": e["handle"] == peer["handle"],
+                        }
+                        for e in new
+                    ]
                     return 200, out
 
                 # Nothing new past the cursor. If CLOSED, there will never be
@@ -536,6 +574,8 @@ class Conversation:
                         "cursor": peer["cursor"],
                         "peers": len(self.peers),
                         "caught_up": self._caught_up(peer),
+                        "peers_list": sorted(p["handle"] for p in self.peers.values()),
+                        "is_last_peer": len(self.peers) == 1,
                     }
                 self.cond.wait(timeout=remaining)
 
@@ -598,6 +638,10 @@ already filled into the commands below. Do not share it; do not pass any name
 or number anywhere. The server tracks your read position for you. The commands
 also carry a shared access key (k=...) -- it's already filled in; leave it.
 
+Handles (peer-1, peer-2, ...) are stable and only ever count UP; the peer COUNT
+is who is here RIGHT NOW. Seeing a peer-4 while you are peer-3 and only "2 here"
+is NOT a bug -- earlier peers left, their numbers are not reused.
+
 YOUR THREE COMMANDS (copy-paste; these work in bash, cmd, and PowerShell):
 
   recv:    curl -s --max-time 600 "{base}/recv?t={token}&k={secret}"
@@ -616,16 +660,27 @@ HOW TO PARTICIPATE (this is your job until the task is done):
   quiet line never looks like a dropped connection. That is normal: just run recv
   again. The recv command's --max-time is well above that window, so the server
   always answers first. caught_up tells you whether everyone else has read your
-  latest post yet.)
+  latest post yet -- use it to gauge whether the group has seen what you last
+  said before you decide to post again.)
 
-  Note: recv returns ALL new messages including your OWN posts -- ignore your
-  own and respond to others'.
+  Note: recv returns ALL new messages including your OWN posts, echoed back.
+  Each entry carries an "is_me" flag -- skip the entries where "is_me" is true
+  and respond only to others'.
 
   send's reply also reports crossings: {{"ok": true, "seq": S, "handle": H,
-  "crossed": <bool>, "missed": [ ...entries... ]}}. If someone posted while you
-  were typing, `crossed` is true and `missed` lists those posts. You don't need
-  to act on it -- your next recv still delivers every one of them -- but it lets
-  you notice you replied without seeing their message.
+  "crossed": <bool>, "missed": [ ...entries... ]}}. This is the REACTIVE signal --
+  you have ALREADY posted: `crossed` true means someone posted while you were
+  typing and `missed` lists those posts. `missed` is safe to read and act on
+  directly; every entry in it is also redelivered on your next recv, so you lose
+  nothing either way.
+
+  To PREVENT talking over others instead of just noticing after the fact, add
+  ?last=<highest seq you've seen> to send:
+    curl -s -X POST "{base}/send?t={token}&k={secret}&last=<seq>" --data-binary 'MSG'
+  If anyone has posted past that seq, send is REFUSED with HTTP 409
+  {{"ok": false, "error": "behind", "latest": <seq>, "missed": [ ...entries... ]}}
+  and your message is NOT posted -- recv those missed posts, then send again,
+  rather than posting blind.
 
   If recv ever returns a conversation-closed system message (a JSON object with
   a `system` field, e.g. {{"system": "conversation closed: ..."}}), the
@@ -634,10 +689,16 @@ HOW TO PARTICIPATE (this is your job until the task is done):
 ETIQUETTE -- READ THIS:
   Only post when you ADD something. Do NOT post acknowledgement-only or
   pleasantry messages. If you have nothing to add, just run recv again. When
-  the task is resolved, run unplug.
+  the task is resolved, run unplug. Unplug is FINAL for this session -- there is
+  no rejoin; everyone else sees a "{handle} left" line when you go.
 
 Re-read or watch the whole thread anytime (no token, doesn't move your position):
   curl -s "{base}/trace?k={secret}"
+
+See who is here right now (key only, no token):
+  curl -s "{base}/peers?k={secret}"
+Joins and leaves also arrive inline as system messages ("{handle} joined" /
+"<handle> left"), so a plain recv loop already tells you who comes and goes.
 
 (The k=... key keeps strangers out, not sniffers -- this is plain HTTP.)
 """
@@ -766,7 +827,14 @@ class Handler(BaseHTTPRequestHandler):
             if not token:
                 return self._json(400, {"ok": False, "error": "missing ?t=<token>"})
             body = self._read_body()
-            status, payload = CONVO.send(token, body)
+            # Optional ?last=<seq>: opt-in cursor-checked send. Parse to int; a
+            # missing/garbage value stays None -> the legacy (unguarded) path.
+            last = None
+            raw_last = qs.get("last", [""])[0]
+            if raw_last:
+                with contextlib.suppress(ValueError):
+                    last = int(raw_last)
+            status, payload = CONVO.send(token, body, last)
             return self._json(status, payload)
 
         return self._text(404, "not found\n")
@@ -1116,15 +1184,28 @@ def main() -> None:
     print(f'  jack   : curl -s "http://{adv}:{PORT}/jack?k={SECRET}"')
     print(f'  watch  : curl -s "http://{adv}:{PORT}/trace?k={SECRET}"')
     print(f"  caps   : turns={MAX_TURNS} wall={MAX_SECONDS}s repeat-window={REPEAT_WINDOW}")
+
+    # Cleanup the state files on EVERY exit path, not just the clean ones. Without
+    # this a SIGTERM (the default `kill`, and how a parent reaps us) stranded the
+    # pid/port/secret files, wedging the room for the next start. atexit covers
+    # normal returns + sys.exit; the SIGTERM handler turns the signal into a clean
+    # exit so atexit fires. The _remove_* helpers suppress OSError, so cleanup is
+    # idempotent -- running it from atexit AND the finally below is harmless.
+    def cleanup() -> None:
+        _remove_pidfile()
+        _remove_portfile()
+        _remove_secretfile()
+
+    atexit.register(cleanup)
+    signal.signal(signal.SIGTERM, lambda *_: (cleanup(), sys.exit(0)))
+
     try:
         server.serve_forever()
     except KeyboardInterrupt:
         print("\nshutting down (interrupt)")
         server.shutdown()
     finally:
-        _remove_pidfile()
-        _remove_portfile()
-        _remove_secretfile()
+        cleanup()
     print("wire relay stopped.")
 
 

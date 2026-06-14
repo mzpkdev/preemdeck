@@ -24,6 +24,11 @@ Two behaviours, selected by --mode:
           relay's turn-cap / repetition force-close. Pass --same to post the
           identical line every time (repetition kill); default appends a counter
           so only the turn cap trips.
+
+--guard (collab only): exercise the opt-in cursor-checked send. The agent tracks
+the HIGHEST seq it has seen across every recv (and its own send echoes) and posts
+with ?last=<that seq>, so the relay's "behind" guard (409) can fire when a peer
+posted past it. Off by default, so the unguarded send path stays the norm.
 """
 
 import argparse
@@ -144,6 +149,26 @@ def normalize_recv(text: str) -> list[dict[str, Any]]:
     return cast(list[dict[str, Any]], obj)
 
 
+def max_seq_in(text: str) -> int | None:
+    """Return the largest "seq" in a /recv (or /send) JSON body, or None if the
+    body carries no seq'd entries (idle heartbeat, closed notice, empty array).
+    Used by --guard agents to track the highest seq they've seen so they can pass
+    ?last=<seq> on /send. Reads the RAW text -- normalize_recv drops seq, and we
+    don't want to change its shared shape -- accepting either a JSON array of
+    entries or a single send-echo object {"ok":...,"seq":S,...}."""
+    obj = json.loads(text)
+    entries: list[dict[str, Any]] = []
+    if isinstance(obj, list):
+        entries = obj
+    elif isinstance(obj, dict):
+        # A send echo carries a top-level "seq"; missed entries each carry one too.
+        if "seq" in obj:
+            entries.append(obj)
+        entries.extend(obj.get("missed", []))
+    seqs = [int(e["seq"]) for e in entries if isinstance(e, dict) and "seq" in e]
+    return max(seqs) if seqs else None
+
+
 def terminal_signal(msgs: list[dict[str, Any]]) -> str | None:
     """Return "closed" if the conversation announced closure, "left" if a peer
     left, else None. Checked after EVERY read (the long-poll recv AND the
@@ -157,7 +182,16 @@ def terminal_signal(msgs: list[dict[str, Any]]) -> str | None:
     return None
 
 
-def run(base_root: str, mode: str, target: int, max_turns: int, same: bool, kickoff: bool, secret: str) -> None:
+def run(
+    base_root: str,
+    mode: str,
+    target: int,
+    max_turns: int,
+    same: bool,
+    kickoff: bool,
+    secret: str,
+    guard: bool = False,
+) -> None:
     # --- 1. JACK: fetch the manual --------------------------------------
     # /jack is itself behind the soft gate, so the key must ride the jack URL
     # too -- we can't scrape it from the manual we haven't fetched yet. verify.py
@@ -188,6 +222,40 @@ def run(base_root: str, mode: str, target: int, max_turns: int, same: bool, kick
 
     turns_taken = 0
     last_seen = 0  # highest 'count: N' value WE have acted on (any author)
+    top_seq = 0  # --guard: highest log SEQ we've seen (across recvs + send echoes)
+
+    def note_seq(text: str) -> None:
+        """Bump top_seq from a recv/send body if it carries a higher seq. Keeps
+        our highest-seq-seen current so a --guard send rides an accurate ?last=."""
+        nonlocal top_seq
+        ms = max_seq_in(text)
+        if ms is not None and ms > top_seq:
+            top_seq = ms
+
+    def guarded_send(body: str, timeout: float = 10) -> tuple[int, str]:
+        """Send `body`. With --guard ON, ride ?last=<top_seq> so the relay refuses
+        (409 "behind") rather than letting us talk over a post we haven't read; on
+        that refusal we drain the missed posts (advancing top_seq), then retry once
+        with the fresh cursor -- exactly what the manual tells a real agent to do
+        ("recv those missed posts, then send again"). With --guard OFF this is a
+        plain unguarded POST (no ?last=, no retry) -- the legacy path, byte-for-byte.
+        Always advances top_seq from whatever the relay echoes back."""
+        if not guard:
+            st, b = http_post(send_url, body, timeout=timeout)
+            note_seq(b)
+            return st, b
+        for _ in range(2):  # original guarded attempt + one recv-and-retry
+            st, b = http_post(f"{send_url}&last={top_seq}", body, timeout=timeout)
+            note_seq(b)  # a 409 "behind" still carries missed[] seqs; an ok echoes its seq
+            if st == 409 and '"behind"' in b:
+                # We were behind: read the missed posts to advance our cursor, then
+                # retry. The drain is non-blocking -- the missed posts are already
+                # on the log, so this returns them at once.
+                _, drained = http_get(drain_url, timeout=5)
+                note_seq(drained)
+                continue
+            return st, b
+        return st, b  # second attempt's result (caught up or a real close/409)
 
     # --- opening post --------------------------------------------------
     # Someone has to speak first or every peer's recv just long-polls an empty
@@ -195,7 +263,7 @@ def run(base_root: str, mode: str, target: int, max_turns: int, same: bool, kick
     # mirroring a human saying "you start". In spammer mode every agent opens
     # immediately (the whole point is runaway chatter the relay must stop).
     if mode == "collab" and kickoff:
-        http_post(send_url, "count: 1", timeout=10)
+        guarded_send("count: 1")
         log(handle, "kicked off with 'count: 1'")
         last_seen = 1
     elif mode == "spammer":
@@ -220,6 +288,7 @@ def run(base_root: str, mode: str, target: int, max_turns: int, same: bool, kick
             log(handle, f"recv got HTTP {status}: {text.strip()[:80]} -> stopping")
             break
 
+        note_seq(text)  # --guard: advance our highest-seq-seen from this read
         msgs = normalize_recv(text)
         for m in msgs:
             log(handle, f"recv <- {m['handle']}: {m['body']}")
@@ -250,7 +319,7 @@ def run(base_root: str, mode: str, target: int, max_turns: int, same: bool, kick
                 # relay posts our "left" notice, which tells the others to
                 # leave too -- proving a clean cascade stop.
                 log(handle, f"target {target} reached -> announcing done + leaving")
-                http_post(send_url, f"reached {target}. done -- leaving.", timeout=10)
+                guarded_send(f"reached {target}. done -- leaving.")
                 http_get(leave_done, timeout=10)
                 break
 
@@ -261,6 +330,7 @@ def run(base_root: str, mode: str, target: int, max_turns: int, same: bool, kick
             time.sleep(0.1 + random.random() * 0.3)
             st, drained = http_get(drain_url, timeout=5)
             if st == 200 and drained:
+                note_seq(drained)  # --guard: drain also advances highest-seq-seen
                 dmsgs = normalize_recv(drained)
                 for m in dmsgs:
                     log(handle, f"recv <- {m['handle']}: {m['body']}")
@@ -281,7 +351,7 @@ def run(base_root: str, mode: str, target: int, max_turns: int, same: bool, kick
                     continue  # a peer already advanced the count; yield our turn
 
             nxt = current + 1
-            st, _ = http_post(send_url, f"count: {nxt}", timeout=10)
+            st, _ = guarded_send(f"count: {nxt}")
             log(handle, f"send -> count: {nxt} (http {st})")
             last_seen = nxt
             turns_taken += 1
@@ -318,8 +388,13 @@ def main() -> None:
     ap.add_argument("--same", action="store_true", help="spammer: post identical line each time")
     ap.add_argument("--kickoff", action="store_true", help="collab: this agent opens the discussion")
     ap.add_argument("--secret", default="", help="shared access key (?k=) -- gates /jack and all calls")
+    ap.add_argument(
+        "--guard",
+        action="store_true",
+        help="collab: send with ?last=<highest seq seen> so the cursor-check guard can refuse stale posts",
+    )
     args = ap.parse_args()
-    run(args.base, args.mode, args.target, args.max_turns, args.same, args.kickoff, args.secret)
+    run(args.base, args.mode, args.target, args.max_turns, args.same, args.kickoff, args.secret, args.guard)
 
 
 if __name__ == "__main__":
