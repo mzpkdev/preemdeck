@@ -37,11 +37,11 @@ def run_hook(args: list[str], stdin: str) -> subprocess.CompletedProcess[str]:
 class InjectHookTest(unittest.TestCase):
     def _write(self, content: str) -> str:
         """Write content to a temp file and return its absolute path."""
-        fh = tempfile.NamedTemporaryFile(mode="w", suffix=".md", delete=False, encoding="utf-8")
-        self.addCleanup(lambda p=fh.name: Path(p).unlink(missing_ok=True))
-        fh.write(content)
-        fh.close()
-        return fh.name
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".md", delete=False, encoding="utf-8") as fh:
+            name = fh.name
+            fh.write(content)
+        self.addCleanup(lambda: Path(name).unlink(missing_ok=True))
+        return name
 
     # 1 — host-tools substitution
     def test_substitutes_host_tools(self) -> None:

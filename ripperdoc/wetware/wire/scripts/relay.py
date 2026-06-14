@@ -98,16 +98,20 @@ STATE FILES + ROOM NAMESPACING
   precedence per file: explicit RELAY_*FILE > RELAY_STATEDIR+infix > plugindir+infix
 """
 
+import contextlib
 import errno
 import hmac
 import json
 import os
+import secrets
 import sys
 import threading
 import time
-import secrets
+from collections.abc import Callable
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-from urllib.parse import urlparse, parse_qs
+from pathlib import Path
+from typing import Any
+from urllib.parse import parse_qs, urlparse
 
 # ---------------------------------------------------------------------------
 # Configuration. Everything is overridable via env (and host/port via argv too)
@@ -137,7 +141,7 @@ MAX_WAIT = int(os.environ.get("RELAY_MAX_WAIT", "600"))  # hard cap on /recv blo
 # The three state files (pid/port/secret) live next to the plugin (wire/), not in
 # scripts/. PLUGIN_DIR is the default directory; RELAY_STATEDIR overrides it (the
 # verify harness points it at a tmp dir so room derivation runs in isolation).
-PLUGIN_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+PLUGIN_DIR = str(Path(__file__).resolve().parent.parent)
 STATEDIR = os.environ.get("RELAY_STATEDIR", PLUGIN_DIR)
 
 # A "room" namespaces the state files so several Claude sessions on ONE host each
@@ -154,7 +158,7 @@ def _state_path(ext: str, room: str | None) -> str:
     (default: the plugin dir). This is the MIDDLE precedence tier -- an explicit
     per-file RELAY_*FILE override (resolved in _resolve_statefiles) wins over it."""
     infix = f".{room}" if room else ""
-    return os.path.join(STATEDIR, f".relay{infix}.{ext}")
+    return str(Path(STATEDIR) / f".relay{infix}.{ext}")
 
 
 def _resolve_statefiles(room: str | None) -> tuple[str, str, str]:
@@ -239,7 +243,7 @@ class Conversation:
         self.recent_norm: list[str] = []  # normalized recent bodies (repeat kill)
 
         # Set by main(); called once after close to terminate the process.
-        self._on_close = None  # callable, invoked outside the lock
+        self._on_close: Callable[[str], None] | None = None  # invoked outside the lock
 
         # Seed the topic brief as the FIRST log entry, authored "system" -- the
         # same envelope as the close/leave notices, just emitted at construction
@@ -250,7 +254,7 @@ class Conversation:
         if self.brief:
             self._append("system", self.brief, sys=True)
 
-    def set_on_close(self, cb) -> None:
+    def set_on_close(self, cb: Callable[[str], None]) -> None:
         self._on_close = cb
 
     # -- helpers (all called with self.lock held) --------------------------
@@ -297,7 +301,7 @@ class Conversation:
         if first_close and self._on_close is not None:
             cb = self._on_close
 
-            def _later():
+            def _later() -> None:
                 time.sleep(0.4)  # let parked /recv calls return the closed signal
                 cb(reason)
 
@@ -565,12 +569,12 @@ class Handler(BaseHTTPRequestHandler):
     protocol_version = "HTTP/1.1"  # keep-alive + proper Content-Length framing
 
     # Silence the default noisy per-request stderr logging; we print our own.
-    def log_message(self, fmt, *args):
+    def log_message(self, fmt: str, *args: Any) -> None:
         pass
 
     # -- tiny response helpers --------------------------------------------
 
-    def _send(self, status: int, body: bytes, ctype: str):
+    def _send(self, status: int, body: bytes, ctype: str) -> None:
         self.send_response(status)
         self.send_header("Content-Type", ctype)
         self.send_header("Content-Length", str(len(body)))
@@ -578,13 +582,13 @@ class Handler(BaseHTTPRequestHandler):
         if body:
             self.wfile.write(body)
 
-    def _text(self, status: int, text: str):
+    def _text(self, status: int, text: str) -> None:
         self._send(status, text.encode("utf-8"), "text/plain; charset=utf-8")
 
-    def _json(self, status: int, obj) -> None:
+    def _json(self, status: int, obj: Any) -> None:
         self._send(status, json.dumps(obj).encode("utf-8"), "application/json")
 
-    def _no_content(self):
+    def _no_content(self) -> None:
         # 204: explicitly zero-length so HTTP/1.1 keep-alive framing is clean.
         self.send_response(204)
         self.send_header("Content-Length", "0")
@@ -616,7 +620,7 @@ class Handler(BaseHTTPRequestHandler):
 
     # -- GET ---------------------------------------------------------------
 
-    def do_GET(self):
+    def do_GET(self) -> None:
         parsed = urlparse(self.path)
         path = parsed.path
         qs = parse_qs(parsed.query)
@@ -675,7 +679,7 @@ class Handler(BaseHTTPRequestHandler):
 
     # -- POST --------------------------------------------------------------
 
-    def do_POST(self):
+    def do_POST(self) -> None:
         parsed = urlparse(self.path)
         path = parsed.path
         qs = parse_qs(parsed.query)
@@ -725,27 +729,22 @@ class Handler(BaseHTTPRequestHandler):
 
 
 def _remove_pidfile() -> None:
-    try:
-        os.remove(PIDFILE)
-    except OSError:
-        pass
+    with contextlib.suppress(OSError):
+        Path(PIDFILE).unlink()
 
 
 def _write_portfile(port: int) -> None:
     """Record the actually-bound port so `uplink`/`eject` can find it. Best-effort
     -- a failure here must not stop the relay from serving."""
     try:
-        with open(PORTFILE, "w") as f:
-            f.write(str(port))
+        Path(PORTFILE).write_text(str(port))
     except OSError as e:
         print(f"[warn] could not write portfile {PORTFILE}: {e}", file=sys.stderr)
 
 
 def _remove_portfile() -> None:
-    try:
-        os.remove(PORTFILE)
-    except OSError:
-        pass
+    with contextlib.suppress(OSError):
+        Path(PORTFILE).unlink()
 
 
 def _write_secretfile(secret: str) -> None:
@@ -754,24 +753,20 @@ def _write_secretfile(secret: str) -> None:
     written 0600. Best-effort -- a failure here must not stop the relay serving,
     but warn loudly since uplink relies on it."""
     try:
-        with open(SECRETFILE, "w") as f:
-            f.write(secret)
-        try:
-            os.chmod(SECRETFILE, 0o600)  # owner-only; best-effort
-        except OSError:
-            pass
+        secret_path = Path(SECRETFILE)
+        secret_path.write_text(secret)
+        with contextlib.suppress(OSError):
+            secret_path.chmod(0o600)  # owner-only; best-effort
     except OSError as e:
         print(f"[warn] could not write secretfile {SECRETFILE}: {e}", file=sys.stderr)
 
 
 def _remove_secretfile() -> None:
-    try:
-        os.remove(SECRETFILE)
-    except OSError:
-        pass
+    with contextlib.suppress(OSError):
+        Path(SECRETFILE).unlink()
 
 
-def _bind_scanning(host: str, base_port: int):
+def _bind_scanning(host: str, base_port: int) -> ThreadingHTTPServer:
     """Create and return a ThreadingHTTPServer bound to the first free port in
     [base_port, base_port + PORT_SCAN). Tries the base first; on EADDRINUSE it
     scans UPWARD one port at a time. Raises SystemExit with a clear message if
@@ -901,14 +896,13 @@ def _claim_pidfile_lock() -> None:
     The portfile/secretfile are still written later (after bind -- they need the
     bound port); _on_close / the finally both still remove all three."""
     room_label = ROOM if ROOM else "default"
-    for attempt in range(2):  # original claim + at most one stale-reclaim retry
+    for _attempt in range(2):  # original claim + at most one stale-reclaim retry
         try:
             fd = os.open(PIDFILE, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o644)
         except FileExistsError:
             # Someone holds (or held) the lock. Is that process still alive?
             try:
-                with open(PIDFILE) as f:
-                    existing = int(f.read().strip() or "0")
+                existing = int(Path(PIDFILE).read_text().strip() or "0")
             except (OSError, ValueError):
                 existing = 0
             alive = False
@@ -923,8 +917,7 @@ def _claim_pidfile_lock() -> None:
             if alive:
                 port_hint = ""
                 try:
-                    with open(PORTFILE) as f:
-                        p = f.read().strip()
+                    p = Path(PORTFILE).read_text().strip()
                     if p:
                         port_hint = f" on :{p}"
                 except OSError:
@@ -936,10 +929,8 @@ def _claim_pidfile_lock() -> None:
                 )
                 sys.exit(1)
             # Stale/dead pid -> reclaim the lock file and retry the EXCL claim once.
-            try:
-                os.remove(PIDFILE)
-            except OSError:
-                pass
+            with contextlib.suppress(OSError):
+                Path(PIDFILE).unlink()
             continue
         else:
             # We own the lock. Record our pid and release the fd.
@@ -957,7 +948,7 @@ def _claim_pidfile_lock() -> None:
     sys.exit(1)
 
 
-def main():
+def main() -> None:
     global HOST, PORT, SECRET, ROOM, PIDFILE, PORTFILE, SECRETFILE
     # Strip --brief, --secret AND --room first so none disturbs the positional
     # host/port parse. All three can sit anywhere on the line and coexist on one
@@ -1019,13 +1010,13 @@ def main():
     # the conversation lock (see _close), shuts the server down from a separate
     # thread (shutdown() must not be called from a request thread), removes the
     # pid/port files, and lets main()'s serve_forever() return.
-    def _on_close(reason: str):
+    def _on_close(reason: str) -> None:
         print(f"[close] {reason} -- conversation over, shutting down.")
         _remove_pidfile()
         _remove_portfile()
         _remove_secretfile()
 
-        def _stop():
+        def _stop() -> None:
             server.shutdown()  # unblocks serve_forever() in the main thread
 
         threading.Thread(target=_stop, name="wire-server-stop", daemon=True).start()

@@ -32,9 +32,9 @@ import random
 import re
 import sys
 import time
-import urllib.request
 import urllib.error
-
+import urllib.request
+from typing import Any, cast
 
 # A transport failure (connection refused/reset) means the relay process is
 # GONE -- and since one relay is one conversation, the conversation is over. We
@@ -45,7 +45,7 @@ import urllib.error
 _GONE = (409, "conversation closed: relay gone")
 
 
-def http_get(url: str, timeout: float):
+def http_get(url: str, timeout: float) -> tuple[int, str]:
     """GET url. Returns (status, text). 204 -> (204, ""). A dead relay -> _GONE."""
     req = urllib.request.Request(url, method="GET")
     try:
@@ -57,7 +57,7 @@ def http_get(url: str, timeout: float):
         return _GONE
 
 
-def http_post(url: str, body: str, timeout: float):
+def http_post(url: str, body: str, timeout: float) -> tuple[int, str]:
     """POST a raw body. Returns (status, text). A dead relay -> _GONE."""
     data = body.encode("utf-8")
     req = urllib.request.Request(url, data=data, method="POST")
@@ -70,7 +70,7 @@ def http_post(url: str, body: str, timeout: float):
         return _GONE
 
 
-def parse_manual(manual: str):
+def parse_manual(manual: str) -> tuple[str | None, str, str, str]:
     """Extract (handle, token, base_url, secret) from the manual TEXT, the same
     way a real agent would read its instructions. We pull the token AND the
     shared access key from the recv curl line and the base url from the same
@@ -95,11 +95,11 @@ def parse_manual(manual: str):
     return handle, token, base, secret
 
 
-def log(handle: str, msg: str):
+def log(handle: str | None, msg: str) -> None:
     print(f"  [{handle}] {msg}", flush=True)
 
 
-def highest_count(msgs, exclude):
+def highest_count(msgs: list[dict[str, Any]], exclude: str | None) -> int | None:
     """Return the largest N in any 'count: N' posted by a handle != exclude,
     or None. Used by collab agents to read the running total off the log while
     ignoring their own echoes."""
@@ -114,7 +114,7 @@ def highest_count(msgs, exclude):
     return best
 
 
-def normalize_recv(text):
+def normalize_recv(text: str) -> list[dict[str, Any]]:
     """Turn a /recv 200 body into a uniform list of {"handle","body"} dicts,
     regardless of which shape the relay sent:
 
@@ -133,10 +133,10 @@ def normalize_recv(text):
         # The explicit closed payload (or any single system object). Present it
         # as a one-element system message list.
         return [{"handle": "system", "body": obj.get("system", json.dumps(obj))}]
-    return obj
+    return cast(list[dict[str, Any]], obj)
 
 
-def terminal_signal(msgs):
+def terminal_signal(msgs: list[dict[str, Any]]) -> str | None:
     """Return "closed" if the conversation announced closure, "left" if a peer
     left, else None. Checked after EVERY read (the long-poll recv AND the
     non-blocking drain) so a termination signal is never silently swallowed."""
@@ -149,7 +149,7 @@ def terminal_signal(msgs):
     return None
 
 
-def run(base_root, mode, target, max_turns, same, kickoff, secret):
+def run(base_root: str, mode: str, target: int, max_turns: int, same: bool, kickoff: bool, secret: str) -> None:
     # --- 1. JACK: fetch the manual --------------------------------------
     # /jack is itself behind the soft gate, so the key must ride the jack URL
     # too -- we can't scrape it from the manual we haven't fetched yet. verify.py
@@ -301,7 +301,7 @@ def run(base_root, mode, target, max_turns, same, kickoff, secret):
                 break
 
 
-def main():
+def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--base", default="http://127.0.0.1:8765")
     ap.add_argument("--mode", choices=["collab", "spammer"], default="collab")
