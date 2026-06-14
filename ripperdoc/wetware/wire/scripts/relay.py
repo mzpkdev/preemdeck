@@ -133,7 +133,7 @@ PORT = int(os.environ.get("RELAY_PORT", "55555"))
 PORT_SCAN = 50
 
 # Lifecycle caps -- relay-enforced, agents cannot opt out.
-MAX_TURNS = int(os.environ.get("RELAY_MAX_TURNS", "40"))  # total accepted posts
+MAX_TURNS = int(os.environ.get("RELAY_MAX_TURNS", "200"))  # total accepted posts
 MAX_SECONDS = int(os.environ.get("RELAY_MAX_SECONDS", "1800"))  # wall clock from 1st post
 REPEAT_WINDOW = int(os.environ.get("RELAY_REPEAT_WINDOW", "3"))  # N consecutive near-dupes -> stall
 # Hard ceiling on a single POST body, in bytes (default 64 KiB; 0 = unlimited).
@@ -178,6 +178,9 @@ MAX_REPLAY = int(os.environ.get("RELAY_MAX_REPLAY", "0"))  # max raw entries per
 # the reap proof runs fast.
 PEER_TIMEOUT = int(os.environ.get("RELAY_PEER_TIMEOUT", "90"))  # drop a peer silent this long (s)
 REAP_INTERVAL = 2.0  # how often the reaper thread sweeps for silent peers (s)
+EMPTY_GRACE = int(
+    os.environ.get("RELAY_EMPTY_GRACE", "120")
+)  # secs an empty room lingers before self-close (0 = immediate)
 
 # Advisory soft TURN-GRANT / floor-control lease (RELAY_FLOOR_LEASE). Default 0 =
 # feature OFF -> byte-for-byte legacy: /floor still answers (floor_holder:null) but
@@ -369,6 +372,12 @@ class Conversation:
         self.peers: dict[str, dict] = {}  # token -> {"handle", "cursor", "last_seen"}
         self._handle_n = 0  # monotonic counter for "peer-N" handles
         self._any_joined = False  # has at least one peer ever joined?
+        # Grace-period self-close clock. None whenever >=1 peer is present (or no
+        # peer has ever joined). Set to time.monotonic() the moment the room goes
+        # empty (last peer leaves / is reaped); a (re)join clears it. Once it has
+        # been non-None for >= EMPTY_GRACE secs the reaper self-closes the room.
+        # Only ever touched under self.lock.
+        self.empty_since: float | None = None  # monotonic stamp the room went empty (None = not empty)
 
         self.turns = 0  # count of accepted non-system posts
         self.started_at: float | None = None  # set on first accepted post
@@ -580,6 +589,10 @@ class Conversation:
                 "role": role,
             }
             self._any_joined = True
+            # A (re)joining peer cancels any pending grace-period self-close: the
+            # room is no longer empty, so the empty clock must reset. INVARIANT:
+            # whenever >=1 peer is present, empty_since is None.
+            self.empty_since = None
             # Presence: announce the join as a system event, mirroring leave's
             # "<handle> left" notice. Inside the lock, same as leave's _append.
             self._append("system", f"{handle} joined", sys=True)
@@ -587,9 +600,13 @@ class Conversation:
 
     def leave(self, token: str, reason: str = "") -> bool:
         """A peer leaves. Posts a system '<handle> left' notice and drops the
-        token. The conversation stays alive while >=1 peer remains; it closes
-        (and the process exits) when the last peer departs. Returns False if the
-        token is unknown."""
+        token. GRACE-PERIOD CLOSE: the conversation does NOT close the instant the
+        LAST peer departs -- instead the empty clock (self.empty_since) starts, and
+        the relay idles for up to EMPTY_GRACE seconds so a flaky client can
+        reconnect (a (re)join inside the window cancels the close). If no one
+        rejoins, the reaper self-closes the room once the grace elapses; an explicit
+        /eject or the wall-clock cap still close it immediately. Returns False if
+        the token is unknown."""
         with self.lock:
             peer = self.peers.pop(token, None)
             if peer is None:
@@ -604,9 +621,15 @@ class Conversation:
             # Authored as "system" (like the closure notice) -- it's a relay
             # event, not a peer utterance. The body names the departing handle.
             self._append("system", note, sys=True)
+            # GRACE-PERIOD CLOSE: if this was the LAST peer (room now empty and at
+            # least one peer had ever joined), start the empty clock rather than
+            # closing. The reaper self-closes once (now - empty_since) >= EMPTY_GRACE
+            # unless someone (re)joins first (join() resets empty_since to None). The
+            # _any_joined guard keeps a never-yet-joined room (host posted a topic,
+            # hasn't handed out the jack URL) alive. (Was: self._close("all peers
+            # left") here.)
             if not self.peers and self._any_joined:
-                # Last one out closes the conversation -> process exits.
-                self._close("all peers left")
+                self.empty_since = time.monotonic()
             self.cond.notify_all()
             return True
 
@@ -615,16 +638,21 @@ class Conversation:
         presence reaper's one sweep. A peer is normally removed only by an explicit
         /unplug; this catches the agent that dies / drops its socket / stops polling
         and would otherwise linger forever. For each timed-out peer it appends the
-        SAME system notice leave() posts -- '<handle> left (timed out)' -- and, if
-        that empties the room (and a peer had ever joined), routes through the SAME
-        _close() funnel the last /unplug uses, so a silent-death of ALL peers still
-        closes the conversation and exits the process (the core bug this fixes:
-        with everyone gone, no request ever arrives to trigger a lazy sweep, so the
-        thread is what guarantees closure). Returns how many peers it reaped.
+        SAME system notice leave() posts -- '<handle> left (timed out)'. Returns how
+        many peers it reaped.
+
+        GRACE-PERIOD CLOSE: emptying the room (here or via leave()) does not close it
+        immediately -- it starts/continues the empty clock (self.empty_since) so a
+        flaky peer that timed out can still rejoin the SAME room within EMPTY_GRACE.
+        Every sweep then checks the clock: once the room has stayed empty for >=
+        EMPTY_GRACE secs (and at least one peer had ever joined), the room
+        self-closes. A (re)join inside the window cancels it (join() clears
+        empty_since). An explicit /eject or the wall-clock cap still close at once.
 
         LOCKING: mirrors leave() exactly -- acquire self.lock, mutate peers/log
         directly under it, and call _close() WHILE STILL HOLDING the lock (_close
-        does not take the lock itself; it documents that callers hold it). No
+        does not take the lock itself; it documents that callers hold it). The grace
+        check + self.empty_since are likewise only touched under self.lock. No
         double-acquire, no unguarded mutation. Called only from the reaper thread."""
         now = time.monotonic()
         with self.lock:
@@ -645,14 +673,29 @@ class Conversation:
                 # Same envelope as leave()'s '<handle> left' notice, tagged so a
                 # watcher can tell a timeout from a civil unplug.
                 self._append("system", f"{peer['handle']} left (timed out)", sys=True)
+            # GRACE-PERIOD CLOSE (start the clock): if reaping just emptied the room
+            # (and someone had ever joined) and the empty clock isn't already running
+            # -- e.g. the last peer was reaped here rather than via leave() -- start
+            # it now. The _any_joined guard keeps a never-yet-joined room alive.
+            if not self.peers and self._any_joined and self.empty_since is None:
+                self.empty_since = now
             if dead:
-                if not self.peers and self._any_joined:
-                    # Reaped the LAST peer -> funnel through the one close path the
-                    # last /unplug uses (wakes parked recvs, posts the closed notice,
-                    # exits the process). Same call leave() makes, under the lock.
-                    self._close("all peers timed out")
-                # Wake any parked /recv so reaped-peer notices (and a close) drain.
+                # Wake any parked /recv so reaped-peer '<handle> left (timed out)'
+                # notices drain promptly.
                 self.cond.notify_all()
+            # GRACE-PERIOD CLOSE (expiry check, every sweep, lock held): once the room
+            # has stayed empty for >= EMPTY_GRACE secs with no (re)join, self-close.
+            # A (re)join inside the window cleared empty_since back to None, so this
+            # never fires while a peer is present. _close() is called WHILE HOLDING
+            # self.lock (it does not re-acquire). With EMPTY_GRACE=0 an empty room
+            # closes on the very next sweep.
+            if (
+                not self.peers
+                and self._any_joined
+                and self.empty_since is not None
+                and (now - self.empty_since) >= EMPTY_GRACE
+            ):
+                self._close(f"room empty {EMPTY_GRACE}s")
             return len(dead)
 
     # -- floor control (advisory soft turn-grant) --------------------------
