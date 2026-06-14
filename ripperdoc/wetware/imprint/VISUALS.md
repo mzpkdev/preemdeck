@@ -240,45 +240,53 @@ the fix is in the retry handler █
 
 - Render this every time you plan or queue subagents — the fixed shape for "here's how I carved the work and what's
   running." One dispatch, one panel, drawn before you fire. NEVER IMPROVISE THE FORMAT; never dispatch silently.
-- A lone atomic fixer collapses to a one-item panel — keep the shape anyway. Sameness every time is the whole point.
+- A lone atomic fixer collapses to a one-branch tree — keep the shape anyway. Sameness every time is the whole point.
 - Re-emit only on a state change worth reading — a wave clears, a job lands, a job fails — never on micro-progress. Drop
   the panel once every job is `☑`/`☒` and close in prose.
 
 ### How to draw
 
-- Render the panel as a **markdown blockquote** — every line starts `> `. The renderer draws the left bar, so there's
-  nothing to hand-align and nothing to drift. No fenced block, no rail glyph, no corners, no right border.
-- Title line first: `> **DISPATCH**`. Beneath it, one **list item per task**: `> - <glyph> <task in plain words>`. Order
-  top-to-bottom = dispatch order.
-- Lead each task with exactly one status glyph from the § LLM plan-state set —
-  `☐ queued · ◐ running · ☑ done · ☒ failed · ⊘ blocked`. No emoji — double-width glyphs read as party favors and aren't
-  part of the set.
-- Parallel set: a `> - **parallel**` item with its concurrent members as a **nested list** under it. The nesting carries
-  "these fire together" — the renderer draws the indent, you never hand-count it.
-- Blocked job: mark `⊘`, then append `— *waits on <what>*` so the gate is explicit.
-- Live: re-emit the whole blockquote on a state change, glyphs advanced in place — same items, same order, only the
-  markers move.
+- Render the panel as an **ASCII tree in a fenced `text` block** — `DISPATCH` is the root, one branch per job. The rail
+  only holds its column in monospace, so it lives in a bare fence: no bold title and no quote-bar, but a shape that
+  never drifts. Don't wrap it in a blockquote — the bar drops the rows to proportional/italic and the rail skews.
+  Box-drawing only, per § Tree: `├──`/`└──`, `│   ` to continue under a parent.
+- The root line carries the one meter — `DISPATCH  ▰▱  1/2`: a segmented gauge from § Glyphs plus `done/total`.
+  Jobs-done over total is the single fraction you always have, so it's the ONLY meter the panel gets.
+- Each branch reads `<rail> <glyph> <lane>  <tail>`. The glyph is one status marker from the § LLM plan-state set —
+  `☐ queued · ◐ running · ☑ done · ☒ failed · ⊘ blocked`. `lane` is one short word for the job — the work, never the
+  mechanism (not `fixer:x`). No emoji; the double width shatters the rail.
+- The tail is a freeform one-liner — what landed, what's running, what's next (`→` chains the next step). Align the
+  tails in a sibling group to one stripe (§ Tree, longest lane + 2). One line only; a tail long enough to wrap drops to
+  a `lane — note` legend beneath the tree.
+- Parallel set: a bare `parallel` node with its concurrent members nested one rail-level under it on the `│`. The
+  nesting carries "these fire together" — never hand-count the indent past what the rail draws.
+- Blocked job: mark `⊘`, then append `— waits on <what>` to its tail so the gate is explicit.
+- Live: re-emit the whole tree on a state change — glyphs advanced in place, root meter bumped, same branches in the
+  same order, only the markers move. No spinners, no elapsed-time: a re-emitted panel isn't animated, so a frozen
+  spinner or a stale clock (§ Routing) would only lie.
 
 Base — sequential or independent fixers:
 
-> **DISPATCH**
->
-> - ◐ scout auth call sites, map token + session flow
-> - ☐ migrate session store to Redis-backed adapter
-> - ☐ rewrite REST handlers as async middleware
-> - ☐ add Alembic migration for users.role column
-> - ☐ run integration suite + smoke-test login flow
+```text
+DISPATCH  ▰▱▱▱▱  1/5
+├── ☑ scout    auth call sites — token + session flow mapped
+├── ◐ session  migrate store to redis-backed adapter
+├── ☐ rest     rewrite handlers as async middleware
+├── ☐ alembic  add migration for users.role column
+└── ☐ verify   integration suite + login smoke-test
+```
 
 Parallel set behind a gate — `parallel` nests the concurrent fixers, `⊘ … waits on` marks what's blocked and why:
 
-> **DISPATCH**
->
-> - ☑ scout auth call sites, map token + session flow
-> - **parallel**
->   - ◐ migrate session store to Redis-backed adapter
->   - ◐ rewrite REST handlers as async middleware
->   - ◐ add Alembic migration for users.role column
-> - ⊘ run integration suite + smoke-test login flow — *waits on parallel set*
+```text
+DISPATCH  ▰▱▱▱▱  1/5
+├── ☑ scout   auth call sites — token + session flow mapped
+├── parallel
+│   ├── ◐ session  store → redis-backed adapter
+│   ├── ◐ rest     handlers → async middleware
+│   └── ◐ alembic  users.role column migration
+└── ⊘ verify  integration suite + login smoke — waits on parallel
+```
 
 ## Routing
 
