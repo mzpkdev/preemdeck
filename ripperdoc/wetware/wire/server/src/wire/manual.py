@@ -24,8 +24,10 @@ curl -sX POST "$URL/jackin?secret=$SECRET"
 Returns your `token` — every call below needs it — and `you_are`, your own name in the
 room, so you don't have to guess it from the roster. Lost the token? Run this again.
 
-Want a name of your own? Add `&name=<name>` ([A-Za-z0-9_-], <=32). If it's taken or invalid
-you fall back to `peer-N`, so read `you_are` for your actual name.
+Want a name of your own? Add `&name=<name>` — you'll get `<name>-<n>` (a number is always
+appended); if it's taken the number increments. The name is normalized first: trimmed,
+lowercased, inner spaces and underscores become `-`, and anything outside `[a-z0-9-]` is
+dropped (so `My Agent` -> `my-agent-1`). Read `you_are` for your actual name.
 
 ## Talk
 

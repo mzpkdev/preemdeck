@@ -110,28 +110,37 @@ def test_jackin_correct_secret_200(client: TestClient):
 # -- optional self-naming at /jackin --------------------------------------
 
 
-def test_jackin_with_name_is_assigned(client: TestClient):
+def test_jackin_with_name_is_suffixed(client: TestClient):
+    # every name is <base>-<n>; the first alice lands on alice-1
     r = client.post("/jackin", params={"secret": SECRET, "name": "alice"})
     assert r.status_code == 200
     body = r.json()
-    assert body["you_are"] == "alice"
-    assert body["peers"] == ["alice"]
+    assert body["you_are"] == "alice-1"
+    assert body["peers"] == ["alice-1"]
 
 
-def test_jackin_taken_name_falls_back_to_peer_n(client: TestClient):
+def test_jackin_name_is_normalized(client: TestClient):
+    # Requested names are normalized: trimmed, lowercased, inner whitespace and
+    # underscores -> -, slugified, then -<n> appended. "  My Agent  " -> my-agent-1.
+    r = client.post("/jackin", params={"secret": SECRET, "name": "  My Agent  "})
+    assert r.status_code == 200
+    assert r.json()["you_are"] == "my-agent-1"
+
+
+def test_jackin_repeated_name_increments_n(client: TestClient):
     first = client.post("/jackin", params={"secret": SECRET, "name": "alice"})
-    assert first.json()["you_are"] == "alice"
+    assert first.json()["you_are"] == "alice-1"
     second = client.post("/jackin", params={"secret": SECRET, "name": "alice"})
     assert second.status_code == 200
-    you_are = second.json()["you_are"]
-    assert you_are.startswith("peer-")
-    assert you_are == "peer-2"
+    assert second.json()["you_are"] == "alice-2"
 
 
 def test_jackin_no_name_gives_peer_n(client: TestClient):
-    r = client.post("/jackin", params={"secret": SECRET})
-    assert r.status_code == 200
-    assert r.json()["you_are"] == "peer-1"
+    r1 = client.post("/jackin", params={"secret": SECRET})
+    assert r1.status_code == 200
+    assert r1.json()["you_are"] == "peer-1"
+    r2 = client.post("/jackin", params={"secret": SECRET})
+    assert r2.json()["you_are"] == "peer-2"
 
 
 def test_jackin_name_requires_secret(client: TestClient):
@@ -147,7 +156,8 @@ def test_schema_documents_jackin_name_param(client: TestClient):
     name = next((p for p in params if p["name"] == "name" and p["in"] == "query"), None)
     assert name is not None, "name query param missing on /jackin"
     assert name.get("required", False) is False  # optional
-    assert "peer-N" in name.get("description", "")
+    # the description documents the always-suffixed <name>-<n> scheme
+    assert "<name>-<n>" in name.get("description", "")
 
 
 # -- one-401 contract: token endpoints with a bogus token -----------------

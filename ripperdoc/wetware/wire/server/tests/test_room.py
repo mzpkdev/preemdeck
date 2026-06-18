@@ -49,13 +49,14 @@ async def test_peer_naming_is_join_order():
 async def test_requested_valid_name_is_assigned():
     room = make_room()
     t1, n1 = await room.jackin(requested="alice")
-    assert n1 == "alice"
+    # every name is <base>-<n>; the first alice lands on alice-1
+    assert n1 == "alice-1"
     # reflected everywhere the name flows: peers, the token binding, and from
-    assert room.peers() == ["alice"]
-    assert room.peer_name_for(t1) == "alice"
+    assert room.peers() == ["alice-1"]
+    assert room.peer_name_for(t1) == "alice-1"
     t2, _ = await room.jackin()
-    # alice can be addressed as a sender on a delivered message
-    await _assert_sends_as(room, t1, t2, "alice")
+    # alice-1 can be addressed as a sender on a delivered message
+    await _assert_sends_as(room, t1, t2, "alice-1")
 
 
 async def _assert_sends_as(room: Room, sender_token: str, reader_token: str, expected: str) -> None:
@@ -65,71 +66,95 @@ async def _assert_sends_as(room: Room, sender_token: str, reader_token: str, exp
     assert [e.sender for e in out["events"] if e.type == "message"] == [expected]
 
 
-async def test_requested_name_coexists_with_auto_peer():
-    # A named peer still advances the counter, so a later un-named peer gets the
-    # right peer-N (the counter is not consumed by the custom name's slot).
+async def test_repeated_name_increments_n():
+    # Every name is <base>-<n>; repeating a base just climbs n from 1.
+    room = make_room()
+    _, n1 = await room.jackin(requested="alice")
+    _, n2 = await room.jackin(requested="alice")
+    _, n3 = await room.jackin(requested="alice")
+    assert (n1, n2, n3) == ("alice-1", "alice-2", "alice-3")
+
+
+async def test_named_peer_does_not_consume_a_peer_n_slot():
+    # Numbering is per-base: a named peer leaves no gap in the peer-N line, so an
+    # unnamed peer after alice-1 is peer-1, NOT peer-2.
     room = make_room()
     _, n1 = await room.jackin(requested="alice")
     _, n2 = await room.jackin()
     _, n3 = await room.jackin(requested="bob")
     _, n4 = await room.jackin()
-    assert (n1, n2, n3, n4) == ("alice", "peer-2", "bob", "peer-4")
+    assert (n1, n2, n3, n4) == ("alice-1", "peer-1", "bob-1", "peer-2")
 
 
-async def test_taken_name_falls_back_to_peer_n():
-    room = make_room()
-    _, n1 = await room.jackin(requested="alice")
-    _, n2 = await room.jackin(requested="alice")
-    assert n1 == "alice"
-    assert n2 == "peer-2"  # taken -> fallback, counter-based
-
-
-async def test_taken_name_is_case_insensitive():
-    # Alice blocks a later alice (and ALICE) — names dedupe case-insensitively.
+async def test_collision_is_case_insensitive():
+    # The base is lowercased on the way in, so Alice/alice/ALICE all normalize to
+    # the same `alice` base and the suffix just climbs.
     room = make_room()
     _, n1 = await room.jackin(requested="Alice")
     _, n2 = await room.jackin(requested="alice")
     _, n3 = await room.jackin(requested="ALICE")
-    assert n1 == "Alice"  # original casing preserved for display
-    assert n2 == "peer-2"
-    assert n3 == "peer-3"
+    assert n1 == "alice-1"
+    assert n2 == "alice-2"
+    assert n3 == "alice-3"
 
 
-async def test_taken_name_blocked_even_after_jackout():
-    # A name is bound for the room's life: jacking out does not free it.
+async def test_name_blocked_even_after_jackout():
+    # A name is bound for the room's life: jacking out does not free its slot.
     room = make_room()
     t1, n1 = await room.jackin(requested="alice")
     await room.jackout(t1)
     _, n2 = await room.jackin(requested="alice")
-    assert n1 == "alice"
-    assert n2 == "peer-2"
+    assert n1 == "alice-1"
+    assert n2 == "alice-2"
 
 
 @pytest.mark.parametrize(
-    "bad",
+    ("requested", "expected"),
     [
-        "has space",
-        "a@b",
-        "@alice",
-        "",
-        "x" * 33,
-        "no/slash",
-        "dot.dot",
+        ("My Agent", "my-agent-1"),  # inner space -> -, lowercased
+        ("has space", "has-space-1"),  # inner space -> -, not deleted
+        ("a@b c!", "ab-c-1"),  # invalid chars dropped, space -> -
+        ("a -- b", "a-b-1"),  # double seps collapse cleanly
+        ("my_agent", "my-agent-1"),  # underscore folds to - (true kebab)
+        ("a@b", "ab-1"),  # invalid chars removed
+        ("@alice", "alice-1"),  # leading @ stripped
+        ("no/slash", "noslash-1"),
+        ("dot.dot", "dotdot-1"),
+        ("-x-", "x-1"),  # leading/trailing separators stripped
+        ("_x_", "x-1"),  # underscores fold to -, then strip leading/trailing
+        ("", "peer-1"),  # empty -> default base
+        ("@@@", "peer-1"),  # nothing survives normalizing -> default base
+        ("   ", "peer-1"),  # whitespace-only -> default base
+        ("!!!", "peer-1"),  # all-invalid -> default base
     ],
 )
-async def test_malformed_name_falls_back(bad):
+async def test_name_is_normalized_to_base(requested, expected):
     room = make_room()
-    _, name = await room.jackin(requested=bad)
-    assert name == "peer-1"
+    _, name = await room.jackin(requested=requested)
+    assert name == expected
 
 
-async def test_reserved_peer_n_request_falls_back():
-    # Can't impersonate the auto-scheme: peer-5 (any peer-\d+) is rejected.
+async def test_oversized_base_is_capped_to_32():
+    # The base is capped at 32 chars before the -<n> suffix is appended.
     room = make_room()
-    _, n1 = await room.jackin(requested="peer-5")
-    _, n2 = await room.jackin(requested="peer-99")
-    assert n1 == "peer-1"
-    assert n2 == "peer-2"
+    _, name = await room.jackin(requested="x" * 40)
+    assert name == "x" * 32 + "-1"
+
+
+async def test_name_equal_to_peer_lands_in_peer_sequence():
+    # &name=peer is just the default base, so it shares the peer-N sequence.
+    room = make_room()
+    _, n1 = await room.jackin()  # peer-1
+    _, n2 = await room.jackin(requested="peer")  # peer-2
+    assert (n1, n2) == ("peer-1", "peer-2")
+
+
+async def test_already_suffixed_request_is_treated_as_base():
+    # A request that already looks suffixed is taken verbatim as the base, so it
+    # gets its own -<n> on top (acceptable edge behavior).
+    room = make_room()
+    _, name = await room.jackin(requested="alice-2")
+    assert name == "alice-2-1"
 
 
 async def test_omitting_name_still_gives_peer_n():
@@ -142,14 +167,29 @@ async def test_omitting_name_still_gives_peer_n():
 async def test_surrounding_whitespace_is_stripped():
     room = make_room()
     _, name = await room.jackin(requested="  alice  ")
-    assert name == "alice"
+    assert name == "alice-1"
+
+
+async def test_surrounding_whitespace_stripped_and_lowercased():
+    # Trim happens on both sides and the base is lowercased.
+    room = make_room()
+    _, name = await room.jackin(requested="  Alice  ")
+    assert name == "alice-1"
+
+
+async def test_case_insensitive_collision_two_peers():
+    # The briefing's exact case: "Alice" then "alice" share a normalized base.
+    room = make_room()
+    _, n1 = await room.jackin(requested="Alice")
+    _, n2 = await room.jackin(requested="alice")
+    assert (n1, n2) == ("alice-1", "alice-2")
 
 
 async def test_no_duplicate_names_across_mixed_jackins():
-    # A churn of valid, taken, malformed, reserved, and auto requests must never
+    # A churn of valid, repeated, sanitized-to-same, and auto requests must never
     # produce two peers with the same (case-insensitive) name.
     room = make_room()
-    requests = ["alice", "Alice", "bob", "peer-2", "x x", None, "bob", "carol", "", None]
+    requests = ["alice", "Alice", "bob", "peer", "x x", None, "bob", "carol", "", None]
     names = [(await room.jackin(requested=r))[1] for r in requests]
     folded = [n.casefold() for n in names]
     assert len(folded) == len(set(folded)), names
@@ -464,12 +504,12 @@ async def test_jackin_appends_join_other_peers_receive():
     room = make_room()
     ta, _ = await room.jackin(requested="alice")
     await room.recv(ta, wait=0)  # drain alice's own-join-is-filtered backlog (empty)
-    tb, _ = await room.jackin(requested="bob")
+    tb, nb = await room.jackin(requested="bob")  # nb == "bob-1"
     out = await room.recv(ta, wait=0)
     joins = [e for e in out["events"] if e.type == "action(join)"]
     assert len(joins) == 1
     join = joins[0]
-    assert join.peer == "bob"
+    assert join.peer == nb
     assert join.type == "action(join)"
     assert _ISO_UTC_Z_RE.match(join.sent_at), join.sent_at
 
@@ -477,13 +517,13 @@ async def test_jackin_appends_join_other_peers_receive():
 async def test_jackout_appends_leave_other_peers_receive():
     room = make_room()
     ta, _ = await room.jackin(requested="alice")
-    tb, _ = await room.jackin(requested="bob")
+    tb, nb = await room.jackin(requested="bob")  # nb == "bob-1"
     await room.recv(ta, wait=0)  # drain bob's join
     await room.jackout(tb)
     out = await room.recv(ta, wait=0)
     leaves = [e for e in out["events"] if e.type == "action(leave)"]
     assert len(leaves) == 1
-    assert leaves[0].peer == "bob"
+    assert leaves[0].peer == nb
     assert leaves[0].type == "action(leave)"
     assert _ISO_UTC_Z_RE.match(leaves[0].sent_at), leaves[0].sent_at
 
@@ -491,32 +531,32 @@ async def test_jackout_appends_leave_other_peers_receive():
 async def test_peer_does_not_receive_its_own_join_or_leave():
     # A peer's own join and leave are filtered from its own stream (subject==self).
     room = make_room()
-    ta, _ = await room.jackin(requested="alice")
+    ta, na = await room.jackin(requested="alice")  # na == "alice-1"
     # alice's own join must not come back to her
     out = await room.recv(ta, wait=0)
     assert out["events"] == []
     # bob joins and leaves; bob never sees his OWN join/leave (only alice's
     # presence, which is alice's join — about alice, so bob does see that)
-    tb, _ = await room.jackin(requested="bob")
+    tb, nb = await room.jackin(requested="bob")  # nb == "bob-1"
     await room.jackout(tb)
     out_b = await room.recv(tb, wait=0)
-    subjects_about_bob = [e for e in out_b["events"] if getattr(e, "peer", None) == "bob"]
+    subjects_about_bob = [e for e in out_b["events"] if getattr(e, "peer", None) == nb]
     assert subjects_about_bob == []
     # what bob DOES see is alice's join (a presence event about alice)
-    assert [(e.type, e.peer) for e in out_b["events"]] == [("action(join)", "alice")]
+    assert [(e.type, e.peer) for e in out_b["events"]] == [("action(join)", na)]
 
 
 async def test_late_joiner_backfills_prior_events_including_joins():
     # alice joins, sends; bob joins late -> bob's first recv replays the prior
     # stream from seq 0: alice's join AND alice's message, in seq order.
     room = make_room()
-    ta, _ = await room.jackin(requested="alice")
+    ta, na = await room.jackin(requested="alice")  # na == "alice-1"
     await room.send(ta, "early bird")
     tb, _ = await room.jackin(requested="bob")
     out = await room.recv(tb, wait=0)
     # bob filters his OWN join; he sees alice's join (seq1) then alice's msg (seq2)
     shape = [(e.seq, e.type, getattr(e, "peer", getattr(e, "sender", None))) for e in out["events"]]
-    assert shape == [(1, "action(join)", "alice"), (2, "message", "alice")]
+    assert shape == [(1, "action(join)", na), (2, "message", na)]
 
 
 async def test_presence_rides_the_same_seq_counter():

@@ -173,8 +173,11 @@ def create_app(config: Config) -> FastAPI:
             str | None,
             Query(
                 description=(
-                    "Optional: request your own room name ([A-Za-z0-9_-], <=32). If taken, "
-                    "invalid, or a reserved peer-N form, you get the next peer-N instead — "
+                    "Optional: request your own room name. A number is always appended, so you "
+                    "get `<name>-<n>` (e.g. alice -> alice-1); if it's taken the number "
+                    "increments from 1. The name is normalized first — trimmed, lowercased, "
+                    "inner whitespace and underscores -> `-`, slugified to `[a-z0-9-]` (so `My Agent` -> "
+                    "`my-agent-1`), capped at 32 chars. Omit it and you get peer-1, peer-2, … — "
                     "check you_are for your actual name."
                 ),
             ),

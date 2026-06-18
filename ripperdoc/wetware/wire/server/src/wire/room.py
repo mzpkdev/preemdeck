@@ -17,12 +17,19 @@ from enum import Enum
 
 from .config import Config
 
-# A self-requested name must be 1-32 chars of [A-Za-z0-9_-] (checked after
-# stripping surrounding whitespace).
-_NAME_RE = re.compile(r"^[A-Za-z0-9_-]{1,32}$")
-# The auto-assigned scheme — a requested name matching this is rejected so a
-# peer can't impersonate the peer-N counter.
-_RESERVED_RE = re.compile(r"^peer-\d+$")
+# Internal whitespace runs and underscores fold to a single `-` (full kebab: so
+# "my agent" and "my_agent" both -> "my-agent", not deleted) — `-` is the only
+# separator, doubling as the `-<n>` suffix delimiter.
+_WS_RE = re.compile(r"[\s_]+")
+# After lowercasing + folding to `-`, anything outside this set is stripped (no
+# underscore in the output set — true kebab).
+_NAME_CHARS_RE = re.compile(r"[^a-z0-9-]")
+# Slug-clean: collapse consecutive `-` runs to one (e.g. "a--b" -> "a-b").
+_SEP_RUN_RE = re.compile(r"-{2,}")
+# Cap on a name base after normalizing (the `<n>` suffix is appended on top).
+_BASE_MAX = 32
+# Base used when no usable name was requested.
+_DEFAULT_BASE = "peer"
 
 
 class TokenStatus(Enum):
@@ -109,7 +116,6 @@ class Room:
         # Heterogeneous, seq-ordered: messages and presence events interleave.
         self._messages: list[LogEntry] = []
         self._seq: int = 0
-        self._peer_counter: int = 0
         # token -> _Peer
         self._peers: dict[str, _Peer] = {}
         # names in join order (never shrinks; a name is bound for the room's life)
@@ -144,34 +150,57 @@ class Room:
         """Mint a token bound to a peer name, then announce the join. Returns
         ``(token, name)``.
 
-        The counter always advances, so a generic ``peer-{counter}`` fallback is
-        always available. If ``requested`` is given and passes every guard it is
-        assigned (original casing preserved for display); otherwise the peer
-        silently gets the fallback — there is no error path. Guards:
-
-        * matches ``[A-Za-z0-9_-]{1,32}`` after stripping surrounding whitespace;
-        * is not a reserved ``peer-N`` form (no impersonating the auto-scheme);
-        * is not already taken — compared case-insensitively against every name
-          ever assigned this room (alive or dead, since a name is bound for the
-          room's life), so ``Alice`` blocks a later ``alice``.
+        Every assigned name is ``<base>-<n>`` — a number is always appended.
+        ``base`` is the ``requested`` name normalized (trimmed, lowercased, inner
+        whitespace and underscores -> ``-``, slugified to ``[a-z0-9-]``, capped at 32 chars; see
+        :meth:`_assign_name`); if it's absent, empty, or nothing survives, ``base``
+        falls back to ``"peer"``. ``n`` is
+        the lowest positive integer such that ``<base>-<n>`` is not already taken
+        — compared case-insensitively against every name ever assigned this room
+        (alive or dead, since a name is bound for the room's life). So the first
+        ``alice`` lands on ``alice-1``, a second on ``alice-2``; unnamed peers
+        run ``peer-1``, ``peer-2``, …; and the two sequences are independent
+        (numbering is per-base, never global), so a named peer never leaves a gap
+        in the ``peer-N`` line. There is no error path — a request always
+        resolves to some ``<base>-<n>``.
 
         After the peer is connected, appends an ``action(join)`` presence entry
         on the next ``seq`` and wakes parked recvs, so every *other* peer sees
         the join on its stream (the joiner filters its own out in recv).
         """
         token = secrets.token_urlsafe(32)
-        self._peer_counter += 1
-        default = f"peer-{self._peer_counter}"
-        name = default
-        if requested is not None:
-            candidate = requested.strip()
-            taken = {n.casefold() for n in self._join_order}
-            if _NAME_RE.match(candidate) and not _RESERVED_RE.match(candidate) and candidate.casefold() not in taken:
-                name = candidate
+        name = self._assign_name(requested)
         self._peers[token] = _Peer(name=name)
         self._join_order.append(name)
         await self._announce(name, "action(join)")
         return token, name
+
+    def _assign_name(self, requested: str | None) -> str:
+        """Resolve ``requested`` to a ``<base>-<n>`` name unique in this room.
+
+        ``base`` is normalized from the request, in order: trim surrounding
+        whitespace; lowercase; fold internal whitespace runs *and* underscores
+        to a single ``-`` (full kebab: so "my agent" and "my_agent" both ->
+        "my-agent", not deleted — ``-`` is the only separator, doubling as the
+        ``-<n>`` delimiter); strip any char outside ``[a-z0-9-]`` (no underscore
+        in the output); slug-clean (collapse ``-`` runs to one and strip
+        leading/trailing ``-``); cap at 32 chars; empty after all that ->
+        ``peer``. ``n`` =
+        the lowest positive integer for which ``<base>-<n>`` is not yet taken
+        (case-insensitive — though bases are now lowercase — against every name
+        ever assigned)."""
+        base = _DEFAULT_BASE
+        if requested is not None:
+            slug = _WS_RE.sub("-", requested.strip().lower())
+            slug = _NAME_CHARS_RE.sub("", slug)
+            slug = _SEP_RUN_RE.sub("-", slug).strip("-")[:_BASE_MAX]
+            if slug:
+                base = slug
+        taken = {n.casefold() for n in self._join_order}
+        n = 1
+        while f"{base}-{n}".casefold() in taken:
+            n += 1
+        return f"{base}-{n}"
 
     async def jackout(self, token: str) -> str:
         """Retire ``token``: mark its peer not-connected, then announce the

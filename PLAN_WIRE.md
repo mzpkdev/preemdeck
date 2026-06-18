@@ -11,8 +11,15 @@ A wire application is run, which makes a single room to which peers can connect.
 This room is permanent and lives until the application is shut down. Its topic is set by the host as a command-line
 argument at startup, and handed to every peer on `/jackin` as `conversation_topic`.
 
-Once a peer connects via `/jackin` it's given a name — `peer-1`, `peer-2`, and so on, a plain counter in the order peers
-join — and can send and receive messages.
+Once a peer connects via `/jackin` it's given a name and can send and receive messages. Every name is `<base>-<n>` — a
+number is always appended. With no `&name=` the base is `peer`, so unnamed peers run `peer-1`, `peer-2`, and so on in
+join order. A peer may request its own base with `&name=<base>`: the first `&name=alice` lands on `alice-1`, a second on
+`alice-2`, a third on `alice-3` — a taken name just increments `n` from 1. A requested name is normalized first —
+lowercased, trimmed, whitespace and underscores collapsed to a single `-`, then slugified to `[a-z0-9-]` (consecutive
+separators collapsed, leading/trailing ones stripped) and capped at 32 chars — before `-<n>` is appended, so `My Agent`
+becomes `my-agent-1`; if nothing survives, the base falls back to `peer`. The two sequences are independent (numbering
+is per-base, never global), so a named peer never leaves a gap in the `peer-N` line. Read `you_are` from the `/jackin`
+response for the name you actually got.
 
 The token minted at `/jackin` *is* the peer's identity: it binds to exactly one peer for the life of the room. Hold the
 same token and you stay that peer, so a dropped connection just reconnects as itself. `/jackout` retires the token; a
