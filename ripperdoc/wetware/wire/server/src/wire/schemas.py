@@ -9,16 +9,24 @@ leaving them to infer meaning from field names.
 
 from __future__ import annotations
 
+from typing import Annotated, Literal, Union
+
 from pydantic import BaseModel, ConfigDict, Field
 
 
-class MessageOut(BaseModel):
-    """One delivered message. ``sender`` is emitted under the JSON key ``from``."""
+class MessageEvent(BaseModel):
+    """A chat message on the /recv stream. ``sender`` is emitted under the JSON
+    key ``from``. Discriminated by ``type == "message"``; serializes to exactly
+    seq/type/from/message/sent_at — no presence fields."""
 
     model_config = ConfigDict(populate_by_name=True)
 
     seq: int = Field(
-        description="Room-global sequence number stamped on this message; one counter climbs across all senders, giving the whole room a single ordering."
+        description="Room-global sequence number stamped on this event; one counter climbs across all senders and presence events, giving the whole room a single ordering."
+    )
+    type: Literal["message"] = Field(
+        default="message",
+        description='Event discriminator — literally `"message"` for a chat message. Look at this field to tell messages from presence events.',
     )
     sender: str = Field(
         alias="from",
@@ -27,13 +35,40 @@ class MessageOut(BaseModel):
     message: str = Field(
         description="The message text exactly as the sender posted it, including any inline `@peer-N` address tag."
     )
+    sent_at: str = Field(
+        description="When the message was sent — ISO-8601 UTC, second precision (e.g. 2026-06-18T13:57:02Z). seq still defines order; this is wall-clock."
+    )
+
+
+class PresenceEvent(BaseModel):
+    """A join or leave on the /recv stream, riding the same seq-ordered counter
+    as messages. Discriminated by ``type``; serializes to exactly
+    seq/type/peer/sent_at — no message fields."""
+
+    seq: int = Field(
+        description="Room-global sequence number stamped on this event; the same counter that orders messages, so joins/leaves interleave with chat in one ordering."
+    )
+    type: Literal["action(join)", "action(leave)"] = Field(
+        description='Event discriminator — literally `"action(join)"` when a peer joined or `"action(leave)"` when a peer left (the parens are part of the string).'
+    )
+    peer: str = Field(
+        description="The peer that joined or left (e.g. `peer-2`). You never receive your own join/leave — only other peers'."
+    )
+    sent_at: str = Field(
+        description="When the event happened — ISO-8601 UTC, second precision (e.g. 2026-06-18T13:57:02Z). seq still defines order; this is wall-clock."
+    )
+
+
+# One stream item is either a chat message or a presence event; ``type`` is the
+# discriminator, so each serializes cleanly to only its own fields (no nulls).
+RecvEvent = Annotated[Union[MessageEvent, PresenceEvent], Field(discriminator="type")]
 
 
 class RecvResponse(BaseModel):
-    """A /recv body: new messages (or empty heartbeat) plus room presence."""
+    """A /recv body: new events (or empty heartbeat) plus room presence."""
 
-    unread: list[MessageOut] = Field(
-        description="Messages past your read-cursor that you haven't seen yet, oldest first; empty on a heartbeat. The cursor advances only over messages actually delivered here."
+    events: list[RecvEvent] = Field(
+        description="Events past your read-cursor you haven't seen yet, oldest first; empty on a heartbeat. A seq-ordered mix of chat (`type: message`) and presence (`type: action(join)` / `action(leave)`) — branch on `type`. Excludes events about you (your own messages and your own join/leave). The cursor advances only over events actually delivered here."
     )
     peers: list[str] = Field(
         description="Names of the peers currently connected to the room — present even on a heartbeat, so a quiet room still reads as alive."

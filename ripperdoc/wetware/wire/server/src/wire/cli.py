@@ -35,8 +35,35 @@ from .config import Config
 # How many consecutive ports to probe from the start port before giving up.
 _PORT_SCAN_ATTEMPTS = 100
 
-# Bound on how long `start` waits for the detached server to come up, seconds.
-_START_TIMEOUT = 10.0
+
+def _start_timeout() -> float:
+    """Seconds `start` waits for the detached server to come up.
+
+    The detached child is a *fresh* interpreter: it must import uvicorn +
+    FastAPI + the app, bind a port, write state, and spin up the event loop
+    before /health answers. On an idle box that is well under a second, but on
+    a loaded one (e.g. a CI box running the rest of the suite, or a busy dev
+    machine) the child is starved and the same work can take many seconds. The
+    bound therefore has to be generous, not tight, so a slow-to-wake — but
+    perfectly healthy — child is not mistaken for a dead one. ``WIRE_START_TIMEOUT``
+    lets an operator on an especially slow box extend it further without a code
+    change; anything unparseable or non-positive falls back to the default.
+    """
+    raw = os.environ.get("WIRE_START_TIMEOUT")
+    if raw is not None:
+        try:
+            val = float(raw)
+            if val > 0:
+                return val
+        except ValueError:
+            pass
+    return _START_TIMEOUT_DEFAULT
+
+
+# Generous default: tolerant of a loaded machine where the detached child's
+# cold import + bind is slow. Happy path is unaffected — `start` returns the
+# instant BOTH the pid-matching state file and /health are ready.
+_START_TIMEOUT_DEFAULT = 30.0
 _START_POLL_INTERVAL = 0.2
 
 # Bound on how long `stop` waits for a TERM'd process to exit, seconds.
@@ -124,20 +151,27 @@ def _cmd_serve(args: argparse.Namespace) -> int:
 
 
 def _serve_argv(args: argparse.Namespace) -> list[str]:
-    """Build the ``python -m wire serve …`` argv for the detached child."""
+    """Build the ``python -m wire serve …`` argv for the detached child.
+
+    Value-bearing options are emitted in the ``--opt=value`` form, NOT as two
+    tokens ``--opt value``. This matters because a value can legitimately begin
+    with a dash — most notably an auto-generated ``secrets.token_urlsafe`` secret,
+    whose URL-safe alphabet includes ``-`` and so starts with one ~1.5% of the
+    time. As two tokens, the child's argparse would read that leading-dash value
+    as a *new option* ("expected one argument") and the serve process would die
+    before it ever bound — surfacing to `start` as a spurious "failed to come up".
+    The ``--opt=value`` form binds the value unambiguously regardless of its
+    first character.
+    """
     return [
         sys.executable,
         "-m",
         "wire",
         "serve",
-        "--topic",
-        args.topic,
-        "--secret",
-        args.secret,
-        "--host",
-        args.host,
-        "--port",
-        str(args.port),
+        f"--topic={args.topic}",
+        f"--secret={args.secret}",
+        f"--host={args.host}",
+        f"--port={args.port}",
     ]
 
 
@@ -162,8 +196,12 @@ def _cmd_start(args: argparse.Namespace) -> int:
             start_new_session=True,
         )
 
-    # Poll until the serve process has written state AND /health answers.
-    deadline = time.monotonic() + _START_TIMEOUT
+    # Poll until the serve process has written state AND /health answers. We
+    # only stop early if the child *actually exits* (poll() is not None); a
+    # transient — state not written yet, a /health probe that refuses or times
+    # out while the child is still booting — just means "not ready yet", so we
+    # keep polling within the (generous) deadline rather than bailing on it.
+    deadline = time.monotonic() + _start_timeout()
     while time.monotonic() < deadline:
         state = lifecycle.read_state()
         if state is not None and state.get("pid") == child.pid and lifecycle.health_ok(state["host"], state["port"]):

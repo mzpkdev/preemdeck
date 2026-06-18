@@ -19,17 +19,18 @@ from typing import Annotated, Any
 
 from fastapi import Depends, FastAPI, Query, Request
 from fastapi.openapi.utils import get_openapi
-from fastapi.responses import PlainTextResponse
+from fastapi.responses import JSONResponse, PlainTextResponse
 
-from .auth import require_secret, require_token
+from .auth import WireAuthError, require_secret, require_token
 from .config import Config
 from .manual import render_shard
-from .room import Room
+from .room import Message, Room
 from .schemas import (
     HealthResponse,
     JackinResponse,
     JackoutResponse,
-    MessageOut,
+    MessageEvent,
+    PresenceEvent,
     RecvResponse,
     SendResponse,
 )
@@ -37,13 +38,30 @@ from .schemas import (
 _SHARD_401 = "You are not authorized to view this resource, your secret is invalid."
 
 # Reusable 401 response doc for the gated routes — surfaces the real error
-# contract in /schema, which otherwise shows only the default 422 model.
-_SECRET_401 = {401: {"description": "Missing or wrong `secret` -> body `invalid secret`."}}
+# contract in /schema, which otherwise shows only the default 422 model. Each
+# JSON 401 body is `{"detail": "<prose>", "code": "<code>"}`; the codes named
+# here let a peer branch on the failure without parsing the prose.
+_SECRET_401 = {
+    401: {
+        "description": ('Missing or wrong `secret` -> body `{"detail": "invalid secret", "code": "invalid_secret"}`.')
+    }
+}
 _TOKEN_401 = {
     401: {
         "description": (
-            "Missing or unknown `token` -> body `invalid token`; a jacked-out or reaped "
-            "token -> body `token no longer valid, jackin again`."
+            'Missing or unknown `token` -> body `{"detail": "invalid token", '
+            '"code": "invalid_token"}`; a jacked-out or reaped token -> body '
+            '`{"detail": "token no longer valid, jackin again", "code": "dead_token"}`.'
+        )
+    }
+}
+# /shard's 401 body is markdown, not JSON, so its code rides an
+# `X-Wire-Error: invalid_secret` response header instead of a body field.
+_SHARD_SECRET_401 = {
+    401: {
+        "description": (
+            "Missing or wrong `secret` -> markdown body, with the machine-readable code on "
+            "the `X-Wire-Error: invalid_secret` response header."
         )
     }
 }
@@ -88,6 +106,14 @@ def create_app(config: Config) -> FastAPI:
     app.state.room = room
     app.state.config = config
 
+    @app.exception_handler(WireAuthError)
+    async def _wire_auth_error(request: Request, exc: WireAuthError) -> JSONResponse:
+        # NON-BREAKING: keep the existing `{"detail": "<prose>"}` body and add a
+        # sibling machine-readable `code`, so peers branch on the code without
+        # parsing prose. `detail` stays a string — turning it into a dict would
+        # break the existing `detail == "..."` assertions.
+        return JSONResponse({"detail": exc.detail, "code": exc.code}, status_code=401)
+
     @app.get(
         "/health",
         response_model=HealthResponse,
@@ -104,9 +130,9 @@ def create_app(config: Config) -> FastAPI:
         description=(
             "Returns the room's onboarding manual as markdown — how to jack in, talk, and "
             "leave. Gated by the `secret` query param; a missing or wrong secret returns 401 "
-            "with a markdown body. Non-blocking."
+            "with a markdown body and an `X-Wire-Error: invalid_secret` header. Non-blocking."
         ),
-        responses=_SECRET_401,
+        responses=_SHARD_SECRET_401,
     )
     async def shard(
         request: Request,
@@ -119,10 +145,13 @@ def create_app(config: Config) -> FastAPI:
     ) -> PlainTextResponse:
         # Checked inline (not via require_secret): this endpoint's bodies are markdown.
         if secret is None or secret != config.secret:
+            # The body is markdown, not JSON, so the machine-readable code rides
+            # the X-Wire-Error header instead of a sibling body field.
             return PlainTextResponse(
                 _SHARD_401,
                 status_code=401,
                 media_type="text/markdown",
+                headers={"X-Wire-Error": "invalid_secret"},
             )
         return PlainTextResponse(render_shard(config), media_type="text/markdown")
 
@@ -151,7 +180,7 @@ def create_app(config: Config) -> FastAPI:
             ),
         ] = None,
     ) -> JackinResponse:
-        token, name = room.jackin(requested=name)
+        token, name = await room.jackin(requested=name)
         base = str(request.base_url).rstrip("/")
         return JackinResponse(
             token=token,
@@ -183,7 +212,7 @@ def create_app(config: Config) -> FastAPI:
         responses=_TOKEN_401,
     )
     async def jackout(token: str = Depends(require_token)) -> JackoutResponse:
-        left = room.jackout(token)
+        left = await room.jackout(token)
         return JackoutResponse(left=left)
 
     @app.post(
@@ -209,12 +238,15 @@ def create_app(config: Config) -> FastAPI:
         "/recv",
         response_model=RecvResponse,
         description=(
-            "Long-poll for messages. Holds the request open up to `wait` seconds, then returns "
-            "either your unread messages (as soon as they arrive) or an empty heartbeat — "
-            "`unread: []` with the live roster — when the window elapses with nothing new. An "
-            "empty heartbeat is not the end of the conversation; poll again. The token is "
-            "validated *before* the poll parks, so a dead token 401s instantly and never "
-            "hangs. Gated by `token`."
+            "Long-poll for events. Holds the request open up to `wait` seconds, then returns "
+            "either your unseen events (as soon as they arrive) or an empty heartbeat — "
+            "`events: []` with the live roster — when the window elapses with nothing new. "
+            "`events` is a seq-ordered mix of chat (`type: message`) and presence "
+            "(`type: action(join)` / `action(leave)`); branch on `type`. You never receive "
+            "events about yourself (your own messages or your own join/leave). An empty "
+            "heartbeat is not the end of the conversation; poll again. The token is validated "
+            "*before* the poll parks, so a dead token 401s instantly and never hangs. Gated by "
+            "`token`."
         ),
         responses=_TOKEN_401,
     )
@@ -235,9 +267,17 @@ def create_app(config: Config) -> FastAPI:
         if wait is not None:
             wait = min(wait, config.wait_max)
         result = await room.recv(token, wait)
-        unread = [MessageOut(seq=m.seq, **{"from": m.sender}, message=m.message) for m in result["unread"]]
+        # Build each event from its log entry, per-type, so the JSON is clean:
+        # a message emits only seq/type/from/message/sent_at, a presence event
+        # only seq/type/peer/sent_at — no null-padding across the union.
+        events: list[MessageEvent | PresenceEvent] = []
+        for e in result["events"]:
+            if isinstance(e, Message):
+                events.append(MessageEvent(seq=e.seq, **{"from": e.sender}, message=e.message, sent_at=e.sent_at))
+            else:
+                events.append(PresenceEvent(seq=e.seq, type=e.type, peer=e.peer, sent_at=e.sent_at))
         return RecvResponse(
-            unread=unread,
+            events=events,
             peers=result["peers"],
             read_your_last_message=result["read_your_last_message"],
         )

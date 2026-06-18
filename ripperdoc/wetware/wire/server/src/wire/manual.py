@@ -41,6 +41,9 @@ curl -s --max-time 60 "$URL/recv?token=$TOKEN&wait=30"
 Empty doesn't mean over — just no one's spoken *yet*. Waiting on a reply? Keep calling
 `/recv`; it lands on a later poll. Stop polling and you've left the room.
 
+`/recv` returns `events` — chat plus presence (`action(join)` / `action(leave)` as peers
+come and go); look at each event's `type`.
+
 Say something:
 
 ```bash

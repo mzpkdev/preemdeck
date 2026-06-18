@@ -12,6 +12,7 @@ import asyncio
 import re
 import secrets
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from enum import Enum
 
 from .config import Config
@@ -39,11 +40,53 @@ class TokenStatus(Enum):
 
 @dataclass
 class Message:
-    """One room message. The HTTP layer renames ``sender`` to ``from`` in JSON."""
+    """One room message. The HTTP layer renames ``sender`` to ``from`` in JSON.
+
+    A log entry of ``type == "message"`` — its *subject* (the peer it's about,
+    for the don't-echo-me filter) is its ``sender``.
+    """
 
     seq: int
     sender: str
     message: str
+    # Authoritative send time, stamped in Room.send(): ISO-8601 UTC, second
+    # precision, Z-suffixed (e.g. "2026-06-18T13:57:02Z"). seq still defines
+    # order; this is the wall-clock instant the message was created.
+    sent_at: str
+    type: str = "message"
+
+
+@dataclass
+class Presence:
+    """A join/leave event. A log entry that rides the same seq-ordered stream
+    as messages; its ``type`` is literally ``"action(join)"`` or
+    ``"action(leave)"`` (the parens are part of the wire string). Its *subject*
+    (the peer it's about, for the don't-echo-me filter) is its ``peer``.
+    """
+
+    seq: int
+    peer: str
+    # Same stamp contract as Message.sent_at: ISO-8601 UTC, second precision, Z.
+    sent_at: str
+    type: str  # "action(join)" | "action(leave)"
+
+
+# A log entry is either a message or a presence event; both carry seq/type/
+# sent_at, and both have a *subject* — the peer the entry is about, used to skip
+# entries about the caller in recv().
+LogEntry = Message | Presence
+
+
+def _subject(entry: LogEntry) -> str:
+    """The peer a log entry is *about*: the sender of a message, or the peer of
+    a presence event. recv() never delivers an entry whose subject is the caller
+    (generalizes don't-echo-my-own-message to skip-events-about-me)."""
+    return entry.sender if isinstance(entry, Message) else entry.peer
+
+
+def _now_iso() -> str:
+    """Authoritative wall-clock stamp: ISO-8601 UTC, second precision, Z-form."""
+    return datetime.now(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z")
 
 
 @dataclass
@@ -63,7 +106,8 @@ class Room:
 
     def __init__(self, config: Config) -> None:
         self.config = config
-        self._messages: list[Message] = []
+        # Heterogeneous, seq-ordered: messages and presence events interleave.
+        self._messages: list[LogEntry] = []
         self._seq: int = 0
         self._peer_counter: int = 0
         # token -> _Peer
@@ -96,8 +140,9 @@ class Room:
 
     # -- membership -------------------------------------------------------
 
-    def jackin(self, requested: str | None = None) -> tuple[str, str]:
-        """Mint a token bound to a peer name. Returns ``(token, name)``.
+    async def jackin(self, requested: str | None = None) -> tuple[str, str]:
+        """Mint a token bound to a peer name, then announce the join. Returns
+        ``(token, name)``.
 
         The counter always advances, so a generic ``peer-{counter}`` fallback is
         always available. If ``requested`` is given and passes every guard it is
@@ -109,6 +154,10 @@ class Room:
         * is not already taken — compared case-insensitively against every name
           ever assigned this room (alive or dead, since a name is bound for the
           room's life), so ``Alice`` blocks a later ``alice``.
+
+        After the peer is connected, appends an ``action(join)`` presence entry
+        on the next ``seq`` and wakes parked recvs, so every *other* peer sees
+        the join on its stream (the joiner filters its own out in recv).
         """
         token = secrets.token_urlsafe(32)
         self._peer_counter += 1
@@ -121,17 +170,31 @@ class Room:
                 name = candidate
         self._peers[token] = _Peer(name=name)
         self._join_order.append(name)
+        await self._announce(name, "action(join)")
         return token, name
 
-    def jackout(self, token: str) -> str:
-        """Retire ``token``: mark its peer not-connected. Returns the peer name.
+    async def jackout(self, token: str) -> str:
+        """Retire ``token``: mark its peer not-connected, then announce the
+        leave. Returns the peer name.
+
+        Appends an ``action(leave)`` presence entry on the next ``seq`` and
+        wakes parked recvs, so every *other* peer sees the leave on its stream.
 
         Caller is expected to have validated the token first (status VALID);
         raises ``KeyError`` for an unknown token.
         """
         peer = self._peers[token]
         peer.connected = False
+        await self._announce(peer.name, "action(leave)")
         return peer.name
+
+    async def _announce(self, peer_name: str, event_type: str) -> None:
+        """Append a presence entry (join/leave) on the next global seq and wake
+        parked recvs. Shares the seq counter and the wake with send()."""
+        async with self._cond:
+            self._seq += 1
+            self._messages.append(Presence(seq=self._seq, peer=peer_name, sent_at=_now_iso(), type=event_type))
+            self._cond.notify_all()
 
     def peers(self) -> list[str]:
         """Currently-connected peer names, in join order."""
@@ -152,7 +215,8 @@ class Room:
 
     async def send(self, token: str, text: str) -> int:
         """Append a message from ``token``'s peer, stamped with the next global
-        ``seq``. Wakes parked recv waiters. Returns the assigned seq.
+        ``seq`` and the authoritative send time (``sent_at``, ISO-8601 UTC).
+        Wakes parked recv waiters. Returns the assigned seq.
 
         Caller is expected to have validated the token; raises ``KeyError`` for
         an unknown token.
@@ -161,21 +225,26 @@ class Room:
         async with self._cond:
             self._seq += 1
             seq = self._seq
-            self._messages.append(Message(seq=seq, sender=peer.name, message=text))
+            self._messages.append(Message(seq=seq, sender=peer.name, message=text, sent_at=_now_iso()))
             peer.last_sent = seq
             self._cond.notify_all()
         return seq
 
     async def recv(self, token: str, wait: float | None = None) -> dict:
-        """Long-poll for this token's unread messages.
+        """Long-poll for this token's unread events (messages + presence).
 
-        Returns a dict with ``unread`` (list[Message]), ``peers`` (list[str]),
-        and ``read_your_last_message`` (list[str]). If unread already exist,
-        returns at once. Otherwise parks up to ``wait`` seconds on the room
-        condition; on timeout returns a heartbeat (``unread=[]``) with the
-        cursor unchanged. A peer never sees its own messages in ``unread`` —
-        unread is messages with ``seq > cursor`` whose sender is *not* this
-        peer. The cursor advances only on actually-delivered (non-own) messages.
+        Returns a dict with ``events`` (list[LogEntry] — messages and join/leave
+        presence entries, seq-ordered), ``peers`` (list[str]), and
+        ``read_your_last_message`` (list[str]). If deliverable events already
+        exist, returns at once. Otherwise parks up to ``wait`` seconds on the
+        room condition; on timeout returns a heartbeat (``events=[]``) with the
+        cursor unchanged.
+
+        A peer never sees events *about itself*: ``events`` are entries with
+        ``seq > cursor`` whose subject (a message's sender, a presence event's
+        peer) is *not* this peer — so you get others' messages and others'
+        joins/leaves, never your own. The cursor advances only over
+        actually-delivered (non-own) entries.
 
         ``wait`` defaults to the config default and is clamped to the config max.
         Caller is expected to have validated the token first; raises ``KeyError``
@@ -197,29 +266,29 @@ class Room:
                 except (asyncio.TimeoutError, TimeoutError):
                     # Heartbeat: nothing new, cursor untouched.
                     return {
-                        "unread": [],
+                        "events": [],
                         "peers": self.peers(),
                         "read_your_last_message": self._read_your_last_message(peer),
                     }
 
-            # A peer never sees its own messages in unread. seq is global, so
-            # other peers may interleave below our own send; filtering by sender
-            # here (not by jumping the cursor on send) keeps their messages from
-            # being skipped.
-            unread = [m for m in self._messages if m.seq > peer.cursor and m.sender != peer.name]
-            if unread:
+            # A peer never sees events about itself. seq is global, so others'
+            # entries may interleave below our own; filtering by subject here
+            # (not by jumping the cursor) keeps theirs from being skipped.
+            events = [e for e in self._messages if e.seq > peer.cursor and _subject(e) != peer.name]
+            if events:
                 # Advance only to the max seq actually delivered (non-own). An
-                # own message sitting above this max stays filtered on later
-                # recvs — harmless; own messages below it are naturally excluded.
-                peer.cursor = unread[-1].seq
+                # own entry sitting above this max stays filtered on later
+                # recvs — harmless; own entries below it are naturally excluded.
+                peer.cursor = events[-1].seq
             return {
-                "unread": unread,
+                "events": events,
                 "peers": self.peers(),
                 "read_your_last_message": self._read_your_last_message(peer),
             }
 
     def _has_unread(self, peer: _Peer) -> bool:
-        """True iff some message past ``peer``'s cursor was sent by *someone
-        else*. A peer's own messages never count as unread, so if only its own
-        messages sit past the cursor, recv parks and heartbeats."""
-        return any(m.seq > peer.cursor and m.sender != peer.name for m in self._messages)
+        """True iff some log entry past ``peer``'s cursor is about *someone
+        else*. A peer's own entries (its messages, its own join/leave) never
+        count, so if only its own sit past the cursor, recv parks and
+        heartbeats."""
+        return any(e.seq > peer.cursor and _subject(e) != peer.name for e in self._messages)

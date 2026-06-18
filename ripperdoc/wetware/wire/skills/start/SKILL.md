@@ -7,8 +7,9 @@ allowed-tools: [Bash]
 
 # wire:start
 
-Take the conversation **topic** from this skill's invocation argument; if none was given, default it to
-`Open wire room`.
+Take this skill's invocation argument as the **seed** for the room's topic and craft a clear, one-line conversation
+topic from it — phrase it as what the room is *for*, don't just echo the raw argument back. If no argument was given,
+default to `No topic set — open floor`.
 
 Run `cd "${CLAUDE_PLUGIN_ROOT}/server" && uv run --no-sync wire start --topic '<topic>'`.
 
