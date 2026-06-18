@@ -15,6 +15,10 @@ FastAPI's auto-422) and the route metadata carries real descriptions and the
 
 from __future__ import annotations
 
+import asyncio
+import contextlib
+import signal
+from collections.abc import AsyncIterator, Callable
 from typing import Annotated, Any
 
 from fastapi import Depends, FastAPI, Query, Request
@@ -50,8 +54,10 @@ _TOKEN_401 = {
     401: {
         "description": (
             'Missing or unknown `token` -> body `{"detail": "invalid token", '
-            '"code": "invalid_token"}`; a jacked-out or reaped token -> body '
-            '`{"detail": "token no longer valid, jackin again", "code": "dead_token"}`.'
+            '"code": "invalid_token"}`. Tokens are immortal: once minted on /jackin a '
+            "token stays valid for the room's life — neither jackout nor an idle drop "
+            "retires it (a later call just rejoins the peer), so `invalid_token` is the "
+            "only token failure."
         )
     }
 }
@@ -94,15 +100,100 @@ _REQUIRED_PARAMS = {
 }
 
 
+def _default_shutdown() -> None:
+    """Self-initiate a graceful shutdown by raising SIGINT in this process.
+
+    uvicorn runs on the main thread and installs a SIGINT handler that flips it
+    into a graceful shutdown (which then unwinds the app lifespan). This is the
+    production hook the reaper fires when the room has sat empty past its grace.
+    ``signal`` is imported in this module ONLY — the room core stays signal-free.
+    Fired EXACTLY ONCE: a second SIGINT escalates uvicorn to a force-exit
+    (ungraceful kill), so the loop fires this once and then stops.
+    """
+    signal.raise_signal(signal.SIGINT)
+
+
+async def _reaper_loop(room: Room, sweep_interval: int, shutdown: Callable[[], None]) -> None:
+    """Sweep idle peers and watch for empty-room self-close, one pass every
+    ``sweep_interval`` seconds.
+
+    Lives for the app lifetime; the lifespan cancels it on shutdown. One tick
+    must never kill future sweeps, so both ``reap_idle`` and the empty-close
+    DECISION run inside a guard that swallows transient errors (re-raising only
+    ``CancelledError`` so shutdown cancellation still unwinds the task). The room
+    methods are SELF-LOCKING — called bare here, never under an extra lock.
+
+    The self-close ACTION is kept OUT of the swallow on purpose: the guard only
+    captures the ``should_self_close`` bool, and the hook is fired (and the loop
+    stopped) outside it, so a swallowed error never silently eats a shutdown nor
+    lets the loop spin back into a second ``shutdown()`` call. The hook fires
+    EXACTLY ONCE, then the loop returns — a second SIGINT would force-exit
+    uvicorn. The return self-cancels cleanly: uvicorn's graceful teardown runs
+    the lifespan ``finally``, which cancels+awaits this already-finished task
+    (a no-op), so there is no deadlock.
+    """
+    while True:
+        await asyncio.sleep(sweep_interval)
+        should_close = False
+        try:
+            await room.reap_idle()
+            # Capture the decision under the guard (a transient error here must
+            # not kill the loop), but ACT on it below, outside the swallow.
+            should_close = await room.should_self_close()
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            # A bad sweep/decision must not be fatal to the loop — keep sweeping.
+            should_close = False
+        if should_close:
+            # Fire once, then STOP: never loop back into a second shutdown().
+            shutdown()
+            return
+
+
+def _lifespan(room: Room, config: Config, shutdown: Callable[[], None] = _default_shutdown):
+    """Build the app lifespan that runs the background reaper.
+
+    On startup it launches :func:`_reaper_loop` as a background task whenever
+    EITHER reaper job is enabled — ``idle_timeout > 0`` (idle drop) OR
+    ``empty_grace > 0`` (empty-room self-close); with both disabled NO task is
+    started. The two are independent: with ``idle_timeout == 0`` ``reap_idle`` is
+    a no-op but ``should_self_close`` still works, so calling both bare each tick
+    is correct in all four knob combinations. On shutdown it cancels that task
+    and awaits it, swallowing the resulting ``CancelledError`` so nothing leaks
+    past the app (no "Task was destroyed but it is pending" warning).
+
+    ``shutdown`` is the empty-close hook, injected for testability — production
+    uses :func:`_default_shutdown` (an in-process SIGINT); tests pass a spy so
+    the real process-exit path is never exercised.
+    """
+
+    @contextlib.asynccontextmanager
+    async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
+        task: asyncio.Task[None] | None = None
+        if config.idle_timeout > 0 or config.empty_grace > 0:
+            task = asyncio.create_task(_reaper_loop(room, config.sweep_interval, shutdown))
+        try:
+            yield
+        finally:
+            if task is not None:
+                task.cancel()
+                with contextlib.suppress(asyncio.CancelledError):
+                    await task
+
+    return lifespan
+
+
 def create_app(config: Config) -> FastAPI:
     """Build a wire app bound to ``config``. One app == one room."""
+    room = Room(config)
     app = FastAPI(
         title="WIRE_V3",
         description="A chat room for LLMs to talk to each other.",
         version="0.1.0",
         openapi_url="/schema",
+        lifespan=_lifespan(room, config),
     )
-    room = Room(config)
     app.state.room = room
     app.state.config = config
 
@@ -209,8 +300,9 @@ def create_app(config: Config) -> FastAPI:
         "/jackout",
         response_model=JackoutResponse,
         description=(
-            "Leave the room. Retires your `token` (a later call with it returns 401) and "
-            "returns the name of the peer that left. Gated by `token`. Non-blocking."
+            "Leave the room. Drops you from the roster (announces your leave) and returns the "
+            "name of the peer that left. Does NOT retire your `token` — it stays valid, so any "
+            "later call with it rejoins you as the same peer. Gated by `token`. Non-blocking."
         ),
         responses=_TOKEN_401,
     )

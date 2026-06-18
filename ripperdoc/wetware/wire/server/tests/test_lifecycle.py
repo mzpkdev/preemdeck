@@ -177,6 +177,66 @@ def test_find_free_port_exhaustion(monkeypatch):
         cli._find_free_port("127.0.0.1", 5555, attempts=3)
 
 
+def test_empty_grace_flag_wins(monkeypatch):
+    """An explicit flag beats both the env var and the Config default."""
+    monkeypatch.setenv("WIRE_EMPTY_GRACE", "42")
+    assert cli._empty_grace(7) == 7  # flag wins over env
+    monkeypatch.delenv("WIRE_EMPTY_GRACE", raising=False)
+    assert cli._empty_grace(7) == 7  # flag wins over default
+
+
+def test_empty_grace_env_used_when_flag_unset(monkeypatch):
+    """With no flag, a valid env value is honoured (incl. 0 = disable)."""
+    monkeypatch.setenv("WIRE_EMPTY_GRACE", "120")
+    assert cli._empty_grace(None) == 120
+    # 0 is meaningful (disables self-close) and must be accepted, not rejected.
+    monkeypatch.setenv("WIRE_EMPTY_GRACE", "0")
+    assert cli._empty_grace(None) == 0
+
+
+def test_empty_grace_falls_back_to_default(monkeypatch):
+    """No flag + absent/negative/garbage env → the Config default."""
+    monkeypatch.delenv("WIRE_EMPTY_GRACE", raising=False)
+    assert cli._empty_grace(None) == cli.Config.empty_grace  # env absent
+    monkeypatch.setenv("WIRE_EMPTY_GRACE", "-5")
+    assert cli._empty_grace(None) == cli.Config.empty_grace  # negative ignored
+    monkeypatch.setenv("WIRE_EMPTY_GRACE", "nope")
+    assert cli._empty_grace(None) == cli.Config.empty_grace  # unparseable ignored
+
+
+def test_serve_argv_forwards_empty_grace_when_set():
+    """_serve_argv emits --empty-grace=<v> (=value form) iff it is set."""
+    args = argparse.Namespace(
+        topic="t",
+        secret="s",
+        host="127.0.0.1",
+        port=5555,
+        idle_timeout=None,
+        sweep_interval=None,
+        empty_grace=3,
+    )
+    argv = cli._serve_argv(args)
+    assert "--empty-grace=3" in argv
+    # other (unset) knobs are NOT forwarded
+    assert not any(a.startswith("--idle-timeout") for a in argv)
+    assert not any(a.startswith("--sweep-interval") for a in argv)
+
+
+def test_serve_argv_omits_empty_grace_when_unset():
+    """An unset --empty-grace is omitted so the child resolves env/default."""
+    args = argparse.Namespace(
+        topic="t",
+        secret="s",
+        host="127.0.0.1",
+        port=5555,
+        idle_timeout=None,
+        sweep_interval=None,
+        empty_grace=None,
+    )
+    argv = cli._serve_argv(args)
+    assert not any(a.startswith("--empty-grace") for a in argv)
+
+
 def test_stop_clears_stale_state(state_dir, monkeypatch):
     """A state file whose pid is dead → stop cleans up and exits 0, no signal."""
     lifecycle.write_state(

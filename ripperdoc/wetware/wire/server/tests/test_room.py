@@ -204,7 +204,7 @@ async def test_token_binds_to_one_peer_for_life():
     assert room.peer_name_for(t1) == "peer-1"
 
 
-async def test_jackout_removes_from_connected_peers():
+async def test_jackout_removes_from_roster():
     room = make_room()
     t1, _ = await room.jackin()
     t2, _ = await room.jackin()
@@ -223,14 +223,15 @@ async def test_status_unknown_token():
     assert room.peer_name_for("not-a-real-token") is None
 
 
-async def test_status_valid_then_dead_after_jackout():
+async def test_token_stays_valid_after_jackout():
+    # Tokens are immortal: jackout drops the peer from the roster but never kills
+    # the token, so it remains VALID (and known) for the room's life.
     room = make_room()
     t1, _ = await room.jackin()
     assert room.status(t1) is TokenStatus.VALID
     assert room.is_known(t1) is True
     await room.jackout(t1)
-    assert room.status(t1) is TokenStatus.DEAD
-    # still known (binding is permanent), just dead
+    assert room.status(t1) is TokenStatus.VALID
     assert room.is_known(t1) is True
 
 
@@ -570,3 +571,545 @@ async def test_presence_rides_the_same_seq_counter():
     # carol (fresh) backfills seq1..3 (her own seq4 join is filtered)
     out = await room.recv(tc, wait=0)
     assert [e.seq for e in out["events"]] == [1, 2, 3]
+
+
+# -- idle peer drop: reap_idle on the injected clock ----------------------
+# These drive Room._now directly (no real sleeps): a mutable [t] list backs a
+# clock we advance by assignment. idle_timeout stays > wait_max so the room's
+# constructor guard is satisfied.
+
+
+class _FakeClock:
+    """A controllable monotonic clock for reap_idle tests. Reads return ``now``;
+    tests set ``clock.now`` to fast-forward without any real waiting."""
+
+    def __init__(self, start: float = 1000.0) -> None:
+        self.now = start
+
+    def __call__(self) -> float:
+        return self.now
+
+
+def _idle_room(idle_timeout: int = 10) -> tuple[Room, _FakeClock]:
+    clock = _FakeClock()
+    cfg = Config(
+        host="127.0.0.1",
+        port=0,
+        secret="s3cr3t",
+        topic="testing the wire",
+        wait_default=0.05,
+        wait_max=0.2,
+        idle_timeout=idle_timeout,
+    )
+    return Room(cfg, now=clock), clock
+
+
+def _leaves_about(room: Room, name: str) -> list:
+    return [e for e in room._messages if e.type == "action(leave)" and e.peer == name]
+
+
+def _joins_about(room: Room, name: str) -> list:
+    return [e for e in room._messages if e.type == "action(join)" and e.peer == name]
+
+
+async def test_reap_idle_drops_peer_past_timeout_one_leave():
+    # (a) A peer silent past idle_timeout is dropped, emitting exactly ONE leave.
+    room, clock = _idle_room(idle_timeout=10)
+    t1, n1 = await room.jackin()  # last_active stamped at clock.now (1000)
+    await room.jackin()  # a second peer so the roster isn't emptied
+    clock.now += 11  # 11 > 10 -> peer-1 is idle
+    await room.reap_idle()
+    assert n1 not in room.peers()
+    assert len(_leaves_about(room, n1)) == 1
+
+
+async def test_reap_idle_keeps_peer_under_timeout():
+    # (b) A peer still within idle_timeout is NOT dropped and emits no leave.
+    room, clock = _idle_room(idle_timeout=10)
+    t1, n1 = await room.jackin()
+    clock.now += 9  # 9 < 10 -> still active (boundary is strict >)
+    await room.reap_idle()
+    assert n1 in room.peers()
+    assert _leaves_about(room, n1) == []
+
+
+async def test_activity_after_drop_readds_peer_one_join():
+    # (c) Activity after an idle drop re-adds the peer, emitting exactly ONE join
+    # for the rejoin (on top of the original jackin join).
+    room, clock = _idle_room(idle_timeout=10)
+    t1, n1 = await room.jackin()
+    await room.jackin()  # keep the room populated
+    assert len(_joins_about(room, n1)) == 1  # the original jackin join
+    clock.now += 11
+    await room.reap_idle()
+    assert n1 not in room.peers()
+    # a token-bearing call (recv ENTRY stamps + rejoins) brings peer-1 back
+    await room.recv(t1, wait=0)
+    assert n1 in room.peers()
+    assert len(_joins_about(room, n1)) == 2  # original + the rejoin, exactly one new
+
+
+async def test_reap_idle_twice_emits_no_second_leave():
+    # (d) Idempotency: a peer already reaped is not re-dropped on the next sweep.
+    room, clock = _idle_room(idle_timeout=10)
+    _, n1 = await room.jackin()
+    await room.jackin()
+    clock.now += 11
+    await room.reap_idle()
+    assert len(_leaves_about(room, n1)) == 1
+    # clock advances further, but a second sweep must NOT emit another leave
+    clock.now += 100
+    await room.reap_idle()
+    assert len(_leaves_about(room, n1)) == 1
+
+
+async def test_jackout_then_same_token_rejoins_on_next_call():
+    # (e) jackout drops the peer from the roster but the SAME token stays VALID
+    # and rejoins on its next token-bearing call.
+    room, _ = _idle_room(idle_timeout=10)
+    t1, n1 = await room.jackin()
+    await room.jackin()  # keep the room populated
+    await room.jackout(t1)
+    assert n1 not in room.peers()
+    assert room.status(t1) is TokenStatus.VALID  # token survives jackout
+    # next call (recv ENTRY) rejoins it with exactly one new join
+    await room.recv(t1, wait=0)
+    assert n1 in room.peers()
+    assert len(_joins_about(room, n1)) == 2  # original jackin + the rejoin
+
+
+async def test_reap_idle_disabled_when_timeout_zero():
+    # idle_timeout == 0 disables idle drop: no peer is ever reaped, however long
+    # it's been silent. (Also pins that the constructor guard is skipped at 0.)
+    room, clock = _idle_room(idle_timeout=0)
+    _, n1 = await room.jackin()
+    clock.now += 100_000
+    await room.reap_idle()
+    assert n1 in room.peers()
+    assert _leaves_about(room, n1) == []
+
+
+async def test_idle_timeout_must_exceed_wait_max():
+    # The latent-bug guard: a room whose idle_timeout <= wait_max would reap a
+    # peer parked in a legitimate long-poll, so the constructor rejects it.
+    with pytest.raises(AssertionError):
+        Config_and_room_with_bad_idle()
+
+
+def Config_and_room_with_bad_idle() -> Room:
+    cfg = Config(
+        host="127.0.0.1",
+        port=0,
+        secret="s3cr3t",
+        topic="testing the wire",
+        wait_max=60,
+        idle_timeout=30,  # 30 <= 60 -> illegal
+    )
+    return Room(cfg)
+
+
+# ========================================================================
+# PHASE 3 — adversarial hardening of idle peer drop. Six gap groups, all on
+# the injected clock (no real sleeps) except where a /recv must genuinely
+# park, which is bounded tightly. Helpers (_idle_room, _FakeClock,
+# _leaves_about, _joins_about) are reused from the Phase 1 section above.
+# ========================================================================
+
+
+# -- GAP 1: parked-poller survives (the marquee invariant) ----------------
+# A peer genuinely parked in /recv across the idle window is NOT reaped,
+# because last_active is stamped at recv ENTRY. Proven two ways: (a) pure
+# clock-driven with a sweep run WHILE the recv is parked; (b) a small
+# bounded real park to prove it holds without any clock seam help.
+
+
+async def test_parked_recv_is_not_reaped_when_sweep_runs_mid_park():
+    # The stamp-on-entry invariant, deterministic, with the entry stamp as the
+    # ONLY thing keeping the peer alive (a mutation removing it makes this fail).
+    # peer-1 jacks in at t=1000, then the clock advances PAST the threshold to
+    # 1011 BEFORE peer-1 polls — so its stale jackin stamp (1000) would be
+    # reaped. peer-1 then enters /recv at 1011: the entry stamp refreshes
+    # last_active to 1011. A full sweep runs at 1011 WHILE peer-1 is parked; it
+    # must survive purely on that fresh entry stamp, then heartbeat normally.
+    room, clock = _idle_room(idle_timeout=10)
+    t1, n1 = await room.jackin()  # last_active = 1000
+    t2, n2 = await room.jackin()  # peer-2, roster anchor
+    await room.recv(t1, wait=0)  # drain peer-1's backlog (peer-2's join)
+
+    # Advance PAST the threshold first: the jackin stamps (1000) are now stale.
+    clock.now = 1011
+    # Keep the anchor fresh so the sweep below drops NOBODY but the (would-be)
+    # stale peer-1 — isolating the entry stamp as the only variable under test.
+    await room.recv(t2, wait=0)  # stamps peer-2 at 1011
+
+    # peer-1 parks; its ENTRY stamp fires at the current clock (1011). Without
+    # that stamp, the stale 1000 would be reaped by the sweep below.
+    recv_task = asyncio.create_task(room.recv(t1, wait=0.2))
+    await asyncio.sleep(0.02)  # let the recv reach the park (lock released)
+
+    # Sweep at the SAME instant the entry stamp was taken: 1011 - 1011 = 0,
+    # not > 10, so peer-1 survives — only because the entry stamp refreshed it.
+    await room.reap_idle()
+    assert n1 in room.peers(), "parked poller was reaped despite a fresh entry stamp"
+    assert _leaves_about(room, n1) == []
+
+    # The parked recv returns normally (a heartbeat — nothing was sent).
+    out = await asyncio.wait_for(recv_task, timeout=0.5)
+    assert out["events"] == []
+    assert n1 in room.peers()
+
+
+async def test_recv_entry_stamp_is_what_keeps_a_long_poller_alive():
+    # Counterfactual that pins the mechanism: WITHOUT the recv-entry stamp the
+    # same peer WOULD be reaped. peer-1 jacks in at 1000; the clock then
+    # advances past the threshold BEFORE peer-1 polls. If we reap first, it
+    # drops; but a /recv (which stamps at the now-advanced clock) brings it
+    # right back and a subsequent reap at the same instant leaves it alone —
+    # exactly because the entry stamp refreshed last_active.
+    room, clock = _idle_room(idle_timeout=10)
+    t1, n1 = await room.jackin()  # last_active = 1000
+    await room.jackin()  # roster anchor
+
+    clock.now = 1011  # 11 > 10 from the stale 1000 stamp -> would reap
+    await room.reap_idle()
+    assert n1 not in room.peers()  # confirms staleness drops it
+
+    # A token-bearing recv stamps last_active at the CURRENT clock (1011) on
+    # entry, rejoining the peer; a reap at the SAME instant now finds it fresh.
+    await room.recv(t1, wait=0)
+    assert n1 in room.peers()
+    await room.reap_idle()  # 1011 - 1011 = 0, not > 10
+    assert n1 in room.peers(), "entry stamp failed to protect the peer from the very next sweep"
+    # exactly one rejoin join beyond the original jackin join
+    assert len(_joins_about(room, n1)) == 2
+
+
+# -- GAP 2: reaper-vs-rejoin transition ordering (no double-announce) ------
+# Single event loop, so this is about transition ordering under the lock, not
+# flaky concurrency. Each ordering must produce exactly the right event count
+# and a consistent final in_roster. Augments Phase 1's reap-twice idempotency.
+
+
+async def test_leave_then_join_then_reap_while_absent_is_a_noop():
+    # Ordering A: reap (leave) -> rejoin (join) -> reap-while-present-and-fresh
+    # (no-op). Exactly one leave then one join beyond the jackin join; the final
+    # reap at the rejoin instant must not fire anything.
+    room, clock = _idle_room(idle_timeout=10)
+    t1, n1 = await room.jackin()
+    await room.jackin()  # anchor
+
+    clock.now = 1011
+    await room.reap_idle()  # leave #1
+    assert len(_leaves_about(room, n1)) == 1
+    assert n1 not in room.peers()
+
+    await room.recv(t1, wait=0)  # rejoin (join #2), stamps last_active=1011
+    assert len(_joins_about(room, n1)) == 2
+    assert n1 in room.peers()
+
+    await room.reap_idle()  # fresh stamp -> no-op, no second leave
+    assert len(_leaves_about(room, n1)) == 1
+    assert n1 in room.peers()
+
+
+async def test_reap_while_already_absent_emits_no_leave():
+    # Ordering B: jackout (leave) -> reap-while-absent (no-op). A peer already
+    # out of the roster is never re-dropped, however idle the clock claims it is.
+    room, clock = _idle_room(idle_timeout=10)
+    t1, n1 = await room.jackin()
+    await room.jackin()  # anchor
+
+    await room.jackout(t1)  # leave #1
+    assert len(_leaves_about(room, n1)) == 1
+    assert n1 not in room.peers()
+
+    clock.now = 5000  # wildly idle, but it's already absent
+    await room.reap_idle()
+    assert len(_leaves_about(room, n1)) == 1  # still exactly one
+    assert n1 not in room.peers()
+
+
+async def test_full_leave_join_leave_cycle_is_balanced():
+    # A complete churn: jackin(join) -> reap(leave) -> recv(join) -> reap(leave).
+    # End state OUT of roster, with exactly 2 joins and 2 leaves about the peer
+    # and no duplicate announce at any transition.
+    room, clock = _idle_room(idle_timeout=10)
+    t1, n1 = await room.jackin()  # join #1
+    await room.jackin()  # anchor
+
+    clock.now = 1011
+    await room.reap_idle()  # leave #1
+    await room.recv(t1, wait=0)  # join #2 (stamps last_active=1011)
+    clock.now = 1011 + 11  # idle again from the rejoin stamp
+    await room.reap_idle()  # leave #2
+
+    assert len(_joins_about(room, n1)) == 2
+    assert len(_leaves_about(room, n1)) == 2
+    assert n1 not in room.peers()
+
+
+# -- GAP 3: multi-peer — only the idle drop; name stability on rejoin ------
+
+
+async def test_reap_drops_only_idle_peers_active_ones_survive():
+    # Three peers; only the one left idle past the threshold is dropped. The
+    # other two are refreshed (a token call) within the window and survive, and
+    # the surviving roster keeps join order.
+    room, clock = _idle_room(idle_timeout=10)
+    t1, n1 = await room.jackin()  # peer-1 — will go idle
+    t2, n2 = await room.jackin()  # peer-2 — stays active
+    t3, n3 = await room.jackin()  # peer-3 — stays active
+
+    clock.now = 1008  # refresh peer-2 and peer-3 just under the threshold
+    await room.recv(t2, wait=0)  # stamps peer-2 at 1008
+    await room.recv(t3, wait=0)  # stamps peer-3 at 1008
+
+    clock.now = 1011  # 11 > 10 for peer-1 (stale 1000); 3 < 10 for the others
+    await room.reap_idle()
+
+    assert room.peers() == [n2, n3]  # peer-1 gone, join order preserved
+    assert len(_leaves_about(room, n1)) == 1
+    assert _leaves_about(room, n2) == [] and _leaves_about(room, n3) == []
+
+
+async def test_reaped_peer_rejoins_with_its_ORIGINAL_name_no_inflation():
+    # The selling point: a dropped peer that rejoins is the SAME _Peer, so it
+    # keeps its original name — no name-2 inflation. Even though the name is
+    # never freed, rejoining via the same token does not mint a new suffix.
+    room, clock = _idle_room(idle_timeout=10)
+    t1, n1 = await room.jackin(requested="alice")  # alice-1
+    await room.jackin()  # anchor
+    assert n1 == "alice-1"
+
+    clock.now = 1011
+    await room.reap_idle()
+    assert n1 not in room.peers()
+
+    # Same token re-calls -> same peer, SAME name (not alice-2).
+    await room.recv(t1, wait=0)
+    assert room.peer_name_for(t1) == "alice-1"
+    assert "alice-1" in room.peers()
+    assert "alice-2" not in room.peers()
+    # the name was never duplicated in the join-order ledger either
+    assert room._join_order.count("alice-1") == 1
+
+
+async def test_reap_drops_all_idle_peers_in_one_sweep():
+    # When several peers are all idle, a single sweep drops every one of them,
+    # one leave each, emptying the roster.
+    room, clock = _idle_room(idle_timeout=10)
+    _, n1 = await room.jackin()
+    _, n2 = await room.jackin()
+    _, n3 = await room.jackin()
+
+    clock.now = 1011  # all three stale
+    await room.reap_idle()
+
+    assert room.peers() == []
+    assert len(_leaves_about(room, n1)) == 1
+    assert len(_leaves_about(room, n2)) == 1
+    assert len(_leaves_about(room, n3)) == 1
+
+
+# -- GAP 4: leave/join event VISIBILITY + payload + subject filter ---------
+
+
+async def test_reaped_leave_is_visible_to_others_but_not_to_self():
+    # The reaped peer's action(leave) reaches OTHER peers via the shared log
+    # with the right subject, and is filtered from the reaped peer's OWN stream.
+    room, clock = _idle_room(idle_timeout=10)
+    t1, n1 = await room.jackin()  # will be reaped
+    t2, _ = await room.jackin()  # observer
+    await room.recv(t2, wait=0)  # drain peer-1's join from the observer
+
+    clock.now = 1011
+    await room.reap_idle()
+
+    # observer sees exactly one action(leave) about peer-1, well-formed
+    out_obs = await room.recv(t2, wait=0)
+    leaves = [e for e in out_obs["events"] if e.type == "action(leave)"]
+    assert len(leaves) == 1
+    assert leaves[0].peer == n1
+    assert _ISO_UTC_Z_RE.match(leaves[0].sent_at), leaves[0].sent_at
+
+    # the reaped peer rejoins on its next call; its OWN leave is never echoed
+    out_self = await room.recv(t1, wait=0)
+    assert [e for e in out_self["events"] if getattr(e, "peer", None) == n1] == []
+
+
+async def test_rejoin_join_is_visible_to_others_but_not_to_self():
+    # The flip side: after a reap+rejoin, the rejoin's action(join) reaches an
+    # observer but not the rejoining peer itself.
+    room, clock = _idle_room(idle_timeout=10)
+    t1, n1 = await room.jackin()
+    t2, _ = await room.jackin()
+
+    clock.now = 1011
+    await room.reap_idle()  # peer-1 dropped
+    await room.recv(t1, wait=0)  # peer-1 rejoins -> action(join) #2
+
+    # the observer drains everything, then we count joins about peer-1 it saw:
+    # the original jackin join AND the rejoin join (two, both about peer-1)
+    out_obs = await room.recv(t2, wait=0)
+    joins_about_p1 = [e for e in out_obs["events"] if e.type == "action(join)" and e.peer == n1]
+    assert len(joins_about_p1) == 2
+
+    # peer-1 never sees its OWN join on its own stream
+    out_self = await room.recv(t1, wait=0)
+    assert [e for e in out_self["events"] if e.type == "action(join)" and e.peer == n1] == []
+
+
+# -- GAP 5: the strict `>` boundary — exactly-at is NOT dropped -------------
+
+
+async def test_reap_boundary_exactly_at_timeout_is_not_dropped():
+    # STRICT >: at EXACTLY idle_timeout the peer survives; one tick past, it
+    # drops. Pin both sides on the same room/clock.
+    room, clock = _idle_room(idle_timeout=10)
+    _, n1 = await room.jackin()  # last_active = 1000
+    await room.jackin()  # anchor
+
+    clock.now = 1010  # 1010 - 1000 == 10, NOT > 10 -> survives
+    await room.reap_idle()
+    assert n1 in room.peers(), "peer at exactly idle_timeout was wrongly dropped"
+    assert _leaves_about(room, n1) == []
+
+    clock.now = 1010.001  # just over -> drops
+    await room.reap_idle()
+    assert n1 not in room.peers()
+    assert len(_leaves_about(room, n1)) == 1
+
+
+# -- empty-room self-close: should_self_close on the injected clock --------
+# Same _FakeClock seam as the idle-drop tests (no real sleeps). empty_grace is
+# set via the config; idle_timeout is picked independently (and kept > wait_max
+# where idle drop is exercised, so the constructor guard stays satisfied). The
+# decision is PURE — these only read should_self_close(), nothing shuts down.
+
+
+def _grace_room(empty_grace: int = 100, idle_timeout: int = 10) -> tuple[Room, _FakeClock]:
+    clock = _FakeClock()
+    cfg = Config(
+        host="127.0.0.1",
+        port=0,
+        secret="s3cr3t",
+        topic="testing the wire",
+        wait_default=0.05,
+        wait_max=0.2,
+        idle_timeout=idle_timeout,
+        empty_grace=empty_grace,
+    )
+    return Room(cfg, now=clock), clock
+
+
+async def test_self_close_fires_after_grace_when_empty():
+    # (1) jackin then jackout empties the roster; past empty_grace -> True.
+    room, clock = _grace_room(empty_grace=100)
+    t1, _ = await room.jackin()  # occupied -> _empty_since cleared
+    assert await room.should_self_close() is False
+    await room.jackout(t1)  # roster empty -> _empty_since = 1000
+    clock.now += 101  # 101 > 100
+    assert await room.should_self_close() is True
+
+
+async def test_self_close_not_before_grace_strict_boundary():
+    # (2) Before grace it does NOT fire; STRICT >: exactly-at = False, one tick
+    # past = True. Pin both sides on the same room/clock.
+    room, clock = _grace_room(empty_grace=100)
+    t1, _ = await room.jackin()
+    await room.jackout(t1)  # _empty_since = 1000
+
+    clock.now = 1050  # well under grace
+    assert await room.should_self_close() is False
+
+    clock.now = 1100  # 1100 - 1000 == 100, NOT > 100 -> survives
+    assert await room.should_self_close() is False, "exactly at empty_grace must NOT self-close"
+
+    clock.now = 1100.001  # just over -> fires
+    assert await room.should_self_close() is True
+
+
+async def test_self_close_resets_when_peer_joins_or_rejoins():
+    # (3) An empty room past grace is rescued by a fresh jackin, and separately by
+    # a rejoin of the immortal token via recv/send.
+    # --- fresh jackin clears the stamp ---
+    room, clock = _grace_room(empty_grace=100)
+    t1, _ = await room.jackin()
+    await room.jackout(t1)
+    clock.now += 200  # past grace
+    assert await room.should_self_close() is True
+    await room.jackin()  # a brand-new peer occupies the room
+    assert await room.should_self_close() is False
+
+    # --- rejoin via the immortal token (recv) clears the stamp ---
+    room2, clock2 = _grace_room(empty_grace=100)
+    tok, _ = await room2.jackin()
+    await room2.jackout(tok)  # empty, token still VALID
+    clock2.now += 200  # past grace
+    assert await room2.should_self_close() is True
+    await room2.recv(tok, wait=0)  # recv ENTRY rejoins the same peer
+    assert await room2.should_self_close() is False
+
+    # --- and a rejoin via send clears it too ---
+    room3, clock3 = _grace_room(empty_grace=100)
+    tok3, _ = await room3.jackin()
+    await room3.jackout(tok3)
+    clock3.now += 200
+    assert await room3.should_self_close() is True
+    await room3.send(tok3, "back")  # send also rejoins via the activity choke
+    assert await room3.should_self_close() is False
+
+
+async def test_self_close_boot_armed_never_joined_room():
+    # (4) BOOT-ARMED: a room nobody EVER joins still dies. _empty_since is stamped
+    # at construction (clock start = 1000), so advancing past empty_grace with an
+    # empty roster from the start -> True.
+    room, clock = _grace_room(empty_grace=100)
+    assert room.peers() == []
+    assert await room.should_self_close() is False  # ~0 elapsed at boot
+    clock.now += 101
+    assert await room.should_self_close() is True
+
+
+async def test_self_close_disabled_at_zero_never_fires():
+    # (5) empty_grace == 0 disables self-close: an empty roster, advanced
+    # arbitrarily far, never fires and never crashes.
+    room, clock = _grace_room(empty_grace=0)
+    assert await room.should_self_close() is False  # never-joined, disabled
+    clock.now += 10_000_000
+    assert await room.should_self_close() is False
+    t1, _ = await room.jackin()
+    await room.jackout(t1)  # empty again
+    clock.now += 10_000_000
+    assert await room.should_self_close() is False
+
+
+async def test_self_close_last_instant_join_cancels():
+    # (6) An empty room past grace, then a jackin lands and clears _empty_since;
+    # the very next should_self_close() reads None under the lock -> False. This
+    # is the decision-side close of the last-instant /jackin race.
+    room, clock = _grace_room(empty_grace=100)
+    t1, _ = await room.jackin()
+    await room.jackout(t1)
+    clock.now += 200  # past grace; a poll right now would self-close
+    await room.jackin()  # but a join lands first -> _empty_since = None
+    assert await room.should_self_close() is False
+
+
+async def test_self_close_additive_cascade_after_idle_drop():
+    # (7) A lone silent peer: idle drop runs FIRST (after idle_timeout), and only
+    # then does the empty-room clock start — so self-close is ~0 elapsed right
+    # after the reap, and fires another empty_grace later.
+    room, clock = _grace_room(empty_grace=100, idle_timeout=10)
+    t1, n1 = await room.jackin()  # last_active = 1000; room occupied
+    assert await room.should_self_close() is False
+
+    clock.now += 11  # 11 > idle_timeout 10 -> the lone peer is now idle
+    await room.reap_idle()  # drops it -> roster empty -> _empty_since stamped HERE
+    assert n1 not in room.peers()
+    # Empty clock starts at the reap instant, not the jackout — additive, not
+    # overlapping: right after the drop ~0 has elapsed against empty_grace.
+    assert await room.should_self_close() is False
+
+    clock.now += 101  # empty_grace + epsilon past the reap instant
+    assert await room.should_self_close() is True

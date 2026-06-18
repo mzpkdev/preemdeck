@@ -66,6 +66,71 @@ def _start_timeout() -> float:
 _START_TIMEOUT_DEFAULT = 30.0
 _START_POLL_INTERVAL = 0.2
 
+
+def _idle_timeout(flag: int | None) -> int:
+    """Resolve the idle-drop timeout: flag > ``WIRE_IDLE_TIMEOUT`` env > default.
+
+    Mirrors the ``WIRE_START_TIMEOUT`` precedent (see :func:`_start_timeout`):
+    an explicit flag wins; otherwise the env var is consulted; otherwise the
+    Config default. Unlike the start timeout, 0 is a MEANINGFUL value here (it
+    disables idle drop), so the env accepts any non-negative int — only a
+    negative or unparseable value falls through to the default.
+    """
+    if flag is not None:
+        return flag
+    raw = os.environ.get("WIRE_IDLE_TIMEOUT")
+    if raw is not None:
+        try:
+            val = int(raw)
+            if val >= 0:
+                return val
+        except ValueError:
+            pass
+    return Config.idle_timeout
+
+
+def _empty_grace(flag: int | None) -> int:
+    """Resolve the empty-room grace: flag > ``WIRE_EMPTY_GRACE`` env > default.
+
+    Mirrors :func:`_idle_timeout`: an explicit flag wins; otherwise the env var
+    is consulted; otherwise the Config default. As with idle drop, 0 is a
+    MEANINGFUL value here (it disables empty-room self-close), so the env accepts
+    any non-negative int — only a negative or unparseable value falls through to
+    the default.
+    """
+    if flag is not None:
+        return flag
+    raw = os.environ.get("WIRE_EMPTY_GRACE")
+    if raw is not None:
+        try:
+            val = int(raw)
+            if val >= 0:
+                return val
+        except ValueError:
+            pass
+    return Config.empty_grace
+
+
+def _sweep_interval(flag: int | None) -> int:
+    """Resolve the sweep interval: flag > ``WIRE_SWEEP_INTERVAL`` env > default.
+
+    Same flag>env>default precedence as :func:`_idle_timeout`. The interval is a
+    positive cadence, so the env requires ``> 0``; anything else falls back to
+    the Config default.
+    """
+    if flag is not None:
+        return flag
+    raw = os.environ.get("WIRE_SWEEP_INTERVAL")
+    if raw is not None:
+        try:
+            val = int(raw)
+            if val > 0:
+                return val
+        except ValueError:
+            pass
+    return Config.sweep_interval
+
+
 # Bound on how long `stop` waits for a TERM'd process to exit, seconds.
 _STOP_TIMEOUT = 5.0
 _STOP_POLL_INTERVAL = 0.2
@@ -113,6 +178,22 @@ def _cmd_serve(args: argparse.Namespace) -> int:
         print(f"wire: error: {exc}", file=sys.stderr)
         return 1
 
+    idle_timeout = _idle_timeout(args.idle_timeout)
+    sweep_interval = _sweep_interval(args.sweep_interval)
+    empty_grace = _empty_grace(args.empty_grace)
+
+    # Room.__init__ asserts idle_timeout > wait_max (a parked /recv holds a peer
+    # silent up to wait_max); pre-validate here so a bad config exits cleanly
+    # instead of crashing boot with a raw AssertionError. 0 (disabled) is fine.
+    if idle_timeout > 0 and idle_timeout <= args.wait_max:
+        print(
+            f"wire: error: --idle-timeout ({idle_timeout}) must be greater than "
+            f"--wait-max ({args.wait_max}); a parked /recv can hold a peer silent up to "
+            "wait_max and would otherwise be reaped mid-poll (use --idle-timeout=0 to disable idle drop).",
+            file=sys.stderr,
+        )
+        return 1
+
     config = Config(
         host=args.host,
         port=port,
@@ -120,6 +201,9 @@ def _cmd_serve(args: argparse.Namespace) -> int:
         topic=args.topic,
         wait_default=args.wait_default,
         wait_max=args.wait_max,
+        idle_timeout=idle_timeout,
+        sweep_interval=sweep_interval,
+        empty_grace=empty_grace,
     )
 
     app = create_app(config)
@@ -163,7 +247,7 @@ def _serve_argv(args: argparse.Namespace) -> list[str]:
     The ``--opt=value`` form binds the value unambiguously regardless of its
     first character.
     """
-    return [
+    argv = [
         sys.executable,
         "-m",
         "wire",
@@ -173,6 +257,18 @@ def _serve_argv(args: argparse.Namespace) -> list[str]:
         f"--host={args.host}",
         f"--port={args.port}",
     ]
+    # Idle-drop and empty-grace knobs are forwarded only when EXPLICITLY set on
+    # the parent (flag default is None). An unset flag is omitted so the child
+    # still resolves its own WIRE_IDLE_TIMEOUT/WIRE_SWEEP_INTERVAL/WIRE_EMPTY_GRACE
+    # env (inherited by the subprocess) or the Config default — preserving the
+    # flag>env>default precedence end to end.
+    if args.idle_timeout is not None:
+        argv.append(f"--idle-timeout={args.idle_timeout}")
+    if args.sweep_interval is not None:
+        argv.append(f"--sweep-interval={args.sweep_interval}")
+    if args.empty_grace is not None:
+        argv.append(f"--empty-grace={args.empty_grace}")
+    return argv
 
 
 def _cmd_start(args: argparse.Namespace) -> int:
@@ -307,6 +403,27 @@ def _build_parser() -> argparse.ArgumentParser:
         p.add_argument("--secret", default=None, help="key gating /shard and /jackin; auto-generated if omitted")
         p.add_argument("--host", default="0.0.0.0", help="address the HTTP layer binds to (default: 0.0.0.0)")
         p.add_argument("--port", type=int, default=5555, help="starting port for the free-port scan (default: 5555)")
+        # Idle-drop knobs default to None (NOT the Config value) so the resolver
+        # can tell "unset" from "set to the default" and apply flag>env>default;
+        # `start` forwards them to the detached child only when explicitly set.
+        p.add_argument(
+            "--idle-timeout",
+            type=int,
+            default=None,
+            help="seconds of silence before a peer is dropped; 0 disables (env WIRE_IDLE_TIMEOUT, default: 300). Must exceed --wait-max when > 0.",
+        )
+        p.add_argument(
+            "--sweep-interval",
+            type=int,
+            default=None,
+            help="seconds between idle sweeps (env WIRE_SWEEP_INTERVAL, default: 15)",
+        )
+        p.add_argument(
+            "--empty-grace",
+            type=int,
+            default=None,
+            help="seconds an empty roster is tolerated before the server self-closes; 0 disables (env WIRE_EMPTY_GRACE, default: 900 = 15 min).",
+        )
 
     p_serve = sub.add_parser("serve", help="run the server in the foreground (blocking)")
     _add_launch_args(p_serve)

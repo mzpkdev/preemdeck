@@ -8,13 +8,17 @@ parked-wake concurrency is already proven at the unit layer (test_room.py).
 
 from __future__ import annotations
 
+import asyncio
+import contextlib
 import re
+import signal
+import time
 
 import pytest
 from fastapi.testclient import TestClient
-
-from wire.app import create_app
+from wire.app import _default_shutdown, _lifespan, _reaper_loop, create_app
 from wire.config import Config
+from wire.room import Room
 
 SECRET = "s3cret"
 TOPIC = "test room"
@@ -285,10 +289,10 @@ def test_recv_message_carries_sent_at(client: TestClient):
     assert _ISO_UTC_Z_RE.match(sent_at), sent_at
 
 
-# -- jackout retires the token --------------------------------------------
+# -- jackout drops from the roster but keeps the token alive ---------------
 
 
-def test_jackout_then_dead_token(client: TestClient):
+def test_jackout_drops_from_roster(client: TestClient):
     t1 = _jackin(client)  # peer-1
     t2 = _jackin(client)  # peer-2
 
@@ -296,11 +300,31 @@ def test_jackout_then_dead_token(client: TestClient):
     assert r.status_code == 200
     assert r.json() == {"left": "peer-2"}
 
-    # reusing the retired token -> the distinct "dead" body + code, instantly (no hang)
-    for method, path in (("get", "/recv"), ("post", "/send"), ("post", "/jackout")):
-        resp = getattr(client, method)(path, params={"token": t2})
-        assert resp.status_code == 401
-        assert resp.json() == {"detail": "token no longer valid, jackin again", "code": "dead_token"}
+    # peer-2 is gone from the roster (peer-1 reads the live roster)
+    body = client.get("/recv", params={"token": t1, "wait": 0}).json()
+    assert body["peers"] == ["peer-1"]
+
+
+def test_jackout_token_still_works_and_rejoins(client: TestClient):
+    # Tokens are immortal: after jackout the SAME token still works on every
+    # gated endpoint (no dead-token 401), and a token-bearing call rejoins the
+    # peer to the roster.
+    t1 = _jackin(client)  # peer-1
+    t2 = _jackin(client)  # peer-2
+    client.post("/jackout", params={"token": t2})
+
+    # /send with the jacked-out token succeeds (and rejoins peer-2)
+    r = client.post("/send", params={"token": t2}, content=b"back again")
+    assert r.status_code == 200
+    assert "seq" in r.json()
+
+    # peer-2 is back in the roster, seen by peer-1
+    body = client.get("/recv", params={"token": t1, "wait": 0}).json()
+    assert "peer-2" in body["peers"]
+
+    # /recv and /jackout with the same token are likewise accepted (200, not 401)
+    assert client.get("/recv", params={"token": t2, "wait": 0}).status_code == 200
+    assert client.post("/jackout", params={"token": t2}).status_code == 200
 
 
 # -- presence events over HTTP --------------------------------------------
@@ -447,10 +471,12 @@ def test_schema_401_descriptions_name_the_codes(client: TestClient):
     # secret gate -> invalid_secret (JSON on /jackin, header on /shard)
     assert "invalid_secret" in desc("/jackin", "post")
     assert "invalid_secret" in desc("/shard", "get")
-    # token gates -> both invalid_token and dead_token
+    # token gates -> invalid_token only. Tokens are immortal (neither jackout
+    # nor an idle drop retires one), so the removed dead_token code must NOT
+    # appear in the advertised schema.
     for path, method in (("/send", "post"), ("/recv", "get"), ("/jackout", "post")):
         assert "invalid_token" in desc(path, method)
-        assert "dead_token" in desc(path, method)
+        assert "dead_token" not in desc(path, method)
 
 
 def test_schema_carries_descriptions(client: TestClient):
@@ -482,3 +508,415 @@ def test_schema_carries_descriptions(client: TestClient):
     assert "type" in events_desc
     rylm = schemas["RecvResponse"]["properties"]["read_your_last_message"]["description"]
     assert "read-cursor" in rylm and "receipt" in rylm
+
+
+# -- the live reaper: background task + lifespan --------------------------
+#
+# These prove Phase 2 wiring end to end: that entering the app's lifespan
+# launches the background sweeper, that a peer which never polls actually
+# DROPS (and a leave is observable on the stream), that the task cancels
+# cleanly on shutdown (no pending-task warning), and that idle_timeout==0
+# starts no task. The drop is forced FAST without sleeping past wait_max by
+# swapping the room clock seam (room._now) to a far-future instant, so the
+# next ~1s sweep tick sees the silent peer as idle.
+
+
+def _idle_app():
+    # Small values that satisfy the Room invariant (idle_timeout > wait_max).
+    # sweep_interval=1 keeps the live tick quick; the clock-seam swap is what
+    # makes the drop deterministic rather than the 2s timeout elapsing for real.
+    config = Config(
+        host="127.0.0.1",
+        port=0,
+        secret=SECRET,
+        topic=TOPIC,
+        wait_default=1,
+        wait_max=1,
+        idle_timeout=2,
+        sweep_interval=1,
+    )
+    return create_app(config)
+
+
+def test_idle_reaper_drops_silent_peer_live(recwarn):
+    app = _idle_app()
+    # Entering the context runs the app's lifespan startup -> the background
+    # reaper task is now live; exiting runs shutdown -> the task is cancelled.
+    with TestClient(app) as client:
+        # peer-1 jacks in and then goes silent (never polls).
+        t1 = client.post("/jackin", params={"secret": SECRET}).json()["token"]
+        assert "peer-1" in app.state.room.peers()
+
+        # Force every existing peer to look idle on the next sweep by jumping the
+        # clock seam far past idle_timeout. (last_active was stamped at ~0.)
+        app.state.room._now = lambda: 1e9
+
+        # The live background task sweeps every ~1s. Poll the roster (bounded) for
+        # the silent peer to vanish — proves the task is actually running, not
+        # just that reap_idle works.
+        deadline = time.monotonic() + 5.0
+        while "peer-1" in app.state.room.peers() and time.monotonic() < deadline:
+            time.sleep(0.05)
+        assert "peer-1" not in app.state.room.peers(), "silent peer was not reaped by the live task"
+
+        # The drop is observable on the stream as an action(leave). A freshly
+        # jacked-in observer is stamped at the (far-future) clock, so it survives
+        # the same sweep and can read the backfilled leave about peer-1. wait=0
+        # keeps it non-blocking.
+        t_obs = client.post("/jackin", params={"secret": SECRET}).json()["token"]
+        body = client.get("/recv", params={"token": t_obs, "wait": 0}).json()
+        leaves = [e for e in body["events"] if e["type"] == "action(leave)" and e["peer"] == "peer-1"]
+        assert leaves, f"no action(leave) for peer-1 observed: {body['events']}"
+        # peer-1's token is immortal — a later call just rejoins it, never 401s.
+        assert client.get("/recv", params={"token": t1, "wait": 0}).status_code == 200
+
+    # After the context exits, shutdown must have cancelled the reaper cleanly:
+    # no "Task was destroyed but it is pending" RuntimeWarning leaked.
+    pending = [w for w in recwarn.list if "was destroyed but it is pending" in str(w.message)]
+    assert not pending, f"reaper task leaked past shutdown: {[str(w.message) for w in pending]}"
+
+
+def test_idle_disabled_starts_no_reaper():
+    # idle_timeout == 0 disables idle drop: no background task, and a silent peer
+    # is never dropped even after the clock jumps far past any timeout.
+    config = Config(host="127.0.0.1", port=0, secret=SECRET, topic=TOPIC, idle_timeout=0)
+    app = create_app(config)
+    with TestClient(app) as client:
+        client.post("/jackin", params={"secret": SECRET})
+        assert "peer-1" in app.state.room.peers()
+        app.state.room._now = lambda: 1e9
+        # Give any (erroneously-started) sweeper several ticks to misbehave.
+        time.sleep(0.3)
+        assert "peer-1" in app.state.room.peers()
+
+
+# ========================================================================
+# PHASE 3 — HTTP-level hardening: the parked-poller invariant end to end over
+# the live reaper (GAP 1), and the full user-story acceptance test (GAP 6).
+# ========================================================================
+
+
+# -- GAP 1 (HTTP): a genuinely parked /recv survives a real sweep ----------
+
+
+def test_parked_recv_survives_live_reaper_over_http():
+    # The marquee invariant, end to end, with the entry stamp as the SOLE
+    # protector. With wait_max=1, idle_timeout=2, sweep_interval=1, a peer that
+    # genuinely PARKS in /recv across the wait_max window is NOT reaped. To make
+    # the entry stamp load-bearing (not the fresh jackin stamp), we jump the
+    # clock seam to a fixed far-future instant BEFORE parking: the jackin/drain
+    # stamps (taken at near-zero monotonic) are now wildly stale and WOULD be
+    # reaped, but the park's recv-ENTRY stamp is taken at that same far-future
+    # instant, so the ~1s sweep firing mid-park sees it as fresh (delta ~0) and
+    # leaves it alone. It must heartbeat empty, NOT 401, and stay in the roster.
+    app = _idle_app()  # wait_default=1, wait_max=1, idle_timeout=2, sweep_interval=1
+    with TestClient(app) as client:
+        t1 = client.post("/jackin", params={"secret": SECRET}).json()["token"]
+        client.post("/jackin", params={"secret": SECRET})  # peer-2 anchor
+        # drain peer-1's backlog (peer-2's join) so its next recv genuinely parks
+        client.get("/recv", params={"token": t1, "wait": 0})
+
+        # Freeze the clock far in the future. Existing stamps are now stale; only
+        # a fresh stamp taken AT this instant survives a sweep. The park's entry
+        # stamp is taken here, so peer-1 must survive purely on it.
+        app.state.room._now = lambda: 1e9
+
+        # peer-1 parks for the full wait_max window (1s); the background reaper
+        # ticks at ~1s during the hold. Survives only via the entry stamp.
+        r = client.get("/recv", params={"token": t1, "wait": 1})
+        assert r.status_code == 200  # never 401, and the park returned
+
+        # The sweep demonstrably FIRED mid-park: it reaped the stale anchor
+        # peer-2, whose action(leave) woke peer-1 (proving a real sweep ran
+        # while peer-1 was parked — this isn't a vacuous pass).
+        events = r.json()["events"]
+        assert any(e["type"] == "action(leave)" and e["peer"] == "peer-2" for e in events), (
+            f"expected the mid-park sweep to reap the stale anchor: {events}"
+        )
+        # peer-1 SURVIVED that same sweep purely on its entry stamp: still in the
+        # roster, and it never received a leave about ITSELF.
+        assert "peer-1" in app.state.room.peers(), "a parked long-poller was wrongly reaped"
+        assert not any(e["type"] == "action(leave)" and e["peer"] == "peer-1" for e in events)
+
+
+# -- GAP 6: the end-to-end acceptance story (the whole spec, one test) -----
+
+
+def test_end_to_end_idle_drop_rejoin_story():
+    # The user's full spec in one flow:
+    #   jackin -> go idle -> reaped (leave seen by an observer)
+    #          -> same token /send -> rejoined (join seen) -> SAME name
+    #          -> the token NEVER 401s anywhere in the cycle.
+    # Drop is forced deterministically via the clock seam (no real idle wait),
+    # while the live background task is what actually performs the reap.
+    app = _idle_app()
+    with TestClient(app) as client:
+        # 1) jackin with a requested name so we can pin name STABILITY later.
+        r = client.post("/jackin", params={"secret": SECRET, "name": "alice"})
+        assert r.status_code == 200
+        t_alice = r.json()["token"]
+        assert r.json()["you_are"] == "alice-1"
+
+        # an observer that will witness alice's leave/join on the shared stream
+        t_obs = client.post("/jackin", params={"secret": SECRET, "name": "bob"}).json()["token"]
+        client.get("/recv", params={"token": t_obs, "wait": 0})  # drain alice's join
+
+        # token works before going idle (sanity: never a 401)
+        assert client.get("/recv", params={"token": t_alice, "wait": 0}).status_code == 200
+        assert "alice-1" in app.state.room.peers()
+
+        # 2) go idle: jump the clock seam far past idle_timeout so the next live
+        #    sweep sees both existing peers as idle. Re-stamp the observer right
+        #    after so it survives the same sweep and can still read the backfill.
+        app.state.room._now = lambda: 1e9
+        deadline = time.monotonic() + 5.0
+        while "alice-1" in app.state.room.peers() and time.monotonic() < deadline:
+            time.sleep(0.05)
+        # 3) reaped: alice is gone from the roster
+        assert "alice-1" not in app.state.room.peers(), "alice was not reaped by the live task"
+
+        # the leave is observable to the observer (re-stamped by its own recv at
+        # the far-future clock, so it survives this sweep) via the shared log
+        body = client.get("/recv", params={"token": t_obs, "wait": 0}).json()
+        leaves = [e for e in body["events"] if e["type"] == "action(leave)" and e["peer"] == "alice-1"]
+        assert leaves, f"observer never saw alice's leave: {body['events']}"
+
+        # 4) same token calls /send — it must NOT 401 (immortal token) and the
+        #    call rejoins alice to the roster.
+        r = client.post("/send", params={"token": t_alice}, content=b"i'm back")
+        assert r.status_code == 200, "the immortal token 401'd on /send after a reap"
+        assert "seq" in r.json()
+
+        # 5) rejoined: alice is back AND keeps her ORIGINAL name (no alice-2).
+        assert "alice-1" in app.state.room.peers()
+        assert "alice-2" not in app.state.room.peers()
+        assert app.state.room.peer_name_for(t_alice) == "alice-1"
+
+        # the rejoin's action(join) about alice is observable to the observer,
+        # and so is the message she then sent
+        body = client.get("/recv", params={"token": t_obs, "wait": 0}).json()
+        rejoin = [e for e in body["events"] if e["type"] == "action(join)" and e["peer"] == "alice-1"]
+        assert rejoin, f"observer never saw alice's rejoin: {body['events']}"
+        msgs = [e for e in body["events"] if e["type"] == "message" and e["from"] == "alice-1"]
+        assert msgs and msgs[0]["message"] == "i'm back"
+
+        # 6) the token NEVER 401s anywhere in the cycle — every gated endpoint
+        #    still accepts it after the full idle->rejoin round trip.
+        assert client.get("/recv", params={"token": t_alice, "wait": 0}).status_code == 200
+        assert client.post("/send", params={"token": t_alice}, content=b"still here").status_code == 200
+        assert client.post("/jackout", params={"token": t_alice}).status_code == 200
+
+
+# ========================================================================
+# PHASE B — empty-room self-close: folded into the background reaper loop.
+#
+# The reaper now also evaluates room.should_self_close() each tick and, when
+# the roster has sat empty past empty_grace, fires an INJECTED shutdown hook
+# EXACTLY ONCE and stops. Production wires _default_shutdown (an in-process
+# SIGINT uvicorn turns into a graceful shutdown). These tests NEVER fire the
+# real SIGINT — that would tear down the pytest runner — they SPY the hook
+# and drive the loop with a far-future clock so it's fast (no real grace wait).
+# ========================================================================
+
+
+def _empty_close_app(idle_timeout: int = 0, empty_grace: int = 900):
+    # sweep_interval=1 keeps the live tick quick; the clock seam (room._now)
+    # jumped far-future is what makes should_self_close() fire on the next tick
+    # rather than a real `empty_grace` elapsing. idle_timeout defaults to 0 so
+    # the empty-close path is exercised in isolation (reap_idle is a no-op).
+    config = Config(
+        host="127.0.0.1",
+        port=0,
+        secret=SECRET,
+        topic=TOPIC,
+        wait_default=1,
+        wait_max=1,
+        idle_timeout=idle_timeout,
+        sweep_interval=1,
+        empty_grace=empty_grace,
+    )
+    return create_app(config)
+
+
+# -- (8) the loop FIRES the hook when the room is empty past grace ---------
+
+
+def test_reaper_loop_fires_shutdown_when_empty_past_grace():
+    # Drive _reaper_loop directly with a SPY hook and a far-future clock: the
+    # boot-armed empty room is instantly "past grace", so the first tick must
+    # call the hook exactly once and then return. We assert the spy fired within
+    # a bounded poll and the loop task completed on its own (self-stopped).
+    async def _run():
+        room = Room(Config(host="127.0.0.1", port=0, secret=SECRET, topic=TOPIC, empty_grace=900))
+        room._now = lambda: 1e9  # far future -> empty-since (boot-armed) is past grace
+        fired = []
+        task = asyncio.create_task(_reaper_loop(room, sweep_interval=0, shutdown=lambda: fired.append(1)))
+        try:
+            # Bounded wait for the spy to fire (sweep_interval=0 -> next loop turn).
+            deadline = time.monotonic() + 5.0
+            while not fired and time.monotonic() < deadline:
+                await asyncio.sleep(0.01)
+            assert fired, "loop never fired the shutdown hook on an empty-past-grace room"
+            # Fire-once-then-stop: the loop returned itself, not via cancellation.
+            await asyncio.wait_for(task, timeout=1.0)
+            assert task.done() and not task.cancelled()
+            assert fired == [1], f"shutdown hook must fire EXACTLY once, got {len(fired)}"
+        finally:
+            if not task.done():
+                task.cancel()
+                with contextlib.suppress(asyncio.CancelledError):
+                    await task
+
+    asyncio.run(_run())
+
+
+# -- (8b) the loop does NOT fire while the room is POPULATED ----------------
+
+
+def test_reaper_loop_does_not_fire_while_populated():
+    # Negative test: with a peer present, _empty_since is None, so even at a
+    # far-future clock should_self_close() is False and the hook NEVER fires.
+    async def _run():
+        room = Room(Config(host="127.0.0.1", port=0, secret=SECRET, topic=TOPIC, empty_grace=900))
+        await room.jackin()  # a peer is present -> roster not empty
+        room._now = lambda: 1e9  # far future, but the room is occupied
+        fired = []
+        task = asyncio.create_task(_reaper_loop(room, sweep_interval=0, shutdown=lambda: fired.append(1)))
+        try:
+            # Let many ticks run; a populated room must never trip the close.
+            await asyncio.sleep(0.3)
+            assert not fired, "loop fired shutdown while a peer was still present"
+            assert not task.done(), "loop should still be running over a populated room"
+        finally:
+            task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await task
+
+    asyncio.run(_run())
+
+
+def test_reaper_loop_does_not_fire_before_grace_elapses():
+    # Empty roster, but NOT yet past grace: clock barely advanced (< empty_grace),
+    # so should_self_close() is False and the hook stays silent.
+    async def _run():
+        clock = {"t": 0.0}
+        room = Room(
+            Config(host="127.0.0.1", port=0, secret=SECRET, topic=TOPIC, empty_grace=900),
+            now=lambda: clock["t"],
+        )
+        # boot-armed empty-since == 0.0; advance only 10s, well under the 900s grace.
+        clock["t"] = 10.0
+        fired = []
+        task = asyncio.create_task(_reaper_loop(room, sweep_interval=0, shutdown=lambda: fired.append(1)))
+        try:
+            await asyncio.sleep(0.2)
+            assert not fired, "loop fired shutdown before the empty grace elapsed"
+        finally:
+            task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await task
+
+    asyncio.run(_run())
+
+
+# -- (9) the lifespan wires a REAL callable hook without dying -------------
+
+
+def test_lifespan_wires_real_shutdown_hook():
+    """_lifespan defaults its shutdown hook to a real callable (_default_shutdown).
+
+    The REAL process-exit path is intentionally NOT exercised here: invoking
+    _default_shutdown raises SIGINT in this process and would tear down the
+    pytest runner. We only assert the wiring — that a real callable is the
+    default hook and that _default_shutdown is signal.raise_signal(SIGINT)-shaped
+    — WITHOUT ever calling it.
+    """
+    # The default hook is the real one, and it's a callable.
+    assert _lifespan.__defaults__ == (_default_shutdown,)
+    assert callable(_default_shutdown)
+
+    # _default_shutdown is SIGINT-shaped: it calls signal.raise_signal(SIGINT)
+    # and nothing else. We verify by spying signal.raise_signal so the real
+    # signal is NEVER delivered to the process.
+    raised = []
+    real_raise = signal.raise_signal
+    signal.raise_signal = lambda sig: raised.append(sig)
+    try:
+        _default_shutdown()
+    finally:
+        signal.raise_signal = real_raise
+    assert raised == [signal.SIGINT], "the production hook must raise exactly SIGINT"
+
+
+# -- (10) the start-gate: launch when EITHER reaper job is enabled ----------
+
+
+def test_empty_close_only_starts_reaper():
+    # idle_timeout == 0 but empty_grace > 0: the loop MUST still start (else
+    # empty-close never runs). We prove it's live by spying the hook through the
+    # lifespan with a far-future clock — the empty room trips the close.
+    app = _empty_close_app(idle_timeout=0, empty_grace=900)
+    fired = []
+    # Re-wire the lifespan with a spy hook so the real SIGINT is never fired.
+    app.router.lifespan_context = _lifespan(app.state.room, app.state.config, shutdown=lambda: fired.append(1))
+    app.state.room._now = lambda: 1e9  # boot-armed empty room is instantly past grace
+    with TestClient(app):
+        deadline = time.monotonic() + 5.0
+        while not fired and time.monotonic() < deadline:
+            time.sleep(0.02)
+    assert fired, "reaper did not start (or fire) with idle_timeout==0 but empty_grace>0"
+    assert fired == [1], f"shutdown hook must fire EXACTLY once, got {len(fired)}"
+
+
+def test_idle_only_still_starts_reaper():
+    # The converse of the widened gate: idle on (>0), empty-close off (==0) still
+    # starts the reaper — the existing idle-drop behavior is unchanged. A silent
+    # peer is reaped by the live task; the empty-close hook never fires.
+    app = _empty_close_app(idle_timeout=2, empty_grace=0)
+    fired = []
+    app.router.lifespan_context = _lifespan(app.state.room, app.state.config, shutdown=lambda: fired.append(1))
+    with TestClient(app) as client:
+        client.post("/jackin", params={"secret": SECRET})
+        assert "peer-1" in app.state.room.peers()
+        app.state.room._now = lambda: 1e9
+        deadline = time.monotonic() + 5.0
+        while "peer-1" in app.state.room.peers() and time.monotonic() < deadline:
+            time.sleep(0.05)
+        assert "peer-1" not in app.state.room.peers(), "idle reaper did not run with empty_grace==0"
+    # empty_grace==0 disables self-close: the hook must NOT have fired.
+    assert not fired, "empty-close hook fired with empty_grace==0 (disabled)"
+
+
+def test_both_disabled_starts_no_reaper():
+    # BOTH knobs zero -> NO background task at all. Mirrors
+    # test_idle_disabled_starts_no_reaper, but also pins empty_grace==0: neither
+    # a silent peer is dropped nor does the room self-close.
+    fired = []
+    config = Config(host="127.0.0.1", port=0, secret=SECRET, topic=TOPIC, idle_timeout=0, empty_grace=0)
+    app = create_app(config)
+    app.router.lifespan_context = _lifespan(app.state.room, app.state.config, shutdown=lambda: fired.append(1))
+    with TestClient(app) as client:
+        client.post("/jackin", params={"secret": SECRET})
+        assert "peer-1" in app.state.room.peers()
+        app.state.room._now = lambda: 1e9
+        time.sleep(0.3)  # give any erroneously-started sweeper ticks to misbehave
+        assert "peer-1" in app.state.room.peers(), "a task ran with both knobs disabled"
+    assert not fired, "self-close fired with both knobs disabled"
+
+
+# -- (11) clean shutdown leaks NO task with the empty-close loop running ----
+
+
+def test_empty_close_loop_no_pending_task_warning(recwarn):
+    # With the empty-close loop running (idle off, empty on) but the room NOT
+    # past grace (default clock), exiting the app context must cancel + await the
+    # reaper cleanly — no "Task was destroyed but it is pending" RuntimeWarning.
+    # The hook is spied so even if a tick fired it would not SIGINT the runner.
+    fired = []
+    app = _empty_close_app(idle_timeout=0, empty_grace=900)
+    app.router.lifespan_context = _lifespan(app.state.room, app.state.config, shutdown=lambda: fired.append(1))
+    with TestClient(app) as client:
+        client.post("/jackin", params={"secret": SECRET})  # occupy so it never self-closes
+        time.sleep(0.1)
+    pending = [w for w in recwarn.list if "was destroyed but it is pending" in str(w.message)]
+    assert not pending, f"empty-close reaper leaked past shutdown: {[str(w.message) for w in pending]}"

@@ -11,6 +11,8 @@ from __future__ import annotations
 import asyncio
 import re
 import secrets
+import time
+from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from enum import Enum
@@ -35,13 +37,16 @@ _DEFAULT_BASE = "peer"
 class TokenStatus(Enum):
     """Outcome of validating a token, for the auth layer to map to a 401 body.
 
+    Tokens are IMMORTAL: once /jackin mints one it is VALID for the room's life;
+    nothing — neither jackout nor an idle drop — invalidates it. Roster presence
+    is separate state (see :attr:`_Peer.in_roster`), so this is just a two-way
+    "minted here or not" verdict.
+
     UNKNOWN  — never minted (or malformed)  -> "invalid token"
-    DEAD     — minted but jacked-out/reaped  -> "token no longer valid, jackin again"
-    VALID    — minted and still connected    -> proceed
+    VALID    — minted by this room          -> proceed
     """
 
     UNKNOWN = "unknown"
-    DEAD = "dead"
     VALID = "valid"
 
 
@@ -101,7 +106,15 @@ class _Peer:
     """Internal per-token state."""
 
     name: str
-    connected: bool = True
+    # Whether this peer is currently SHOWN in the roster — "recently active",
+    # NOT token liveness (the token is immortal). Flipped only by _set_present:
+    # True on join (jackin / activity after a drop), False on leave (jackout /
+    # idle reap). peers() lists exactly the in_roster peers.
+    in_roster: bool = True
+    # Monotonic seconds (via Room._now) of this peer's last token-bearing call —
+    # stamped on jackin and at /recv ENTRY, /send, /jackout. The idle reaper drops
+    # a peer once now - last_active exceeds the idle timeout. 0.0 until first set.
+    last_active: float = 0.0
     # Highest seq this token has been delivered (its read cursor). 0 = nothing read.
     cursor: int = 0
     # Highest seq this token has itself sent (0 = has never sent).
@@ -111,8 +124,25 @@ class _Peer:
 class Room:
     """The pure async core. Construct from a :class:`~wire.config.Config`."""
 
-    def __init__(self, config: Config) -> None:
+    def __init__(self, config: Config, now: Callable[[], float] = time.monotonic) -> None:
         self.config = config
+        # The room's idle threshold (seconds); 0 disables idle drop entirely.
+        self._idle_timeout = config.idle_timeout
+        # The empty-room grace (seconds); 0 disables empty-room self-close.
+        self._empty_grace = config.empty_grace
+        # Monotonic clock SEAM. Every elapsed-time read goes through self._now();
+        # time.monotonic() is never called directly outside this default. Tests
+        # swap self._now to drive reap_idle without real sleeps.
+        self._now = now
+        # idle_timeout MUST outrun wait_max: a parked /recv holds a peer silent up
+        # to wait_max, and last_active is stamped at recv ENTRY, so a peer that
+        # re-polls within idle_timeout stays alive. If idle <= wait_max a quiet
+        # but healthy long-poller could be reaped mid-park.
+        if self._idle_timeout > 0:
+            assert self._idle_timeout > config.wait_max, (
+                f"idle_timeout ({self._idle_timeout}) must exceed wait_max ({config.wait_max}); "
+                "a parked /recv holds a peer silent up to wait_max and would otherwise be reaped"
+            )
         # Heterogeneous, seq-ordered: messages and presence events interleave.
         self._messages: list[LogEntry] = []
         self._seq: int = 0
@@ -121,25 +151,33 @@ class Room:
         # names in join order (never shrinks; a name is bound for the room's life)
         self._join_order: list[str] = []
         self._cond = asyncio.Condition()
+        # Monotonic instant the roster last became empty, or None while occupied.
+        # BOOT-ARMED: stamped to "now" at construction so a never-joined room has
+        # a live countdown from boot (the first jackin clears it to None). Read
+        # only under self._cond and maintained in exactly one place — the
+        # _set_present choke point — so every roster flip keeps it honest.
+        self._empty_since: float | None = self._now()
 
     # -- token validation surface (for the auth layer) --------------------
 
     def status(self, token: str) -> TokenStatus:
-        """Three-way verdict on a token: UNKNOWN, DEAD, or VALID."""
-        peer = self._peers.get(token)
-        if peer is None:
-            return TokenStatus.UNKNOWN
-        return TokenStatus.VALID if peer.connected else TokenStatus.DEAD
+        """Two-way verdict on a token: UNKNOWN (never minted) or VALID.
+
+        Tokens are immortal — neither jackout nor an idle drop kills one — so a
+        known token is always VALID; only an unminted/malformed token is UNKNOWN.
+        Roster presence (jacked out, reaped) is orthogonal and lives on the peer.
+        """
+        return TokenStatus.VALID if token in self._peers else TokenStatus.UNKNOWN
 
     def is_known(self, token: str) -> bool:
-        """True if the token was ever minted by this room (alive or dead)."""
+        """True if the token was ever minted by this room (in roster or not)."""
         return token in self._peers
 
     def peer_name_for(self, token: str) -> str | None:
         """Peer name bound to ``token``, or ``None`` if never minted.
 
-        Returns the name even for a dead (jacked-out) token, since the binding
-        is permanent for the room's life.
+        Returns the name even for a peer that's out of the roster (jacked out or
+        reaped), since the token->name binding is permanent for the room's life.
         """
         peer = self._peers.get(token)
         return peer.name if peer is not None else None
@@ -164,15 +202,21 @@ class Room:
         in the ``peer-N`` line. There is no error path — a request always
         resolves to some ``<base>-<n>``.
 
-        After the peer is connected, appends an ``action(join)`` presence entry
-        on the next ``seq`` and wakes parked recvs, so every *other* peer sees
-        the join on its stream (the joiner filters its own out in recv).
+        After the peer enters the roster, appends an ``action(join)`` presence
+        entry on the next ``seq`` and wakes parked recvs, so every *other* peer
+        sees the join on its stream (the joiner filters its own out in recv).
         """
         token = secrets.token_urlsafe(32)
         name = self._assign_name(requested)
-        self._peers[token] = _Peer(name=name)
+        # Created OUT of the roster, then flipped in via the single _set_present
+        # choke point so the join announce shares that one code path; activity is
+        # stamped first so the fresh peer starts its idle clock now.
+        peer = _Peer(name=name, in_roster=False)
+        self._peers[token] = peer
         self._join_order.append(name)
-        await self._announce(name, "action(join)")
+        async with self._cond:
+            peer.last_active = self._now()
+            await self._set_present(peer, True, "action(join)")
         return token, name
 
     def _assign_name(self, requested: str | None) -> str:
@@ -202,43 +246,138 @@ class Room:
             n += 1
         return f"{base}-{n}"
 
-    async def jackout(self, token: str) -> str:
-        """Retire ``token``: mark its peer not-connected, then announce the
-        leave. Returns the peer name.
+    async def touch(self, token: str) -> None:
+        """Mark ``token``'s peer recently active, rejoining it if it had dropped.
 
-        Appends an ``action(leave)`` presence entry on the next ``seq`` and
-        wakes parked recvs, so every *other* peer sees the leave on its stream.
+        The ONE activity choke point: called at the top of every token-bearing
+        handler (/recv ENTRY, /send, /jackout). Stamps ``last_active`` so the
+        idle reaper leaves a busy peer alone, and — if the peer was out of the
+        roster (jacked out or reaped) — flips it back in via ``_set_present``,
+        emitting exactly one ``action(join)``. A no-op on roster membership for a
+        peer already present (just the activity stamp).
+
+        Caller is expected to have validated the token; raises ``KeyError`` for
+        an unknown token.
+        """
+        peer = self._peers[token]
+        async with self._cond:
+            await self._mark_active(peer)
+
+    async def _mark_active(self, peer: _Peer) -> None:
+        """Stamp ``peer`` active now and rejoin it if it had dropped. Assumes the
+        caller already holds ``self._cond``. The shared body behind :meth:`touch`
+        and the entry-stamp in send/recv/jackout, so activity is recorded through
+        one path no matter which call carried the token."""
+        peer.last_active = self._now()
+        await self._set_present(peer, True, "action(join)")
+
+    async def jackout(self, token: str) -> str:
+        """Drop ``token``'s peer from the roster, then announce the leave. Returns
+        the peer name. Does NOT kill the token — it stays VALID, and the peer's
+        next token-bearing call rejoins it (via :meth:`touch`).
+
+        Appends an ``action(leave)`` presence entry on the next ``seq`` and wakes
+        parked recvs, so every *other* peer sees the leave on its stream.
 
         Caller is expected to have validated the token first (status VALID);
         raises ``KeyError`` for an unknown token.
         """
         peer = self._peers[token]
-        peer.connected = False
-        await self._announce(peer.name, "action(leave)")
+        async with self._cond:
+            # Stamp the activity directly (NOT via _mark_active, which would
+            # rejoin) so jackout's net roster effect is purely the leave — a peer
+            # that had already dropped doesn't churn an extra join here.
+            peer.last_active = self._now()
+            await self._set_present(peer, False, "action(leave)")
         return peer.name
 
-    async def _announce(self, peer_name: str, event_type: str) -> None:
-        """Append a presence entry (join/leave) on the next global seq and wake
-        parked recvs. Shares the seq counter and the wake with send()."""
+    async def reap_idle(self) -> None:
+        """Drop every peer idle longer than the configured ``idle_timeout``.
+
+        For each in-roster peer with ``self._now() - last_active > idle_timeout``,
+        flips it out via :meth:`_set_present`, emitting one ``action(leave)`` per
+        dropped peer (rosters transitions fire the SAME presence event as an
+        explicit jackout — idle drop is just an implicit leave). A no-op when
+        ``idle_timeout == 0`` (idle drop disabled). Idempotent: a peer already
+        out of the roster never re-emits a leave.
+
+        Phase 1 implements and unit-tests this; the background task that calls it
+        on an interval is Phase 2. The whole sweep runs under ``self._cond`` so
+        the reaper-vs-rejoin race resolves to exactly one announce per peer.
+        """
+        if self._idle_timeout == 0:
+            return
         async with self._cond:
-            self._seq += 1
-            self._messages.append(Presence(seq=self._seq, peer=peer_name, sent_at=_now_iso(), type=event_type))
-            self._cond.notify_all()
+            now = self._now()
+            for peer in list(self._peers.values()):
+                if peer.in_roster and now - peer.last_active > self._idle_timeout:
+                    await self._set_present(peer, False, "action(leave)")
+
+    async def _set_present(self, peer: _Peer, present: bool, event_type: str) -> None:
+        """The ONE place roster membership flips. Idempotent.
+
+        MUST be called while already holding ``self._cond`` (every caller —
+        jackin, touch, jackout, reap_idle — wraps it in ``async with self._cond``).
+        Holding the lock across the ``in_roster == present`` guard is what makes
+        the reaper-vs-rejoin race on the single event loop resolve to exactly one
+        announce: whichever runs first flips the flag, and the other sees the
+        guard and returns. On a real transition it appends the matching presence
+        entry (``event_type`` is ``action(join)`` or ``action(leave)``) on the
+        next global seq and wakes parked recvs.
+        """
+        if peer.in_roster == present:
+            return
+        peer.in_roster = present
+        self._seq += 1
+        self._messages.append(Presence(seq=self._seq, peer=peer.name, sent_at=_now_iso(), type=event_type))
+        self._cond.notify_all()
+        # Maintain the empty-room stamp from the POST-flip roster, in this single
+        # choke point so jackin/jackout/touch/reap_idle all keep it honest for
+        # free. Only real transitions reach here (the guard above returned early
+        # otherwise), and the caller holds self._cond. Re-stamp on the flip that
+        # empties the roster; clear to None whenever anyone is present (the first
+        # join clears the boot-armed stamp; the last leave/reap re-arms it).
+        roster_empty = not any(p.in_roster for p in self._peers.values())
+        if roster_empty:
+            if self._empty_since is None:
+                self._empty_since = self._now()
+        else:
+            self._empty_since = None
 
     def peers(self) -> list[str]:
-        """Currently-connected peer names, in join order."""
-        connected = {p.name for p in self._peers.values() if p.connected}
-        return [name for name in self._join_order if name in connected]
+        """Currently in-roster peer names, in join order."""
+        in_roster = {p.name for p in self._peers.values() if p.in_roster}
+        return [name for name in self._join_order if name in in_roster]
+
+    async def should_self_close(self) -> bool:
+        """Whether the empty-room grace has elapsed — a PURE decision, no effects.
+
+        True iff empty-room self-close is enabled (``empty_grace > 0``) and the
+        roster has now been empty longer than ``empty_grace``. Never acts: it
+        touches no signal, app, or task — it only reports the verdict for the
+        Phase 2 caller to act on. STRICT ``>`` (matching the idle reaper): at
+        exactly ``empty_grace`` the room survives.
+
+        Reads ``_empty_since`` under ``self._cond`` (self-locking, like
+        :meth:`reap_idle`); the BOOT-ARMED stamp means a never-joined room counts
+        from construction. Taking the lock is what closes the last-instant join
+        race on the decision side — a /jackin that lands first has already
+        cleared ``_empty_since`` to None via :meth:`_set_present`.
+        """
+        if self._empty_grace == 0:
+            return False
+        async with self._cond:
+            return self._empty_since is not None and (self._now() - self._empty_since) > self._empty_grace
 
     # -- messaging --------------------------------------------------------
 
     def _read_your_last_message(self, peer: _Peer) -> list[str]:
-        """Connected peers (excluding self) whose cursor has reached ``peer``'s
+        """In-roster peers (excluding self) whose cursor has reached ``peer``'s
         most recent sent message. Empty if this peer hasn't sent anything."""
         if peer.last_sent == 0:
             return []
         readers = {
-            p.name for p in self._peers.values() if p.connected and p.name != peer.name and p.cursor >= peer.last_sent
+            p.name for p in self._peers.values() if p.in_roster and p.name != peer.name and p.cursor >= peer.last_sent
         }
         return [name for name in self._join_order if name in readers]
 
@@ -252,6 +391,10 @@ class Room:
         """
         peer = self._peers[token]
         async with self._cond:
+            # Activity choke point: stamp + rejoin if dropped, BEFORE the message
+            # is logged. A rejoin's join entry takes the earlier seq, the message
+            # the next — both wake the same parked recvs under this one lock.
+            await self._mark_active(peer)
             self._seq += 1
             seq = self._seq
             self._messages.append(Message(seq=seq, sender=peer.name, message=text, sent_at=_now_iso()))
@@ -286,6 +429,13 @@ class Room:
         peer = self._peers[token]
 
         async with self._cond:
+            # Activity choke point — stamp at recv ENTRY, before parking, so a
+            # peer that re-polls within idle_timeout stays alive even though a
+            # long park then holds it silent up to wait_max (< idle_timeout). If
+            # it had dropped, this rejoins it (one join entry) before we read.
+            # NEVER stamp on event return: a present-but-quiet long-poller would
+            # then look idle and get reaped.
+            await self._mark_active(peer)
             if not self._has_unread(peer):
                 try:
                     await asyncio.wait_for(

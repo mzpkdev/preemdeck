@@ -38,7 +38,7 @@ _SECRET_QUERY = Query(
     description="The room secret, minted by the host. Required; a missing or invalid secret returns 401 `invalid secret`.",
 )
 _TOKEN_QUERY = Query(
-    description="Your peer token from /jackin. Required; missing or unknown returns 401 `invalid token`, a jacked-out/reaped token returns 401 `token no longer valid, jackin again`.",
+    description="Your peer token from /jackin. Required; missing or unknown returns 401 `invalid token`. The token is immortal — it never expires; jacking out or going idle only drops you from the roster, and your next call rejoins you.",
 )
 
 
@@ -63,22 +63,22 @@ def require_secret(request: Request, secret: Annotated[str | None, _SECRET_QUERY
 
 
 def require_token(request: Request, token: Annotated[str | None, _TOKEN_QUERY] = None) -> str:
-    """Gate on the ``token`` query param via the room's three-way verdict.
+    """Gate on the ``token`` query param via the room's two-way verdict.
 
     UNKNOWN / missing -> 401 "invalid token" (code ``invalid_token``);
-    DEAD              -> 401 "token no longer valid, jackin again" (code ``dead_token``);
     VALID             -> returns the token.
 
-    Used by /recv, /send, /jackout. As a FastAPI dependency it runs *before*
-    the route body, so /recv validates before parking its long-poll — a dead
-    token 401s instantly and never hangs.
+    Tokens are immortal — once minted, a token stays VALID for the room's life;
+    neither jackout nor an idle drop kills it (they only drop the peer from the
+    roster, and the next call rejoins). So the only 401 here is the unknown /
+    missing token; there is no "dead token" rejection.
+
+    Used by /recv, /send, /jackout. As a FastAPI dependency it runs *before* the
+    route body, so a bogus token 401s instantly and /recv never parks for it.
     """
     room = _room(request)
     if token is None:
         raise WireAuthError(code="invalid_token", detail="invalid token")
-    status = room.status(token)
-    if status is TokenStatus.VALID:
+    if room.status(token) is TokenStatus.VALID:
         return token
-    if status is TokenStatus.DEAD:
-        raise WireAuthError(code="dead_token", detail="token no longer valid, jackin again")
     raise WireAuthError(code="invalid_token", detail="invalid token")
