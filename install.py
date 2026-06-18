@@ -76,7 +76,10 @@ def run_cli(cmd: list[str], dry_run: bool) -> tuple[bool, str]:
 def register_marketplace(host: str, path: Path, dry_run: bool) -> tuple[bool, str]:
     if host not in MARKETPLACE_HOSTS:
         return True, ""
-    return run_cli([host, "plugin", "marketplace", "add", str(path)], dry_run)
+    ok, err = run_cli([host, "plugin", "marketplace", "add", str(path)], dry_run)
+    if not ok and "already" in err.lower():
+        return True, ""
+    return ok, err
 
 
 def install_plugin(host: str, spec: PluginSpec, marketplace: str, dry_run: bool) -> tuple[bool, str]:
@@ -185,6 +188,40 @@ def unpack_harness(harness: str, repo_root: Path, dry_run: bool) -> tuple[bool, 
     return True, ""
 
 
+def bootstrap_workspace(repo_root: Path, dry_run: bool) -> None:
+    """Install every workspace package's runtime deps into the shared .venv via uv.
+
+    The repo is a uv workspace (root pyproject `[tool.uv.workspace]`); `uv sync
+    --all-packages --no-dev` resolves and installs each app's deps (e.g. wire's
+    fastapi/uvicorn/pydantic) without the root dev group. Non-fatal: a missing uv
+    or a failed sync prints a warning and lets the install continue.
+    """
+    if shutil.which("uv") is None:
+        print(f"  {CROSS} uv not found — skipping dependency bootstrap; install uv and re-run")
+        return
+    if dry_run:
+        print(f"  (dry-run) would run: uv sync --all-packages --no-dev (cwd={repo_root})")
+        return
+    try:
+        result = subprocess.run(
+            ["uv", "sync", "--all-packages", "--no-dev"],
+            cwd=repo_root,
+            capture_output=True,
+            text=True,
+            timeout=300,
+        )
+    except subprocess.TimeoutExpired:
+        print(f"  {CROSS} dependency bootstrap timed out after 300s", file=sys.stderr)
+        return
+    if result.returncode == 0:
+        print(f"  {CHECK} dependency bootstrap: synced workspace packages")
+    else:
+        tail = (result.stderr.strip() or result.stdout.strip() or "non-zero exit").splitlines()[-5:]
+        print(f"  {CROSS} dependency bootstrap failed:", file=sys.stderr)
+        for line in tail:
+            print(f"      {line}", file=sys.stderr)
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="Register preemdeck marketplace (claude/codex) or install per-extension (gemini) for one harness.",
@@ -231,6 +268,8 @@ def install_for(harness: str, dry_run: bool) -> int:
         print("  (dry-run — no changes will be made)")
     print()
 
+    bootstrap_workspace(REPO_ROOT, dry_run)
+
     ok, err = unpack_harness(harness, REPO_ROOT, dry_run)
     if not ok:
         print(f"  {CROSS} unpack: {err}", file=sys.stderr)
@@ -245,7 +284,9 @@ def install_for(harness: str, dry_run: bool) -> int:
             results[name] = "ok"
             any_success = True
             for spec in read_plugin_specs(path):
-                install_plugin(harness, spec, name, dry_run)
+                p_ok, p_err = install_plugin(harness, spec, name, dry_run)
+                if not p_ok and "already" not in p_err.lower() and "exists" not in p_err.lower():
+                    results[name] = f"{spec.name}: {p_err}"[:60]
         else:
             results[name] = err[:60]
 

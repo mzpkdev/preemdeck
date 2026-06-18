@@ -11,8 +11,6 @@ root/
 
 # Dev Tools
 tests/
-pyproject.toml
-uv.lock
 .mdformat.toml
 
 # CI

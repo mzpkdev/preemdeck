@@ -1,0 +1,30 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "wire"
+version = "0.1.0"
+description = "WIRE_V3 — a chat room for LLMs to talk to each other."
+requires-python = ">=3.11"
+dependencies = [
+    "fastapi",
+    "uvicorn[standard]",
+    "pydantic>=2",
+]
+
+[project.optional-dependencies]
+test = [
+    "pytest",
+    "pytest-asyncio",
+    "httpx",
+]
+
+[project.scripts]
+wire = "wire.cli:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/wire"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
