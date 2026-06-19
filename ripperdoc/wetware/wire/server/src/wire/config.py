@@ -35,12 +35,19 @@ class Config:
                      first idle-dropped after ``idle_timeout``, and only THEN does
                      the empty-room clock start, so it dies at roughly
                      ``idle_timeout + empty_grace``.
+    public_url     — operator-declared public base URL (e.g. behind a tunnel:
+                     ngrok/cloudflared/tailscale/ssh -R/nginx); when set, every
+                     URL a peer reads (/jackin actions, /shard manual) is emitted
+                     against it instead of the request/LAN base. None falls back
+                     to the request base URL (today's behavior) — wire stays
+                     tunnel-agnostic; the operator owns this string.
     """
 
     host: str
     port: int
     secret: str
     topic: str
+    public_url: str | None = None
     wait_default: int = 30
     wait_max: int = 60
     idle_timeout: int = 300

@@ -1,8 +1,8 @@
 """Unit tests for the framework-free room core.
 
-No HTTP — exercises seq ordering, per-token cursors, read_your_last_message,
-peer naming, jackout/validation status, and the long-poll wake. All waits are
-tiny (<=0.2s) so the suite runs in seconds.
+No HTTP — exercises event-id ordering, the gap-free message seq, per-token
+cursors, read_your_last_message, peer naming, jackout/validation status, and the
+long-poll wake. All waits are tiny (<=0.2s) so the suite runs in seconds.
 """
 
 from __future__ import annotations
@@ -238,16 +238,39 @@ async def test_token_stays_valid_after_jackout():
 # -- seq ordering ---------------------------------------------------------
 
 
-async def test_seq_climbs_across_different_senders():
-    # Two joins take seq 1,2 (each jackin appends a presence event); the three
-    # sends then climb 3,4,5 on the same global counter.
+async def test_event_id_climbs_across_different_senders():
+    # Two joins take event id 1,2 (each jackin appends a presence event); the
+    # three sends then climb 3,4,5 on the same global event-id counter. Their
+    # message-only seq, untouched by the joins, climbs 1,2,3.
     room = make_room()
     ta, _ = await room.jackin()
     tb, _ = await room.jackin()
-    s1 = await room.send(ta, "hi from a")
-    s2 = await room.send(tb, "hi from b")
-    s3 = await room.send(ta, "again from a")
-    assert [s1, s2, s3] == [3, 4, 5]
+    id1, seq1 = await room.send(ta, "hi from a")
+    id2, seq2 = await room.send(tb, "hi from b")
+    id3, seq3 = await room.send(ta, "again from a")
+    assert [id1, id2, id3] == [3, 4, 5]
+    assert [seq1, seq2, seq3] == [1, 2, 3]
+
+
+async def test_message_seq_is_contiguous_despite_interleaved_presence():
+    # The whole point of the split: a presence event wedged between two messages
+    # burns an event id but NOT a message seq. A jacks in, sends, then B jacks in
+    # (a join lands on the stream), then A sends again. The two messages carry
+    # seq 1 then 2 (gap-free), while their event ids straddle B's join (2 and 4,
+    # not 2 and 3) — id is the stream position, seq is the message-only counter.
+    room = make_room()
+    ta, _ = await room.jackin()  # join -> event id 1
+    id1, seq1 = await room.send(ta, "first")  # message -> id 2, seq 1
+    await room.jackin()  # B joins -> presence event id 3, burns NO seq
+    id2, seq2 = await room.send(ta, "second")  # message -> id 4, seq 2
+
+    # message seq is contiguous; event id is not (B's join wedged in at id 3)
+    assert (seq1, seq2) == (1, 2)
+    assert (id1, id2) == (2, 4)
+
+    # confirmed on the log entries themselves, not just the return values
+    messages = [e for e in room._messages if e.type == "message"]
+    assert [(m.id, m.seq, m.message) for m in messages] == [(2, 1, "first"), (4, 2, "second")]
 
 
 async def test_send_stamps_sent_at_iso_utc_z():
@@ -273,8 +296,8 @@ async def test_send_stamps_sender_name():
     # message is filtered as its own under no-echo). Filter to message events —
     # peer-3 also receives the earlier joins of peer-1/peer-2 on its stream.
     out = await room.recv(tc, wait=0)
-    senders = [(e.seq, e.sender, e.message) for e in out["events"] if e.type == "message"]
-    # joins took seq 1-3; the two messages are seq 4 and 5
+    senders = [(e.id, e.sender, e.message) for e in out["events"] if e.type == "message"]
+    # joins took event id 1-3; the two messages are id 4 and 5
     assert senders == [(4, "peer-1", "from a"), (5, "peer-2", "from b")]
 
 
@@ -282,42 +305,42 @@ async def test_send_stamps_sender_name():
 
 
 async def test_cursor_advances_on_delivery():
-    # joins take seq 1,2; messages "one"/"two" are seq 3,4 and "three" is seq 5.
+    # joins take id 1,2; messages "one"/"two" are id 3,4 and "three" is id 5.
     room = make_room()
     ta, _ = await room.jackin()
     tb, _ = await room.jackin()
     await room.send(ta, "one")
     await room.send(ta, "two")
     first = await room.recv(tb, wait=0)
-    # message seqs only (tb also receives ta's join at seq 1)
-    assert [e.seq for e in first["events"] if e.type == "message"] == [3, 4]
+    # message ids only (tb also receives ta's join at id 1)
+    assert [e.id for e in first["events"] if e.type == "message"] == [3, 4]
     # cursor advanced past everything delivered — a second recv with no new
     # entries heartbeats empty
     await room.send(ta, "three")
     second = await room.recv(tb, wait=0)
-    assert [e.seq for e in second["events"]] == [5]
+    assert [e.id for e in second["events"]] == [5]
 
 
 async def test_cursor_unchanged_on_heartbeat():
-    # joins take seq 1,2; "one" is seq 3, "two" is seq 4.
+    # joins take id 1,2; "one" is id 3, "two" is id 4.
     room = make_room()
     ta, _ = await room.jackin()
     tb, _ = await room.jackin()
     await room.send(ta, "one")
-    # deliver it (plus ta's join at seq 1)
+    # deliver it (plus ta's join at id 1)
     first = await room.recv(tb, wait=0)
-    assert [e.seq for e in first["events"] if e.type == "message"] == [3]
+    assert [e.id for e in first["events"] if e.type == "message"] == [3]
     # quiet recv -> heartbeat, cursor stays put
     hb = await room.recv(tb, wait=0.05)
     assert hb["events"] == []
     # now a new message is still seen (cursor wasn't clobbered)
     await room.send(ta, "two")
     third = await room.recv(tb, wait=0)
-    assert [e.seq for e in third["events"]] == [4]
+    assert [e.id for e in third["events"]] == [4]
 
 
 async def test_each_token_has_its_own_cursor():
-    # joins take seq 1-3; "shared" is seq 4.
+    # joins take id 1-3; "shared" is id 4.
     room = make_room()
     ta, _ = await room.jackin()
     tb, _ = await room.jackin()
@@ -325,9 +348,9 @@ async def test_each_token_has_its_own_cursor():
     await room.send(ta, "shared")
     # b reads it, c does not
     out_b = await room.recv(tb, wait=0)
-    assert [e.seq for e in out_b["events"] if e.type == "message"] == [4]
+    assert [e.id for e in out_b["events"] if e.type == "message"] == [4]
     out_c = await room.recv(tc, wait=0)
-    assert [e.seq for e in out_c["events"] if e.type == "message"] == [4]
+    assert [e.id for e in out_c["events"] if e.type == "message"] == [4]
     # b re-reads: nothing new
     again_b = await room.recv(tb, wait=0.05)
     assert again_b["events"] == []
@@ -349,42 +372,42 @@ async def test_own_message_never_echoed_back():
 
 
 async def test_own_message_interleaved_below_others_not_skipped():
-    # joins take seq 1-3. Then peer-2 (seq4), peer-1 (seq5), peer-3 (seq6).
-    # peer-1 must get EXACTLY message seqs [4, 6] in order — its own seq5 is
-    # filtered, but seq6 (above its own send) is NOT skipped. Cursor ends at 6;
+    # joins take id 1-3. Then peer-2 (id4), peer-1 (id5), peer-3 (id6).
+    # peer-1 must get EXACTLY message ids [4, 6] in order — its own id5 is
+    # filtered, but id6 (above its own send) is NOT skipped. Cursor ends at 6;
     # a follow-up is a heartbeat.
     room = make_room()
     t1, _ = await room.jackin()
     t2, _ = await room.jackin()
     t3, _ = await room.jackin()
-    s1 = await room.send(t2, "from peer-2")
-    s2 = await room.send(t1, "from peer-1")  # peer-1's own
-    s3 = await room.send(t3, "from peer-3")
-    assert [s1, s2, s3] == [4, 5, 6]
+    id1, _ = await room.send(t2, "from peer-2")
+    id2, _ = await room.send(t1, "from peer-1")  # peer-1's own
+    id3, _ = await room.send(t3, "from peer-3")
+    assert [id1, id2, id3] == [4, 5, 6]
 
     out = await room.recv(t1, wait=0)
-    msgs = [(e.seq, e.sender) for e in out["events"] if e.type == "message"]
+    msgs = [(e.id, e.sender) for e in out["events"] if e.type == "message"]
     assert msgs == [(4, "peer-2"), (6, "peer-3")]
 
-    # cursor advanced to 6 -> a follow-up recv is a heartbeat (own seq5 stays filtered)
+    # cursor advanced to 6 -> a follow-up recv is a heartbeat (own id5 stays filtered)
     follow = await room.recv(t1, wait=0.05)
     assert follow["events"] == []
 
 
 async def test_other_peers_still_receive_my_message():
     # The flip side of no-echo: peer-2 DOES see peer-1's interleaved message.
-    # joins take seq 1-3; sends are seq 4,5,6.
+    # joins take id 1-3; sends are id 4,5,6.
     room = make_room()
     t1, _ = await room.jackin()
     t2, _ = await room.jackin()
     t3, _ = await room.jackin()
-    await room.send(t2, "from peer-2")  # seq4
-    await room.send(t1, "from peer-1")  # seq5 (peer-1's own)
-    await room.send(t3, "from peer-3")  # seq6
+    await room.send(t2, "from peer-2")  # id4
+    await room.send(t1, "from peer-1")  # id5 (peer-1's own)
+    await room.send(t3, "from peer-3")  # id6
 
     out = await room.recv(t2, wait=0)
-    # peer-2 does not see its OWN message (seq4), but does see peer-1's seq5 and peer-3's seq6
-    msgs = [(e.seq, e.sender) for e in out["events"] if e.type == "message"]
+    # peer-2 does not see its OWN message (id4), but does see peer-1's id5 and peer-3's id6
+    msgs = [(e.id, e.sender) for e in out["events"] if e.type == "message"]
     assert msgs == [(5, "peer-1"), (6, "peer-3")]
 
 
@@ -447,13 +470,13 @@ async def test_read_your_last_message_tracks_latest_only():
 
 
 async def test_recv_returns_immediately_when_unread_exists():
-    # joins take seq 1,2; the message is seq 3.
+    # joins take id 1,2; the message is id 3.
     room = make_room()
     ta, _ = await room.jackin()
     tb, _ = await room.jackin()
     await room.send(ta, "already here")
     out = await asyncio.wait_for(room.recv(tb, wait=10), timeout=0.2)
-    assert [e.seq for e in out["events"] if e.type == "message"] == [3]
+    assert [e.id for e in out["events"] if e.type == "message"] == [3]
 
 
 async def test_parked_recv_wakes_on_send():
@@ -473,7 +496,7 @@ async def test_parked_recv_wakes_on_send():
     out = await asyncio.wait_for(recv_task, timeout=0.2)
     await send_task
     msgs = [e for e in out["events"] if e.type == "message"]
-    assert [e.seq for e in msgs] == [3]
+    assert [e.id for e in msgs] == [3]
     assert msgs[0].message == "wake up"
 
 
@@ -549,28 +572,28 @@ async def test_peer_does_not_receive_its_own_join_or_leave():
 
 async def test_late_joiner_backfills_prior_events_including_joins():
     # alice joins, sends; bob joins late -> bob's first recv replays the prior
-    # stream from seq 0: alice's join AND alice's message, in seq order.
+    # stream from id 0: alice's join AND alice's message, in event-id order.
     room = make_room()
     ta, na = await room.jackin(requested="alice")  # na == "alice-1"
     await room.send(ta, "early bird")
     tb, _ = await room.jackin(requested="bob")
     out = await room.recv(tb, wait=0)
-    # bob filters his OWN join; he sees alice's join (seq1) then alice's msg (seq2)
-    shape = [(e.seq, e.type, getattr(e, "peer", getattr(e, "sender", None))) for e in out["events"]]
+    # bob filters his OWN join; he sees alice's join (id1) then alice's msg (id2)
+    shape = [(e.id, e.type, getattr(e, "peer", getattr(e, "sender", None))) for e in out["events"]]
     assert shape == [(1, "action(join)", na), (2, "message", na)]
 
 
-async def test_presence_rides_the_same_seq_counter():
-    # joins and a message share one climbing counter, in order.
+async def test_presence_rides_the_same_event_id_counter():
+    # joins and a message share one climbing event-id counter, in order.
     room = make_room()
-    ta, _ = await room.jackin(requested="alice")  # seq1
-    tb, _ = await room.jackin(requested="bob")  # seq2
-    s = await room.send(ta, "hi")  # seq3
-    tc, _ = await room.jackin(requested="carol")  # seq4
-    assert s == 3
-    # carol (fresh) backfills seq1..3 (her own seq4 join is filtered)
+    ta, _ = await room.jackin(requested="alice")  # id1
+    tb, _ = await room.jackin(requested="bob")  # id2
+    msg_id, _ = await room.send(ta, "hi")  # id3
+    tc, _ = await room.jackin(requested="carol")  # id4
+    assert msg_id == 3
+    # carol (fresh) backfills id1..3 (her own id4 join is filtered)
     out = await room.recv(tc, wait=0)
-    assert [e.seq for e in out["events"]] == [1, 2, 3]
+    assert [e.id for e in out["events"]] == [1, 2, 3]
 
 
 # -- idle peer drop: reap_idle on the injected clock ----------------------

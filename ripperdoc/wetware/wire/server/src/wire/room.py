@@ -1,9 +1,10 @@
 """The framework-free core of a wire room.
 
 Holds all room state — token->peer binding, the message log, the room-global
-``seq`` counter, per-token read cursors, and the long-poll wake. Imports neither
-FastAPI nor pydantic; depends only on :mod:`wire.config`. One event loop, no
-threads — a single ``asyncio.Condition`` guards the long-poll.
+event-``id`` counter (stream position / read cursor key) plus a separate
+message-only ``seq`` counter, per-token read cursors, and the long-poll wake.
+Imports neither FastAPI nor pydantic; depends only on :mod:`wire.config`. One
+event loop, no threads — a single ``asyncio.Condition`` guards the long-poll.
 """
 
 from __future__ import annotations
@@ -55,35 +56,41 @@ class Message:
     """One room message. The HTTP layer renames ``sender`` to ``from`` in JSON.
 
     A log entry of ``type == "message"`` — its *subject* (the peer it's about,
-    for the don't-echo-me filter) is its ``sender``.
+    for the don't-echo-me filter) is its ``sender``. Carries TWO counters: ``id``
+    is the room-global event id (its stream position / read-cursor key, shared
+    with presence events), while ``seq`` is the message-only counter that climbs
+    1, 2, 3… with no gaps — presence events never burn a ``seq``.
     """
 
+    id: int
     seq: int
     sender: str
     message: str
     # Authoritative send time, stamped in Room.send(): ISO-8601 UTC, second
-    # precision, Z-suffixed (e.g. "2026-06-18T13:57:02Z"). seq still defines
-    # order; this is the wall-clock instant the message was created.
+    # precision, Z-suffixed (e.g. "2026-06-18T13:57:02Z"). id still defines
+    # stream order; this is the wall-clock instant the message was created.
     sent_at: str
     type: str = "message"
 
 
 @dataclass
 class Presence:
-    """A join/leave event. A log entry that rides the same seq-ordered stream
-    as messages; its ``type`` is literally ``"action(join)"`` or
+    """A join/leave event. A log entry that rides the same event-``id``-ordered
+    stream as messages; its ``type`` is literally ``"action(join)"`` or
     ``"action(leave)"`` (the parens are part of the wire string). Its *subject*
-    (the peer it's about, for the don't-echo-me filter) is its ``peer``.
+    (the peer it's about, for the don't-echo-me filter) is its ``peer``. Unlike
+    a message it carries only ``id`` (the room-global event id) — there is no
+    message-only ``seq`` on presence.
     """
 
-    seq: int
+    id: int
     peer: str
     # Same stamp contract as Message.sent_at: ISO-8601 UTC, second precision, Z.
     sent_at: str
     type: str  # "action(join)" | "action(leave)"
 
 
-# A log entry is either a message or a presence event; both carry seq/type/
+# A log entry is either a message or a presence event; both carry id/type/
 # sent_at, and both have a *subject* — the peer the entry is about, used to skip
 # entries about the caller in recv().
 LogEntry = Message | Presence
@@ -115,9 +122,9 @@ class _Peer:
     # stamped on jackin and at /recv ENTRY, /send, /jackout. The idle reaper drops
     # a peer once now - last_active exceeds the idle timeout. 0.0 until first set.
     last_active: float = 0.0
-    # Highest seq this token has been delivered (its read cursor). 0 = nothing read.
+    # Highest event id this token has been delivered (its read cursor). 0 = nothing read.
     cursor: int = 0
-    # Highest seq this token has itself sent (0 = has never sent).
+    # Highest event id this token has itself sent (0 = has never sent).
     last_sent: int = 0
 
 
@@ -143,9 +150,14 @@ class Room:
                 f"idle_timeout ({self._idle_timeout}) must exceed wait_max ({config.wait_max}); "
                 "a parked /recv holds a peer silent up to wait_max and would otherwise be reaped"
             )
-        # Heterogeneous, seq-ordered: messages and presence events interleave.
+        # Heterogeneous, event-id-ordered: messages and presence events interleave.
         self._messages: list[LogEntry] = []
-        self._seq: int = 0
+        # Room-global event id: the stream position / read-cursor key, bumped for
+        # EVERY log entry (message or presence). Renamed from the old `_seq`.
+        self._event_id: int = 0
+        # Message-only counter: climbs 1, 2, 3… with no gaps, untouched by
+        # presence events. Stamped onto Message.seq; first message -> seq 1.
+        self._msg_seq: int = 0
         # token -> _Peer
         self._peers: dict[str, _Peer] = {}
         # names in join order (never shrinks; a name is bound for the room's life)
@@ -203,8 +215,8 @@ class Room:
         resolves to some ``<base>-<n>``.
 
         After the peer enters the roster, appends an ``action(join)`` presence
-        entry on the next ``seq`` and wakes parked recvs, so every *other* peer
-        sees the join on its stream (the joiner filters its own out in recv).
+        entry on the next event ``id`` and wakes parked recvs, so every *other*
+        peer sees the join on its stream (the joiner filters its own out in recv).
         """
         token = secrets.token_urlsafe(32)
         name = self._assign_name(requested)
@@ -276,8 +288,8 @@ class Room:
         the peer name. Does NOT kill the token — it stays VALID, and the peer's
         next token-bearing call rejoins it (via :meth:`touch`).
 
-        Appends an ``action(leave)`` presence entry on the next ``seq`` and wakes
-        parked recvs, so every *other* peer sees the leave on its stream.
+        Appends an ``action(leave)`` presence entry on the next event ``id`` and
+        wakes parked recvs, so every *other* peer sees the leave on its stream.
 
         Caller is expected to have validated the token first (status VALID);
         raises ``KeyError`` for an unknown token.
@@ -323,13 +335,13 @@ class Room:
         announce: whichever runs first flips the flag, and the other sees the
         guard and returns. On a real transition it appends the matching presence
         entry (``event_type`` is ``action(join)`` or ``action(leave)``) on the
-        next global seq and wakes parked recvs.
+        next event id and wakes parked recvs.
         """
         if peer.in_roster == present:
             return
         peer.in_roster = present
-        self._seq += 1
-        self._messages.append(Presence(seq=self._seq, peer=peer.name, sent_at=_now_iso(), type=event_type))
+        self._event_id += 1
+        self._messages.append(Presence(id=self._event_id, peer=peer.name, sent_at=_now_iso(), type=event_type))
         self._cond.notify_all()
         # Maintain the empty-room stamp from the POST-flip roster, in this single
         # choke point so jackin/jackout/touch/reap_idle all keep it honest for
@@ -381,10 +393,11 @@ class Room:
         }
         return [name for name in self._join_order if name in readers]
 
-    async def send(self, token: str, text: str) -> int:
-        """Append a message from ``token``'s peer, stamped with the next global
-        ``seq`` and the authoritative send time (``sent_at``, ISO-8601 UTC).
-        Wakes parked recv waiters. Returns the assigned seq.
+    async def send(self, token: str, text: str) -> tuple[int, int]:
+        """Append a message from ``token``'s peer, stamped with the next event
+        ``id`` (stream position), its own gap-free message ``seq``, and the
+        authoritative send time (``sent_at``, ISO-8601 UTC). Wakes parked recv
+        waiters. Returns ``(id, seq)``: the event id and the message-only seq.
 
         Caller is expected to have validated the token; raises ``KeyError`` for
         an unknown token.
@@ -392,28 +405,31 @@ class Room:
         peer = self._peers[token]
         async with self._cond:
             # Activity choke point: stamp + rejoin if dropped, BEFORE the message
-            # is logged. A rejoin's join entry takes the earlier seq, the message
+            # is logged. A rejoin's join entry takes the earlier id, the message
             # the next — both wake the same parked recvs under this one lock.
             await self._mark_active(peer)
-            self._seq += 1
-            seq = self._seq
-            self._messages.append(Message(seq=seq, sender=peer.name, message=text, sent_at=_now_iso()))
-            peer.last_sent = seq
+            self._event_id += 1
+            self._msg_seq += 1
+            event_id, msg_seq = self._event_id, self._msg_seq
+            self._messages.append(Message(id=event_id, seq=msg_seq, sender=peer.name, message=text, sent_at=_now_iso()))
+            # last_sent is the event id (stream position), NOT msg_seq —
+            # read-receipts compare against other peers' id-based cursors.
+            peer.last_sent = event_id
             self._cond.notify_all()
-        return seq
+        return event_id, msg_seq
 
     async def recv(self, token: str, wait: float | None = None) -> dict:
         """Long-poll for this token's unread events (messages + presence).
 
         Returns a dict with ``events`` (list[LogEntry] — messages and join/leave
-        presence entries, seq-ordered), ``peers`` (list[str]), and
+        presence entries, event-id-ordered), ``peers`` (list[str]), and
         ``read_your_last_message`` (list[str]). If deliverable events already
         exist, returns at once. Otherwise parks up to ``wait`` seconds on the
         room condition; on timeout returns a heartbeat (``events=[]``) with the
         cursor unchanged.
 
         A peer never sees events *about itself*: ``events`` are entries with
-        ``seq > cursor`` whose subject (a message's sender, a presence event's
+        ``id > cursor`` whose subject (a message's sender, a presence event's
         peer) is *not* this peer — so you get others' messages and others'
         joins/leaves, never your own. The cursor advances only over
         actually-delivered (non-own) entries.
@@ -450,15 +466,15 @@ class Room:
                         "read_your_last_message": self._read_your_last_message(peer),
                     }
 
-            # A peer never sees events about itself. seq is global, so others'
+            # A peer never sees events about itself. id is global, so others'
             # entries may interleave below our own; filtering by subject here
             # (not by jumping the cursor) keeps theirs from being skipped.
-            events = [e for e in self._messages if e.seq > peer.cursor and _subject(e) != peer.name]
+            events = [e for e in self._messages if e.id > peer.cursor and _subject(e) != peer.name]
             if events:
-                # Advance only to the max seq actually delivered (non-own). An
+                # Advance only to the max id actually delivered (non-own). An
                 # own entry sitting above this max stays filtered on later
                 # recvs — harmless; own entries below it are naturally excluded.
-                peer.cursor = events[-1].seq
+                peer.cursor = events[-1].id
             return {
                 "events": events,
                 "peers": self.peers(),
@@ -470,4 +486,4 @@ class Room:
         else*. A peer's own entries (its messages, its own join/leave) never
         count, so if only its own sit past the cursor, recv parks and
         heartbeats."""
-        return any(e.seq > peer.cursor and _subject(e) != peer.name for e in self._messages)
+        return any(e.id > peer.cursor and _subject(e) != peer.name for e in self._messages)

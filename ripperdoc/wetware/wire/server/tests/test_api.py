@@ -22,6 +22,7 @@ from wire.room import Room
 
 SECRET = "s3cret"
 TOPIC = "test room"
+PUBLIC_URL = "https://wire.example.com"
 
 # ISO-8601 UTC, second precision, Z-suffixed: e.g. 2026-06-18T13:57:02Z.
 _ISO_UTC_Z_RE = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$")
@@ -30,6 +31,14 @@ _ISO_UTC_Z_RE = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$")
 @pytest.fixture
 def client() -> TestClient:
     app = create_app(Config(host="127.0.0.1", port=0, secret=SECRET, topic=TOPIC))
+    return TestClient(app)
+
+
+@pytest.fixture
+def client_public() -> TestClient:
+    # A room behind a declared public base URL (e.g. a tunnel). Every URL a peer
+    # reads must be emitted against PUBLIC_URL, not the TestClient request base.
+    app = create_app(Config(host="127.0.0.1", port=0, secret=SECRET, topic=TOPIC, public_url=PUBLIC_URL))
     return TestClient(app)
 
 
@@ -75,6 +84,15 @@ def test_shard_correct_secret_200_markdown(client: TestClient):
     assert r.status_code == 200
     assert r.headers["content-type"].startswith("text/markdown")
     assert r.text.startswith("# WIRE")
+    # $URL/$SECRET are now interpolated server-side: with no public_url, the
+    # manual carries the concrete request base (TestClient's http://testserver)
+    # and the real secret — the literal placeholders are gone.
+    assert "http://testserver" in r.text
+    assert SECRET in r.text
+    assert "$URL" not in r.text
+    assert "$SECRET" not in r.text
+    # $TOKEN stays literal — it's unknown until /jackin mints one.
+    assert "$TOKEN" in r.text
 
 
 # -- /jackin secret gate --------------------------------------------------
@@ -227,14 +245,15 @@ def test_send_recv_loop(client: TestClient):
     assert r2.json()["you_are"] == "peer-2"
     t2 = r2.json()["token"]
 
-    # peer-1 sends a raw-text message. Two joins already took seq 1,2, so the
-    # message is seq 3.
+    # peer-1 sends a raw-text message. Two joins already took stream id 1,2, so
+    # the message's event id is 3 — but it's the FIRST chat message, so its own
+    # message seq is 1. /send returns BOTH numbers.
     r = client.post("/send", params={"token": t1}, content=b"hello peer-2")
     assert r.status_code == 200
-    assert r.json() == {"seq": 3}
+    assert r.json() == {"id": 3, "seq": 1}
 
     # peer-2 reads it (non-blocking wait=0). Its stream also carries peer-1's
-    # earlier join (seq1); peer-2's own join (seq2) is filtered. Pick the message.
+    # earlier join (id 1); peer-2's own join (id 2) is filtered. Pick the message.
     r = client.get("/recv", params={"token": t2, "wait": 0})
     assert r.status_code == 200
     body = r.json()
@@ -242,19 +261,20 @@ def test_send_recv_loop(client: TestClient):
     assert len(msgs) == 1
     msg = msgs[0]
     # sent_at is nondeterministic wall-clock — assert the stable fields exactly,
-    # then the timestamp by FORMAT/presence (regex), not by value.
-    assert {k: msg[k] for k in ("seq", "type", "from", "message")} == {
-        "seq": 3,
+    # then the timestamp by FORMAT/presence (regex), not by value. The event id
+    # is the stream position (3); the chat-only seq+body live nested under message.
+    assert {k: msg[k] for k in ("id", "type", "from", "message")} == {
+        "id": 3,
         "type": "message",
         "from": "peer-1",
-        "message": "hello peer-2",
+        "message": {"seq": 1, "body": "hello peer-2"},
     }
     # CLEAN per-type: a message event has no presence field
     assert "peer" not in msg
     assert _ISO_UTC_Z_RE.match(msg["sent_at"]), msg["sent_at"]
     # peer-2 also sees peer-1's join, clean per-type (no message fields)
     join = next(e for e in body["events"] if e["type"] == "action(join)")
-    assert {k: join[k] for k in ("seq", "type", "peer")} == {"seq": 1, "type": "action(join)", "peer": "peer-1"}
+    assert {k: join[k] for k in ("id", "type", "peer")} == {"id": 1, "type": "action(join)", "peer": "peer-1"}
     assert "from" not in join and "message" not in join
     assert set(body["peers"]) == {"peer-1", "peer-2"}
     # peer-2 just read peer-1's last message, but that's reported to the SENDER:
@@ -340,8 +360,8 @@ def test_recv_shows_join_clean_per_type(client: TestClient):
     joins = [e for e in r.json()["events"] if e["type"] == "action(join)"]
     assert len(joins) == 1
     join = joins[0]
-    # exactly seq/type/peer/sent_at — NO null padding (no `from`, no `message`)
-    assert set(join.keys()) == {"seq", "type", "peer", "sent_at"}
+    # exactly id/type/peer/sent_at — NO null padding (no `from`, no `message`)
+    assert set(join.keys()) == {"id", "type", "peer", "sent_at"}
     assert join["type"] == "action(join)"
     assert join["peer"] == "peer-2"
     assert _ISO_UTC_Z_RE.match(join["sent_at"]), join["sent_at"]
@@ -358,7 +378,7 @@ def test_recv_shows_leave_clean_per_type(client: TestClient):
     leaves = [e for e in r.json()["events"] if e["type"] == "action(leave)"]
     assert len(leaves) == 1
     leave = leaves[0]
-    assert set(leave.keys()) == {"seq", "type", "peer", "sent_at"}
+    assert set(leave.keys()) == {"id", "type", "peer", "sent_at"}
     assert leave["type"] == "action(leave)"
     assert leave["peer"] == "peer-2"
 
@@ -398,9 +418,55 @@ def test_recv_late_joiner_backfills_join_and_message(client: TestClient):
     tb = _jackin(client)  # peer-2, late
     r = client.get("/recv", params={"token": tb, "wait": 0})
     body = r.json()
-    shape = [(e["seq"], e["type"]) for e in body["events"]]
-    # peer-1's join (seq1), then peer-1's message (seq2); peer-2's own join filtered
+    shape = [(e["id"], e["type"]) for e in body["events"]]
+    # peer-1's join (id 1), then peer-1's message (id 2); peer-2's own join filtered
     assert shape == [(1, "action(join)"), (2, "message")]
+
+
+def test_message_seq_is_contiguous_while_event_id_straddles_a_join(client: TestClient):
+    # The id-vs-seq contract, end to end over HTTP. A presence event wedged
+    # between two chat messages bumps the room-wide event `id` but NOT the
+    # chat-only `message.seq`: so the two messages' seq are contiguous (1, 2)
+    # while their event ids straddle the join (non-contiguous). The wedge is pure
+    # presence (B leaves + rejoins via /recv, NO chat message), so the chat
+    # counter sees only A's two sends — seq is the gap-free message number.
+    #
+    # Stream the third peer backfills:
+    #   id 1  action(join)  peer-1       <- A jackin
+    #   id 2  action(join)  peer-2       <- B jackin
+    #   id 3  message seq 1 "ping"       <- A's first send
+    #   id 4  action(leave) peer-2       <- B jacks out (wedge: leave)
+    #   id 5  action(join)  peer-2       <- B's /recv rejoins it (wedge: join, NO message)
+    #   id 6  message seq 2 "pong"       <- A's second send (seq 2 — gap-free)
+    ta = _jackin(client)  # peer-1 (A) -> join id 1
+    tb = _jackin(client)  # peer-2 (B) -> join id 2
+
+    first = client.post("/send", params={"token": ta}, content=b"ping")  # id 3, seq 1
+    assert first.json() == {"id": 3, "seq": 1}
+
+    # B leaves, then a token-bearing /recv rejoins B — wedging leave(id 4) +
+    # join(id 5) into the stream between A's two messages, with NO chat message
+    # of its own, so the chat-only seq counter is untouched by the churn.
+    client.post("/jackout", params={"token": tb})  # id 4: action(leave) peer-2
+    client.get("/recv", params={"token": tb, "wait": 0})  # id 5: action(join) peer-2 (rejoin)
+
+    second = client.post("/send", params={"token": ta}, content=b"pong")  # id 6, seq 2
+    # event id jumped 3 -> 6 (presence churn burned ids 4 & 5), but the chat-only
+    # seq only climbed 1 -> 2: gap-free regardless of the joins/leaves between.
+    assert second.json() == {"id": 6, "seq": 2}
+
+    # A fresh third peer backfills the whole stream and sees A's two messages with
+    # message.seq == 1 then 2 (CONTIGUOUS) while their event ids are 3 and 6
+    # (NON-contiguous — straddling the wedged leave/join).
+    tc = _jackin(client)  # peer-3 (C), fresh observer
+    body = client.get("/recv", params={"token": tc, "wait": 0}).json()
+    a_msgs = [e for e in body["events"] if e["type"] == "message" and e["from"] == "peer-1"]
+    assert [m["message"]["seq"] for m in a_msgs] == [1, 2]  # gap-free chat counter
+    assert [m["id"] for m in a_msgs] == [3, 6]  # event ids straddle the join
+    assert [m["message"]["body"] for m in a_msgs] == ["ping", "pong"]
+    # the wedged join/leave about peer-2 really did land between the two messages
+    p2_presence = [e["id"] for e in body["events"] if e.get("peer") == "peer-2"]
+    assert p2_presence == [2, 4, 5]  # initial join, the wedge leave, the wedge rejoin
 
 
 # -- heartbeat ------------------------------------------------------------
@@ -698,7 +764,7 @@ def test_end_to_end_idle_drop_rejoin_story():
         rejoin = [e for e in body["events"] if e["type"] == "action(join)" and e["peer"] == "alice-1"]
         assert rejoin, f"observer never saw alice's rejoin: {body['events']}"
         msgs = [e for e in body["events"] if e["type"] == "message" and e["from"] == "alice-1"]
-        assert msgs and msgs[0]["message"] == "i'm back"
+        assert msgs and msgs[0]["message"] == {"seq": 1, "body": "i'm back"}
 
         # 6) the token NEVER 401s anywhere in the cycle — every gated endpoint
         #    still accepts it after the full idle->rejoin round trip.
@@ -920,3 +986,59 @@ def test_empty_close_loop_no_pending_task_warning(recwarn):
         time.sleep(0.1)
     pending = [w for w in recwarn.list if "was destroyed but it is pending" in str(w.message)]
     assert not pending, f"empty-close reaper leaked past shutdown: {[str(w.message) for w in pending]}"
+
+
+# ========================================================================
+# PUBLIC URL — the decoupled tunnel seam. With Config.public_url set, every URL
+# a peer reads (/jackin actions, /shard manual) is emitted against that exact
+# base, NOT the request base. Unset, both fall back to the request base — the
+# backward-compatible path proven by the request-relative tests above.
+# ========================================================================
+
+
+def test_config_carries_public_url():
+    # The frozen Config carries public_url; default is None.
+    assert Config(host="h", port=0, secret=SECRET, topic=TOPIC).public_url is None
+    cfg = Config(host="h", port=0, secret=SECRET, topic=TOPIC, public_url=PUBLIC_URL)
+    assert cfg.public_url == PUBLIC_URL
+
+
+def test_jackin_actions_use_public_url(client_public: TestClient):
+    # With public_url set, the action URLs are built against it, not the request
+    # base (TestClient's http://testserver), so an LLM peer follows a real URL.
+    r = client_public.post("/jackin", params={"secret": SECRET})
+    assert r.status_code == 200
+    body = r.json()
+    token = body["token"]
+    for action in body["actions"]:
+        assert action["url"].startswith(PUBLIC_URL)
+        assert "testserver" not in action["url"]
+    send_action, recv_action = body["actions"]
+    assert send_action["url"] == f"{PUBLIC_URL}/send?token={token}"
+    assert recv_action["url"] == f"{PUBLIC_URL}/recv?token={token}"
+
+
+def test_jackin_actions_fall_back_to_request_base(client: TestClient):
+    # Backward-compat: no public_url → action URLs are the request base.
+    body = client.post("/jackin", params={"secret": SECRET}).json()
+    for action in body["actions"]:
+        assert action["url"].startswith("http://testserver")
+
+
+def test_shard_manual_uses_public_url(client_public: TestClient):
+    # With public_url set, the manual interpolates it for $URL (not the request
+    # base) and the real secret for $SECRET; $TOKEN stays literal.
+    r = client_public.get("/shard", params={"secret": SECRET})
+    assert r.status_code == 200
+    assert PUBLIC_URL in r.text
+    assert "testserver" not in r.text
+    assert "$URL" not in r.text
+    assert SECRET in r.text and "$SECRET" not in r.text
+    assert "$TOKEN" in r.text
+
+
+def test_shard_manual_falls_back_to_request_base(client: TestClient):
+    # Backward-compat: no public_url → the manual carries the request base.
+    r = client.get("/shard", params={"secret": SECRET})
+    assert "http://testserver" in r.text
+    assert "$URL" not in r.text

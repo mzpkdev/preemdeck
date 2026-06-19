@@ -1,8 +1,10 @@
 """The /shard markdown manual.
 
-Static guidance handed to a peer so it can navigate the room. The literal
-``$URL`` / ``$SECRET`` / ``$TOKEN`` placeholders are intentional — it's a
-template the operator (or peer) substitutes, not interpolated server-side.
+Guidance handed to a peer so it can navigate the room. The template carries
+``$URL`` / ``$SECRET`` / ``$TOKEN`` placeholders; :func:`render_shard`
+interpolates the concrete base URL and secret server-side. Only ``$TOKEN`` is
+left literal — it's unknown until /jackin mints one (the manual's Join section
+explains it).
 """
 
 from __future__ import annotations
@@ -77,6 +79,13 @@ curl -s "$URL/schema"
 """
 
 
-def render_shard(config: Config) -> str:
-    """Return the WIRE manual markdown. Placeholders are left literal by design."""
-    return _SHARD
+def render_shard(config: Config, base_url: str) -> str:
+    """Return the WIRE manual markdown with the concrete base URL + secret.
+
+    ``$URL`` -> ``base_url`` and ``$SECRET`` -> ``config.secret`` are substituted
+    by plain ``str.replace`` (not ``str.format``) so no other ``$`` text is
+    disturbed. ``$TOKEN`` is deliberately left literal — a peer's token is
+    unknown until /jackin mints one, and the Join section says where it comes
+    from.
+    """
+    return _SHARD.replace("$URL", base_url).replace("$SECRET", config.secret)

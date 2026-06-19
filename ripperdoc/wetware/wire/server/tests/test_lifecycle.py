@@ -214,12 +214,14 @@ def test_serve_argv_forwards_empty_grace_when_set():
         idle_timeout=None,
         sweep_interval=None,
         empty_grace=3,
+        public_url=None,
     )
     argv = cli._serve_argv(args)
     assert "--empty-grace=3" in argv
     # other (unset) knobs are NOT forwarded
     assert not any(a.startswith("--idle-timeout") for a in argv)
     assert not any(a.startswith("--sweep-interval") for a in argv)
+    assert not any(a.startswith("--public-url") for a in argv)
 
 
 def test_serve_argv_omits_empty_grace_when_unset():
@@ -232,9 +234,109 @@ def test_serve_argv_omits_empty_grace_when_unset():
         idle_timeout=None,
         sweep_interval=None,
         empty_grace=None,
+        public_url=None,
     )
     argv = cli._serve_argv(args)
     assert not any(a.startswith("--empty-grace") for a in argv)
+
+
+# -- _public_url resolver: flag > env > None, trailing slash stripped -------
+
+
+def test_public_url_flag_wins(monkeypatch):
+    """An explicit flag beats both the env var and the None default."""
+    monkeypatch.setenv("WIRE_PUBLIC_URL", "https://env.example.com")
+    assert cli._public_url("https://flag.example.com") == "https://flag.example.com"
+    monkeypatch.delenv("WIRE_PUBLIC_URL", raising=False)
+    assert cli._public_url("https://flag.example.com") == "https://flag.example.com"
+
+
+def test_public_url_env_used_when_flag_unset(monkeypatch):
+    """With no flag, the env value is honoured."""
+    monkeypatch.setenv("WIRE_PUBLIC_URL", "https://env.example.com")
+    assert cli._public_url(None) == "https://env.example.com"
+
+
+def test_public_url_none_when_neither(monkeypatch):
+    """No flag + absent env → None (today's request/LAN-base behavior)."""
+    monkeypatch.delenv("WIRE_PUBLIC_URL", raising=False)
+    assert cli._public_url(None) is None
+
+
+def test_public_url_trailing_slash_stripped(monkeypatch):
+    """A trailing slash is normalized off, from either source."""
+    monkeypatch.delenv("WIRE_PUBLIC_URL", raising=False)
+    assert cli._public_url("https://x.ngrok.io/") == "https://x.ngrok.io"
+    monkeypatch.setenv("WIRE_PUBLIC_URL", "https://y.ngrok.io/")
+    assert cli._public_url(None) == "https://y.ngrok.io"
+
+
+def test_serve_argv_forwards_public_url_when_set():
+    """_serve_argv emits --public-url=<v> (=value form) iff it is set."""
+    args = argparse.Namespace(
+        topic="t",
+        secret="s",
+        host="127.0.0.1",
+        port=5555,
+        idle_timeout=None,
+        sweep_interval=None,
+        empty_grace=None,
+        public_url="https://x.ngrok.io",
+    )
+    argv = cli._serve_argv(args)
+    assert "--public-url=https://x.ngrok.io" in argv
+
+
+def test_serve_argv_omits_public_url_when_unset():
+    """An unset --public-url is omitted so the child resolves env/None."""
+    args = argparse.Namespace(
+        topic="t",
+        secret="s",
+        host="127.0.0.1",
+        port=5555,
+        idle_timeout=None,
+        sweep_interval=None,
+        empty_grace=None,
+        public_url=None,
+    )
+    argv = cli._serve_argv(args)
+    assert not any(a.startswith("--public-url") for a in argv)
+
+
+def _serve_args(**overrides) -> argparse.Namespace:
+    """A serve args Namespace mirroring the parser defaults; override per test."""
+    base = dict(
+        topic="t",
+        secret="s",
+        host="127.0.0.1",
+        port=0,
+        wait_default=30,
+        wait_max=60,
+        idle_timeout=None,
+        sweep_interval=None,
+        empty_grace=None,
+        public_url=None,
+    )
+    base.update(overrides)
+    return argparse.Namespace(**base)
+
+
+def test_cmd_serve_rejects_malformed_public_url(state_dir, monkeypatch, capsys):
+    """A public_url with no http(s) scheme makes _cmd_serve exit 1 before boot.
+
+    The flag is resolved by _public_url, then validated in _cmd_serve. We never
+    reach uvicorn.run — pin it to fail loudly if the early return regresses.
+    """
+    monkeypatch.delenv("WIRE_PUBLIC_URL", raising=False)
+    monkeypatch.setattr(
+        cli.uvicorn, "run", lambda *a, **k: pytest.fail("reached uvicorn.run on a malformed public_url")
+    )
+    rc = cli._cmd_serve(_serve_args(public_url="ngrok.io"))  # no scheme
+    assert rc == 1
+    err = capsys.readouterr().err
+    assert "wire: error:" in err and "http://" in err
+    # the launch aborted: no state file was written for this bad config
+    assert lifecycle.read_state() is None
 
 
 def test_stop_clears_stale_state(state_dir, monkeypatch):

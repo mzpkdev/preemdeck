@@ -131,6 +131,24 @@ def _sweep_interval(flag: int | None) -> int:
     return Config.sweep_interval
 
 
+def _public_url(flag: str | None) -> str | None:
+    """Resolve the public base URL: flag > ``WIRE_PUBLIC_URL`` env > None.
+
+    Mirrors :func:`_empty_grace` (flag beats env beats default) but the default
+    is None — with neither set, wire emits the request/LAN base as it does today.
+    The chosen value is normalized: a trailing ``/`` is stripped so callers can
+    pass ``https://x.ngrok.io/`` or ``https://x.ngrok.io`` interchangeably.
+
+    NOTE: this does NOT validate the scheme — that check lives in
+    :func:`_cmd_serve`, which can fail the launch cleanly (return 1). Returning
+    the raw-but-stripped value here keeps the resolver a pure precedence helper.
+    """
+    value = flag if flag is not None else os.environ.get("WIRE_PUBLIC_URL")
+    if value is None:
+        return None
+    return value.rstrip("/")
+
+
 # Bound on how long `stop` waits for a TERM'd process to exit, seconds.
 _STOP_TIMEOUT = 5.0
 _STOP_POLL_INTERVAL = 0.2
@@ -181,6 +199,18 @@ def _cmd_serve(args: argparse.Namespace) -> int:
     idle_timeout = _idle_timeout(args.idle_timeout)
     sweep_interval = _sweep_interval(args.sweep_interval)
     empty_grace = _empty_grace(args.empty_grace)
+    public_url = _public_url(args.public_url)
+
+    # A declared public URL must be a real http(s) base; a malformed value would
+    # hand peers an unusable URL, so fail the launch cleanly (same style as the
+    # idle-timeout validation above) rather than booting with a broken base.
+    if public_url is not None and not public_url.startswith(("http://", "https://")):
+        print(
+            f"wire: error: --public-url ({public_url}) must start with http:// or https:// "
+            "(env WIRE_PUBLIC_URL); it's the public base peers read, so it has to be a full URL.",
+            file=sys.stderr,
+        )
+        return 1
 
     # Room.__init__ asserts idle_timeout > wait_max (a parked /recv holds a peer
     # silent up to wait_max); pre-validate here so a bad config exits cleanly
@@ -201,6 +231,7 @@ def _cmd_serve(args: argparse.Namespace) -> int:
         topic=args.topic,
         wait_default=args.wait_default,
         wait_max=args.wait_max,
+        public_url=public_url,
         idle_timeout=idle_timeout,
         sweep_interval=sweep_interval,
         empty_grace=empty_grace,
@@ -208,8 +239,10 @@ def _cmd_serve(args: argparse.Namespace) -> int:
 
     app = create_app(config)
 
+    # The declared public URL (e.g. a tunnel) wins for both the state file and
+    # the handoff banner; with none set, fall back to the LAN base as before.
     urlhost = lifecycle.detect_lan_ip() if config.host in ("", "0.0.0.0") else config.host
-    url = f"http://{urlhost}:{port}"
+    url = public_url or f"http://{urlhost}:{port}"
 
     # The serve process is the single writer of the state file.
     lifecycle.write_state(
@@ -268,6 +301,11 @@ def _serve_argv(args: argparse.Namespace) -> list[str]:
         argv.append(f"--sweep-interval={args.sweep_interval}")
     if args.empty_grace is not None:
         argv.append(f"--empty-grace={args.empty_grace}")
+    # public_url forwarded only when EXPLICITLY set (flag default None) — an
+    # unset flag is omitted so the child resolves its own WIRE_PUBLIC_URL env
+    # (or None), preserving flag>env>None precedence end to end.
+    if args.public_url is not None:
+        argv.append(f"--public-url={args.public_url}")
     return argv
 
 
@@ -423,6 +461,13 @@ def _build_parser() -> argparse.ArgumentParser:
             type=int,
             default=None,
             help="seconds an empty roster is tolerated before the server self-closes; 0 disables (env WIRE_EMPTY_GRACE, default: 900 = 15 min).",
+        )
+        # Default None so the resolver can tell "unset" from a value and apply
+        # flag>env>None; `start` forwards it to the child only when explicitly set.
+        p.add_argument(
+            "--public-url",
+            default=None,
+            help="public base URL peers read (e.g. behind a tunnel: https://x.ngrok.io); must start with http:// or https:// (env WIRE_PUBLIC_URL). Unset = use the request/LAN base.",
         )
 
     p_serve = sub.add_parser("serve", help="run the server in the foreground (blocking)")

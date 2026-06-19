@@ -244,7 +244,10 @@ def create_app(config: Config) -> FastAPI:
                 media_type="text/markdown",
                 headers={"X-Wire-Error": "invalid_secret"},
             )
-        return PlainTextResponse(render_shard(config), media_type="text/markdown")
+        # Operator-declared public_url wins (e.g. behind a tunnel); else the
+        # concrete request base, so a peer reads a URL that actually resolves.
+        base = config.public_url or str(request.base_url).rstrip("/")
+        return PlainTextResponse(render_shard(config, base), media_type="text/markdown")
 
     @app.post(
         "/jackin",
@@ -275,7 +278,9 @@ def create_app(config: Config) -> FastAPI:
         ] = None,
     ) -> JackinResponse:
         token, name = await room.jackin(requested=name)
-        base = str(request.base_url).rstrip("/")
+        # Operator-declared public_url wins (e.g. behind a tunnel); else the
+        # concrete request base, so the action URLs a peer follows resolve.
+        base = config.public_url or str(request.base_url).rstrip("/")
         return JackinResponse(
             token=token,
             you_are=name,
@@ -314,7 +319,8 @@ def create_app(config: Config) -> FastAPI:
         "/send",
         response_model=SendResponse,
         description=(
-            "Post a message to the room and get back its room-global `seq`. The body is raw "
+            "Post a message to the room and get back `{id, seq}` — the event's stream-position "
+            "`id` and the message's own gap-free `seq`. The body is raw "
             "plain text (`curl --data-raw 'your message'`), not JSON. Address one peer by "
             "tagging `@peer-N` inline — a plain-text convention the server does not route on; "
             "every peer still receives it. Gated by `token`. Non-blocking."
@@ -326,8 +332,8 @@ def create_app(config: Config) -> FastAPI:
         # Plain text, not JSON: client sends `curl -d 'your message'`.
         raw = await request.body()
         text = raw.decode("utf-8")
-        seq = await room.send(token, text)
-        return SendResponse(seq=seq)
+        event_id, seq = await room.send(token, text)
+        return SendResponse(id=event_id, seq=seq)
 
     @app.get(
         "/recv",
@@ -368,9 +374,16 @@ def create_app(config: Config) -> FastAPI:
         events: list[MessageEvent | PresenceEvent] = []
         for e in result["events"]:
             if isinstance(e, Message):
-                events.append(MessageEvent(seq=e.seq, **{"from": e.sender}, message=e.message, sent_at=e.sent_at))
+                events.append(
+                    MessageEvent(
+                        id=e.id,
+                        **{"from": e.sender},
+                        message={"seq": e.seq, "body": e.message},
+                        sent_at=e.sent_at,
+                    )
+                )
             else:
-                events.append(PresenceEvent(seq=e.seq, type=e.type, peer=e.peer, sent_at=e.sent_at))
+                events.append(PresenceEvent(id=e.id, type=e.type, peer=e.peer, sent_at=e.sent_at))
         return RecvResponse(
             events=events,
             peers=result["peers"],

@@ -14,15 +14,27 @@ from typing import Annotated, Literal, Union
 from pydantic import BaseModel, ConfigDict, Field
 
 
+class MessageBody(BaseModel):
+    """The chat payload nested under a :class:`MessageEvent`'s ``message`` key:
+    the message-only ``seq`` plus the text ``body``."""
+
+    seq: int = Field(
+        description="The message's own sequence number — counts only chat messages, climbing 1, 2, 3… with no gaps regardless of joins/leaves. Use it to order or count messages. NOT the stream position — see the event `id`."
+    )
+    body: str = Field(
+        description="The message text exactly as the sender posted it, including any inline `@peer-N` address tag."
+    )
+
+
 class MessageEvent(BaseModel):
     """A chat message on the /recv stream. ``sender`` is emitted under the JSON
     key ``from``. Discriminated by ``type == "message"``; serializes to exactly
-    seq/type/from/message/sent_at — no presence fields."""
+    id/type/from/message/sent_at — no presence fields."""
 
     model_config = ConfigDict(populate_by_name=True)
 
-    seq: int = Field(
-        description="Room-global sequence number stamped on this event; one counter climbs across all senders and presence events, giving the whole room a single ordering."
+    id: int = Field(
+        description="Monotonic stream position stamped on every event (chat and presence alike) — the ordering and read-cursor key; your /recv cursor advances by `id`. For the per-message number see `message.seq`."
     )
     type: Literal["message"] = Field(
         default="message",
@@ -32,21 +44,19 @@ class MessageEvent(BaseModel):
         alias="from",
         description="The sender's peer name (e.g. `peer-1`). Emitted under the JSON key `from`.",
     )
-    message: str = Field(
-        description="The message text exactly as the sender posted it, including any inline `@peer-N` address tag."
-    )
+    message: MessageBody = Field(description="The chat message — its own gap-free `seq` plus the text `body`.")
     sent_at: str = Field(
-        description="When the message was sent — ISO-8601 UTC, second precision (e.g. 2026-06-18T13:57:02Z). seq still defines order; this is wall-clock."
+        description="When the message was sent — ISO-8601 UTC, second precision (e.g. 2026-06-18T13:57:02Z). id defines order; this is wall-clock."
     )
 
 
 class PresenceEvent(BaseModel):
-    """A join or leave on the /recv stream, riding the same seq-ordered counter
+    """A join or leave on the /recv stream, riding the same id-ordered counter
     as messages. Discriminated by ``type``; serializes to exactly
-    seq/type/peer/sent_at — no message fields."""
+    id/type/peer/sent_at — no message fields."""
 
-    seq: int = Field(
-        description="Room-global sequence number stamped on this event; the same counter that orders messages, so joins/leaves interleave with chat in one ordering."
+    id: int = Field(
+        description="Monotonic stream position stamped on every event — the same counter that orders messages, so joins/leaves interleave with chat in one ordering and share the /recv cursor."
     )
     type: Literal["action(join)", "action(leave)"] = Field(
         description='Event discriminator — literally `"action(join)"` when a peer joined or `"action(leave)"` when a peer left (the parens are part of the string).'
@@ -55,7 +65,7 @@ class PresenceEvent(BaseModel):
         description="The peer that joined or left (e.g. `peer-2`). You never receive your own join/leave — only other peers'."
     )
     sent_at: str = Field(
-        description="When the event happened — ISO-8601 UTC, second precision (e.g. 2026-06-18T13:57:02Z). seq still defines order; this is wall-clock."
+        description="When the event happened — ISO-8601 UTC, second precision (e.g. 2026-06-18T13:57:02Z). id defines order; this is wall-clock."
     )
 
 
@@ -68,13 +78,13 @@ class RecvResponse(BaseModel):
     """A /recv body: new events (or empty heartbeat) plus room presence."""
 
     events: list[RecvEvent] = Field(
-        description="Events past your read-cursor you haven't seen yet, oldest first; empty on a heartbeat. A seq-ordered mix of chat (`type: message`) and presence (`type: action(join)` / `action(leave)`) — branch on `type`. Excludes events about you (your own messages and your own join/leave). The cursor advances only over events actually delivered here."
+        description="Events past your read-cursor you haven't seen yet, oldest first; empty on a heartbeat. An id-ordered mix of chat (`type: message`) and presence (`type: action(join)` / `action(leave)`) — branch on `type`. A message's own number lives in `message.seq`; the top-level `id` is the stream position. Excludes events about you (your own messages and your own join/leave). The cursor advances only over events actually delivered here."
     )
     peers: list[str] = Field(
         description="Names of the peers currently connected to the room — present even on a heartbeat, so a quiet room still reads as alive."
     )
     read_your_last_message: list[str] = Field(
-        description="Peers whose read-cursor has passed the seq of your most recent sent message — i.e. they've been delivered it on a /recv. A presence-of-delivery signal, not a per-message read receipt."
+        description="Peers whose read-cursor has passed the `id` of your most recent sent message — i.e. they've been delivered it on a /recv. A presence-of-delivery signal, not a per-message read receipt."
     )
 
 
@@ -119,9 +129,12 @@ class JackoutResponse(BaseModel):
 
 
 class SendResponse(BaseModel):
-    """The /send body: the room-global seq stamped on the message."""
+    """The /send body: the stream position (event id) and the message's own seq."""
 
-    seq: int = Field(description="The room-global sequence number stamped on the message you just sent.")
+    id: int = Field(
+        description="The stream position (event id) stamped on the message you just sent — its place in the room-wide event order."
+    )
+    seq: int = Field(description="The message's own gap-free sequence number (chat-only counter).")
 
 
 class HealthResponse(BaseModel):
