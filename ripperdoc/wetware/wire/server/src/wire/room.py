@@ -388,6 +388,50 @@ class Room:
         async with self._cond:
             return self._empty_since is not None and (self._now() - self._empty_since) > self._empty_grace
 
+    # -- spectator surface (read-only; no token, no roster presence) ------
+
+    @property
+    def cond(self) -> asyncio.Condition:
+        """The long-poll wake, exposed for the tokenless /spectate stream.
+
+        A spectator can't ride recv's per-peer cursor (it has no token), so it
+        parks on this condition directly — ``await cond.wait()`` then drains
+        :meth:`events_since`. Same object the room notifies on every new entry;
+        read-only use, the spectator never appends or notifies.
+        """
+        return self._cond
+
+    @property
+    def event_id(self) -> int:
+        """The current max event ``id`` (stream position) — the spectator's
+        start cursor. A fresh spectator begins LIVE-ONLY from here (no backlog);
+        a reconnect with ``Last-Event-ID`` starts from that id instead."""
+        return self._event_id
+
+    def events_since(self, event_id: int) -> list[LogEntry]:
+        """Every log entry (message + presence) with ``id > event_id``, in order.
+
+        The tokenless read path behind /spectate: UNLIKE :meth:`recv` there is no
+        per-peer self-filter — a spectator is invisible and watches the whole
+        room, so it sees every message and every join/leave. The argument is the
+        event ``id`` (the stream position carried on every entry and emitted as
+        the SSE ``id:`` line), so a spectator advances its local cursor by the
+        ``id`` of the last entry it drained. Pure read — appends nothing, never
+        notifies; the caller is expected to hold :attr:`cond`.
+        """
+        return [e for e in self._messages if e.id > event_id]
+
+    def spectate_roster(self) -> dict:
+        """The live roster + silence for a /spectate snapshot or heartbeat.
+
+        Returns ``{"present_peers": [...], "quiet_for": int | None}`` — the SAME
+        roster (:meth:`peers`) and ``quiet_for`` (:meth:`_quiet_for`) that recv
+        reports, so a spectator's snapshot/heartbeat reads identically. LIVE-ONLY
+        by design: no message backlog rides the snapshot. Pure read; the caller
+        is expected to hold :attr:`cond` for a consistent pair.
+        """
+        return {"present_peers": self.peers(), "quiet_for": self._quiet_for()}
+
     # -- messaging --------------------------------------------------------
 
     def _read_your_last_message(self, peer: _Peer) -> list[str]:
