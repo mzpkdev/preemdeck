@@ -248,46 +248,52 @@ the fix is in the retry handler █
 
 ### How to draw
 
-- Render the panel as an **ASCII tree in a fenced `text` block** — `DISPATCH` is the root, one branch per job. The rail
-  only holds its column in monospace, so it lives in a bare fence: no bold title and no quote-bar, but a shape that
-  never drifts. Don't wrap it in a blockquote — the bar drops the rows to proportional/italic and the rail skews.
-  Box-drawing only, per § Tree: `├──`/`└──`, `│   ` to continue under a parent.
-- The root line carries the one meter — `DISPATCH  ▰▱  1/2`: a segmented gauge from § Glyphs plus `done/total`.
-  Jobs-done over total is the single fraction you always have, so it's the ONLY meter the panel gets.
-- Each branch reads `<rail> <glyph> <lane>  <tail>`. The glyph is one status marker from the § LLM plan-state set —
-  `☐ queued · ◐ running · ☑ done · ☒ failed · ⊘ blocked`. `lane` is one short word for the job — the work, never the
-  mechanism (not `fixer:x`). No emoji; the double width shatters the rail.
-- The tail is a freeform one-liner — what landed, what's running, what's next (`→` chains the next step). Align the
-  tails in a sibling group to one stripe (§ Tree, longest lane + 2). One line only; a tail long enough to wrap drops to
-  a `lane — note` legend beneath the tree.
-- Parallel set: a bare `parallel` node with its concurrent members nested one rail-level under it on the `│`. The
-  nesting carries "these fire together" — never hand-count the indent past what the rail draws.
-- Blocked job: mark `⊘`, then append `— waits on <what>` to its tail so the gate is explicit.
-- Live: re-emit the whole tree on a state change — glyphs advanced in place, root meter bumped, same branches in the
-  same order, only the markers move. No spinners, no elapsed-time: a re-emitted panel isn't animated, so a frozen
-  spinner or a stale clock (§ Routing) would only lie.
+- **Don't hand-draw it — generate it.** Call `render_dispatch.py` (in the imprint `scripts/` dir) and emit its stdout
+  verbatim. The script owns the rail, gauge, glyphs, and run order; weaving them by hand is the only way they drift, so
+  don't.
+- One flag per job, in run order: `--done` ☑ · `--running` ◐ · `--pending` ☐ · `--failed` ☒ · `--blocked` ⊘. Each takes
+  one or more **single-label** jobs — the whole quoted arg is the label.
+- **Parallel wave:** comma-group args under `--running`/`--pending` — `--running "a","b"` nests `a` and `b` under a bare
+  `parallel` node. A comma-free arg is a singleton; `--done`/`--failed`/`--blocked` never group.
+- **Blocked gate:** `--blocked "verify" --waits-on parallel` → `⊘ verify — waits on parallel`.
+- The root meter `DISPATCH  ▰▱  done/total` is computed — done = ☑ count, total = leaf jobs, one gauge segment each.
+  Unknown status or empty input exits non-zero; never a half-drawn panel.
+- **Live re-emit:** re-run with statuses advanced — same jobs, same order, glyphs moved. A finished wave re-renders
+  flat; no ☑ ever sits inside a `parallel`.
 
-Base — sequential or independent fixers:
+Sequential or independent fixers:
 
-```text
-DISPATCH  ▰▱▱▱▱  1/5
-├── ☑ scout    auth call sites — token + session flow mapped
-├── ◐ session  migrate store to redis-backed adapter
-├── ☐ rest     rewrite handlers as async middleware
-├── ☐ alembic  add migration for users.role column
-└── ☐ verify   integration suite + login smoke-test
+```bash
+render_dispatch.py --done "scout — auth call sites mapped" \
+  --running "session — migrate store to redis" \
+  --pending "rest — async middleware" "alembic — users.role migration" "verify — login smoke-test"
 ```
 
-Parallel set behind a gate — `parallel` nests the concurrent fixers, `⊘ … waits on` marks what's blocked and why:
+```text
+DISPATCH  ▰▱▱▱▱  1/5
+├── ☑ scout — auth call sites mapped
+├── ◐ session — migrate store to redis
+├── ☐ rest — async middleware
+├── ☐ alembic — users.role migration
+└── ☐ verify — login smoke-test
+```
+
+Parallel set behind a gate:
+
+```bash
+render_dispatch.py --done "scout — auth flow mapped" \
+  --running "session — redis adapter","rest — async middleware","alembic — users.role migration" \
+  --blocked "verify — login smoke" --waits-on parallel
+```
 
 ```text
 DISPATCH  ▰▱▱▱▱  1/5
-├── ☑ scout   auth call sites — token + session flow mapped
+├── ☑ scout — auth flow mapped
 ├── parallel
-│   ├── ◐ session  store → redis-backed adapter
-│   ├── ◐ rest     handlers → async middleware
-│   └── ◐ alembic  users.role column migration
-└── ⊘ verify  integration suite + login smoke — waits on parallel
+│   ├── ◐ session — redis adapter
+│   ├── ◐ rest — async middleware
+│   └── ◐ alembic — users.role migration
+└── ⊘ verify — login smoke — waits on parallel
 ```
 
 ## Routing
