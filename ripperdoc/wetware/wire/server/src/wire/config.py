@@ -35,6 +35,15 @@ class Config:
                      first idle-dropped after ``idle_timeout``, and only THEN does
                      the empty-room clock start, so it dies at roughly
                      ``idle_timeout + empty_grace``.
+    max_connections — uvicorn-level ceiling on concurrent connections; over it,
+                     a new connection is refused with 503 before the app runs.
+                     Bounds the unauthenticated-flood blast radius (a no-credential
+                     request 401s before the route body, so a flood churns fast and
+                     the cap mainly bounds the instantaneous connection pile). MUST
+                     stay well above the live-peer count — a real peer parked on
+                     /recv holds a slot up to ``wait_max``. 0 disables the cap
+                     (unlimited), mirroring how ``idle_timeout``/``empty_grace`` 0
+                     disable their features.
     public_url     — operator-declared public base URL (e.g. behind a tunnel:
                      ngrok/cloudflared/tailscale/ssh -R/nginx); when set, every
                      URL a peer reads (/jackin actions, /shard manual) is emitted
@@ -53,3 +62,4 @@ class Config:
     idle_timeout: int = 300
     sweep_interval: int = 15
     empty_grace: int = 900
+    max_connections: int = 64

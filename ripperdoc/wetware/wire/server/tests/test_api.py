@@ -1003,6 +1003,13 @@ def test_config_carries_public_url():
     assert cfg.public_url == PUBLIC_URL
 
 
+def test_config_max_connections_default():
+    # The frozen Config carries the connection cap; default is 64.
+    assert Config(host="h", port=0, secret=SECRET, topic=TOPIC).max_connections == 64
+    cfg = Config(host="h", port=0, secret=SECRET, topic=TOPIC, max_connections=0)
+    assert cfg.max_connections == 0  # 0 = unlimited
+
+
 def test_jackin_actions_use_public_url(client_public: TestClient):
     # With public_url set, the action URLs are built against it, not the request
     # base (TestClient's http://testserver), so an LLM peer follows a real URL.

@@ -214,6 +214,7 @@ def test_serve_argv_forwards_empty_grace_when_set():
         idle_timeout=None,
         sweep_interval=None,
         empty_grace=3,
+        max_connections=None,
         public_url=None,
     )
     argv = cli._serve_argv(args)
@@ -221,6 +222,7 @@ def test_serve_argv_forwards_empty_grace_when_set():
     # other (unset) knobs are NOT forwarded
     assert not any(a.startswith("--idle-timeout") for a in argv)
     assert not any(a.startswith("--sweep-interval") for a in argv)
+    assert not any(a.startswith("--max-connections") for a in argv)
     assert not any(a.startswith("--public-url") for a in argv)
 
 
@@ -234,10 +236,79 @@ def test_serve_argv_omits_empty_grace_when_unset():
         idle_timeout=None,
         sweep_interval=None,
         empty_grace=None,
+        max_connections=None,
         public_url=None,
     )
     argv = cli._serve_argv(args)
     assert not any(a.startswith("--empty-grace") for a in argv)
+
+
+# -- _max_connections resolver: flag > WIRE_MAX_CONNECTIONS env > default ---
+
+
+def test_max_connections_flag_wins(monkeypatch):
+    """An explicit flag beats both the env var and the Config default."""
+    monkeypatch.setenv("WIRE_MAX_CONNECTIONS", "42")
+    assert cli._max_connections(7) == 7  # flag wins over env
+    monkeypatch.delenv("WIRE_MAX_CONNECTIONS", raising=False)
+    assert cli._max_connections(7) == 7  # flag wins over default
+
+
+def test_max_connections_env_used_when_flag_unset(monkeypatch):
+    """With no flag, a valid env value is honoured (incl. 0 = unlimited)."""
+    monkeypatch.setenv("WIRE_MAX_CONNECTIONS", "1000")
+    assert cli._max_connections(None) == 1000
+    # 0 is meaningful (disables the cap → unlimited) and must be accepted.
+    monkeypatch.setenv("WIRE_MAX_CONNECTIONS", "0")
+    assert cli._max_connections(None) == 0
+
+
+def test_max_connections_falls_back_to_default(monkeypatch):
+    """No flag + absent/negative/garbage env → the Config default (64)."""
+    monkeypatch.delenv("WIRE_MAX_CONNECTIONS", raising=False)
+    assert cli._max_connections(None) == cli.Config.max_connections  # env absent
+    assert cli._max_connections(None) == 64  # the documented default
+    monkeypatch.setenv("WIRE_MAX_CONNECTIONS", "-5")
+    assert cli._max_connections(None) == cli.Config.max_connections  # negative ignored
+    monkeypatch.setenv("WIRE_MAX_CONNECTIONS", "nope")
+    assert cli._max_connections(None) == cli.Config.max_connections  # unparseable ignored
+
+
+def test_serve_argv_forwards_max_connections_when_set():
+    """_serve_argv emits --max-connections=<v> (=value form) iff it is set."""
+    args = argparse.Namespace(
+        topic="t",
+        secret="s",
+        host="127.0.0.1",
+        port=5555,
+        idle_timeout=None,
+        sweep_interval=None,
+        empty_grace=None,
+        max_connections=256,
+        public_url=None,
+    )
+    argv = cli._serve_argv(args)
+    assert "--max-connections=256" in argv
+    # other (unset) knobs are NOT forwarded
+    assert not any(a.startswith("--idle-timeout") for a in argv)
+    assert not any(a.startswith("--empty-grace") for a in argv)
+
+
+def test_serve_argv_omits_max_connections_when_unset():
+    """An unset --max-connections is omitted so the child resolves env/default."""
+    args = argparse.Namespace(
+        topic="t",
+        secret="s",
+        host="127.0.0.1",
+        port=5555,
+        idle_timeout=None,
+        sweep_interval=None,
+        empty_grace=None,
+        max_connections=None,
+        public_url=None,
+    )
+    argv = cli._serve_argv(args)
+    assert not any(a.startswith("--max-connections") for a in argv)
 
 
 # -- _public_url resolver: flag > env > None, trailing slash stripped -------
@@ -281,6 +352,7 @@ def test_serve_argv_forwards_public_url_when_set():
         idle_timeout=None,
         sweep_interval=None,
         empty_grace=None,
+        max_connections=None,
         public_url="https://x.ngrok.io",
     )
     argv = cli._serve_argv(args)
@@ -297,6 +369,7 @@ def test_serve_argv_omits_public_url_when_unset():
         idle_timeout=None,
         sweep_interval=None,
         empty_grace=None,
+        max_connections=None,
         public_url=None,
     )
     argv = cli._serve_argv(args)
@@ -315,6 +388,7 @@ def _serve_args(**overrides) -> argparse.Namespace:
         idle_timeout=None,
         sweep_interval=None,
         empty_grace=None,
+        max_connections=None,
         public_url=None,
     )
     base.update(overrides)
@@ -337,6 +411,31 @@ def test_cmd_serve_rejects_malformed_public_url(state_dir, monkeypatch, capsys):
     assert "wire: error:" in err and "http://" in err
     # the launch aborted: no state file was written for this bad config
     assert lifecycle.read_state() is None
+
+
+@pytest.mark.parametrize(
+    "max_connections, expected_limit",
+    [
+        (None, 64),  # unset → resolver applies the Config default (64)
+        (1000, 1000),  # explicit flag flows straight through to the cap
+        (0, None),  # 0 disables the cap → uvicorn's None ("no limit")
+    ],
+)
+def test_cmd_serve_wires_limit_concurrency(state_dir, monkeypatch, max_connections, expected_limit):
+    """_cmd_serve passes limit_concurrency (0 → None) + the keep-alive trim to uvicorn.
+
+    We mock uvicorn.run so no real port is bound and capture its kwargs — this
+    pins the ceiling wiring without exercising uvicorn internals.
+    """
+    monkeypatch.delenv("WIRE_MAX_CONNECTIONS", raising=False)
+    captured = {}
+    monkeypatch.setattr(cli.uvicorn, "run", lambda app, **kwargs: captured.update(kwargs))
+
+    rc = cli._cmd_serve(_serve_args(max_connections=max_connections))
+
+    assert rc == 0
+    assert captured["limit_concurrency"] == expected_limit
+    assert captured["timeout_keep_alive"] == 10
 
 
 def test_stop_clears_stale_state(state_dir, monkeypatch):

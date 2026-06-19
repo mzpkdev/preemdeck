@@ -111,6 +111,28 @@ def _empty_grace(flag: int | None) -> int:
     return Config.empty_grace
 
 
+def _max_connections(flag: int | None) -> int:
+    """Resolve the connection cap: flag > ``WIRE_MAX_CONNECTIONS`` env > default.
+
+    Mirrors :func:`_idle_timeout`: an explicit flag wins; otherwise the env var
+    is consulted; otherwise the Config default. As with idle drop, 0 is a
+    MEANINGFUL value here (it disables the cap → unlimited), so the env accepts
+    any non-negative int — only a negative or unparseable value falls through to
+    the default.
+    """
+    if flag is not None:
+        return flag
+    raw = os.environ.get("WIRE_MAX_CONNECTIONS")
+    if raw is not None:
+        try:
+            val = int(raw)
+            if val >= 0:
+                return val
+        except ValueError:
+            pass
+    return Config.max_connections
+
+
 def _sweep_interval(flag: int | None) -> int:
     """Resolve the sweep interval: flag > ``WIRE_SWEEP_INTERVAL`` env > default.
 
@@ -188,7 +210,7 @@ def _pid_alive(pid: int) -> bool:
 
 def _cmd_serve(args: argparse.Namespace) -> int:
     """Run the foreground server: resolve port, write state, run uvicorn."""
-    secret = args.secret if args.secret is not None else secrets.token_urlsafe(16)
+    secret = args.secret if args.secret is not None else secrets.token_hex(4)
 
     try:
         port = _find_free_port(args.host, args.port)
@@ -199,6 +221,7 @@ def _cmd_serve(args: argparse.Namespace) -> int:
     idle_timeout = _idle_timeout(args.idle_timeout)
     sweep_interval = _sweep_interval(args.sweep_interval)
     empty_grace = _empty_grace(args.empty_grace)
+    max_connections = _max_connections(args.max_connections)
     public_url = _public_url(args.public_url)
 
     # A declared public URL must be a real http(s) base; a malformed value would
@@ -235,6 +258,7 @@ def _cmd_serve(args: argparse.Namespace) -> int:
         idle_timeout=idle_timeout,
         sweep_interval=sweep_interval,
         empty_grace=empty_grace,
+        max_connections=max_connections,
     )
 
     app = create_app(config)
@@ -260,7 +284,16 @@ def _cmd_serve(args: argparse.Namespace) -> int:
         flush=True,
     )
 
-    uvicorn.run(app, host=config.host, port=config.port)
+    # limit_concurrency caps simultaneous connections (excess → 503) to bound the
+    # unauthenticated-flood blast radius; 0 → None = uvicorn's "no limit". The
+    # keep-alive timeout trims slow-loris holds on otherwise-idle connections.
+    uvicorn.run(
+        app,
+        host=config.host,
+        port=config.port,
+        limit_concurrency=(config.max_connections or None),
+        timeout_keep_alive=10,
+    )
     return 0
 
 
@@ -272,13 +305,14 @@ def _serve_argv(args: argparse.Namespace) -> list[str]:
 
     Value-bearing options are emitted in the ``--opt=value`` form, NOT as two
     tokens ``--opt value``. This matters because a value can legitimately begin
-    with a dash — most notably an auto-generated ``secrets.token_urlsafe`` secret,
-    whose URL-safe alphabet includes ``-`` and so starts with one ~1.5% of the
-    time. As two tokens, the child's argparse would read that leading-dash value
-    as a *new option* ("expected one argument") and the serve process would die
-    before it ever bound — surfacing to `start` as a spurious "failed to come up".
-    The ``--opt=value`` form binds the value unambiguously regardless of its
-    first character.
+    with a dash — e.g. an operator-supplied ``--secret`` (free-form, so it may
+    start with one). As two tokens, the child's argparse would read that
+    leading-dash value as a *new option* ("expected one argument") and the serve
+    process would die before it ever bound — surfacing to `start` as a spurious
+    "failed to come up". The ``--opt=value`` form binds the value unambiguously
+    regardless of its first character. (The auto-minted secret is
+    ``secrets.token_hex(4)`` — 8 lowercase hex chars, never dash-leading — but
+    the override path still needs this, so the form is kept.)
     """
     argv = [
         sys.executable,
@@ -290,9 +324,10 @@ def _serve_argv(args: argparse.Namespace) -> list[str]:
         f"--host={args.host}",
         f"--port={args.port}",
     ]
-    # Idle-drop and empty-grace knobs are forwarded only when EXPLICITLY set on
-    # the parent (flag default is None). An unset flag is omitted so the child
-    # still resolves its own WIRE_IDLE_TIMEOUT/WIRE_SWEEP_INTERVAL/WIRE_EMPTY_GRACE
+    # Idle-drop, empty-grace and connection-cap knobs are forwarded only when
+    # EXPLICITLY set on the parent (flag default is None). An unset flag is
+    # omitted so the child still resolves its own
+    # WIRE_IDLE_TIMEOUT/WIRE_SWEEP_INTERVAL/WIRE_EMPTY_GRACE/WIRE_MAX_CONNECTIONS
     # env (inherited by the subprocess) or the Config default — preserving the
     # flag>env>default precedence end to end.
     if args.idle_timeout is not None:
@@ -301,6 +336,8 @@ def _serve_argv(args: argparse.Namespace) -> list[str]:
         argv.append(f"--sweep-interval={args.sweep_interval}")
     if args.empty_grace is not None:
         argv.append(f"--empty-grace={args.empty_grace}")
+    if args.max_connections is not None:
+        argv.append(f"--max-connections={args.max_connections}")
     # public_url forwarded only when EXPLICITLY set (flag default None) — an
     # unset flag is omitted so the child resolves its own WIRE_PUBLIC_URL env
     # (or None), preserving flag>env>None precedence end to end.
@@ -319,7 +356,7 @@ def _cmd_start(args: argparse.Namespace) -> int:
 
     # Stale state (file present, nothing answering) is harmless — serve overwrites it.
     if args.secret is None:
-        args.secret = secrets.token_urlsafe(16)
+        args.secret = secrets.token_hex(4)
 
     log = lifecycle.log_path()
     with open(log, "wb") as logfile:
@@ -438,7 +475,11 @@ def _build_parser() -> argparse.ArgumentParser:
 
     def _add_launch_args(p: argparse.ArgumentParser) -> None:
         p.add_argument("--topic", required=True, help="conversation topic, handed to peers on /jackin")
-        p.add_argument("--secret", default=None, help="key gating /shard and /jackin; auto-generated if omitted")
+        p.add_argument(
+            "--secret",
+            default=None,
+            help="key gating /shard and /jackin; if omitted, a short 8-hex-char one is auto-generated",
+        )
         p.add_argument("--host", default="0.0.0.0", help="address the HTTP layer binds to (default: 0.0.0.0)")
         p.add_argument("--port", type=int, default=5555, help="starting port for the free-port scan (default: 5555)")
         # Idle-drop knobs default to None (NOT the Config value) so the resolver
@@ -461,6 +502,12 @@ def _build_parser() -> argparse.ArgumentParser:
             type=int,
             default=None,
             help="seconds an empty roster is tolerated before the server self-closes; 0 disables (env WIRE_EMPTY_GRACE, default: 900 = 15 min).",
+        )
+        p.add_argument(
+            "--max-connections",
+            type=int,
+            default=None,
+            help="max concurrent connections before returning 503; 0 = unlimited (env WIRE_MAX_CONNECTIONS, default: 64).",
         )
         # Default None so the resolver can tell "unset" from a value and apply
         # flag>env>None; `start` forwards it to the child only when explicitly set.
