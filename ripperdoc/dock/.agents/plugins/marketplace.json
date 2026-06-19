@@ -3,5 +3,12 @@
   "interface": {
     "displayName": "preemdeck • dock"
   },
-  "plugins": []
+  "plugins": [
+    {
+      "name": "jetbrains-ide",
+      "source": "./jetbrains-ide",
+      "policy": "allow",
+      "category": "dock"
+    }
+  ]
 }
