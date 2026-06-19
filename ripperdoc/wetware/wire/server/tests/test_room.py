@@ -508,7 +508,7 @@ async def test_quiet_recv_returns_heartbeat_after_wait():
     await room.recv(tb, wait=0)
     out = await asyncio.wait_for(room.recv(tb, wait=0.05), timeout=0.5)
     assert out["events"] == []
-    assert "peer-1" in out["peers"] and "peer-2" in out["peers"]
+    assert "peer-1" in out["present_peers"] and "peer-2" in out["present_peers"]
 
 
 async def test_wait_is_clamped_to_config_max():
@@ -518,6 +518,58 @@ async def test_wait_is_clamped_to_config_max():
     ta, _ = await room.jackin()
     out = await asyncio.wait_for(room.recv(ta, wait=100), timeout=0.5)
     assert out["events"] == []
+
+
+# -- quiet_for: seconds since the last chat message ----------------------
+
+
+async def test_quiet_for_is_none_before_any_message():
+    # No one has spoken yet -> quiet_for is null, NOT 0 (which would read as
+    # "someone just spoke"). A join is not talk, so it stays None after jackin.
+    room = make_room()
+    ta, _ = await room.jackin()
+    out = await room.recv(ta, wait=0)
+    assert out["quiet_for"] is None
+
+
+async def test_quiet_for_is_zero_right_after_a_message():
+    # Right after a message lands, the lull is ~0 (same clock instant).
+    room, clock = _idle_room(idle_timeout=10)
+    ta, _ = await room.jackin()
+    tb, _ = await room.jackin()
+    await room.send(ta, "hi")  # stamps _last_msg_at at clock.now
+    out = await room.recv(tb, wait=0)  # tb sees the message; no clock advance
+    assert out["quiet_for"] == 0
+
+
+async def test_quiet_for_grows_as_the_clock_advances():
+    # quiet_for measures from the last message on the SAME seam the reaper uses,
+    # so advancing the fake clock grows the lull (whole seconds, floored).
+    room, clock = _idle_room(idle_timeout=10)
+    ta, _ = await room.jackin()
+    tb, _ = await room.jackin()
+    await room.send(ta, "hi")
+    await room.recv(tb, wait=0)  # drain so the next recv heartbeats
+    clock.now += 7  # 7s of silence pass
+    out = await asyncio.wait_for(room.recv(tb, wait=0.05), timeout=0.5)
+    assert out["events"] == []
+    assert out["quiet_for"] == 7
+
+
+async def test_quiet_for_resets_on_a_new_message_presence_does_not_count():
+    # A fresh message resets the lull to ~0; a join/leave in between does NOT
+    # (presence is not talk), so quiet_for keeps climbing from the last message.
+    room, clock = _idle_room(idle_timeout=10)
+    ta, _ = await room.jackin()
+    tb, _ = await room.jackin()
+    await room.send(ta, "first")
+    clock.now += 5
+    await room.jackin()  # a third peer joins — presence, not talk
+    out = await room.recv(tb, wait=0)
+    assert out["quiet_for"] == 5  # the join did not reset the lull
+    await room.send(ta, "second")  # a real message resets it
+    out = await room.recv(tb, wait=0)
+    assert out["quiet_for"] == 0
 
 
 # -- presence events: join / leave on the stream -------------------------

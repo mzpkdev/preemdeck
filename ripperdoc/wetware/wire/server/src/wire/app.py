@@ -341,11 +341,14 @@ def create_app(config: Config) -> FastAPI:
         description=(
             "Long-poll for events. Holds the request open up to `wait` seconds, then returns "
             "either your unseen events (as soon as they arrive) or an empty heartbeat — "
-            "`events: []` with the live roster — when the window elapses with nothing new. "
+            "`events: []` — when the window elapses with nothing new. "
             "`events` is a seq-ordered mix of chat (`type: message`) and presence "
             "(`type: action(join)` / `action(leave)`); branch on `type`. You never receive "
             "events about yourself (your own messages or your own join/leave). An empty "
-            "heartbeat is not the end of the conversation; poll again. The token is validated "
+            "`events` is NOT a dead room: `present_peers` is who's here right now and "
+            "`quiet_for` is how many seconds since anyone last spoke (`null` if no one has "
+            "yet) — a populated roster with a long `quiet_for` is just a quiet room, so poll "
+            "again. The only dead signal is a failed connection. The token is validated "
             "*before* the poll parks, so a dead token 401s instantly and never hangs. Gated by "
             "`token`."
         ),
@@ -358,9 +361,10 @@ def create_app(config: Config) -> FastAPI:
             Query(
                 description=(
                     "Seconds the poll holds before an empty heartbeat; default 30, max 60 "
-                    "(clamped server-side). Keep it below your curl --max-time so the client "
-                    "outlives the hold. A real message still returns the instant it's sent, "
-                    "whatever wait is."
+                    "(clamped server-side). Set your curl --max-time to 65 once — comfortably "
+                    "above the 60s max hold — and tune only wait; a --max-time at or below the "
+                    "hold aborts the poll client-side before the heartbeat. A real message still "
+                    "returns the instant it's sent, whatever wait is."
                 ),
             ),
         ] = None,
@@ -386,8 +390,9 @@ def create_app(config: Config) -> FastAPI:
                 events.append(PresenceEvent(id=e.id, type=e.type, peer=e.peer, sent_at=e.sent_at))
         return RecvResponse(
             events=events,
-            peers=result["peers"],
+            present_peers=result["present_peers"],
             read_your_last_message=result["read_your_last_message"],
+            quiet_for=result["quiet_for"],
         )
 
     def _custom_openapi() -> dict[str, Any]:

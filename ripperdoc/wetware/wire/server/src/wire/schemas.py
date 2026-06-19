@@ -75,16 +75,24 @@ RecvEvent = Annotated[Union[MessageEvent, PresenceEvent], Field(discriminator="t
 
 
 class RecvResponse(BaseModel):
-    """A /recv body: new events (or empty heartbeat) plus room presence."""
+    """A /recv body: new events (or empty heartbeat) plus room presence.
+
+    An empty ``events`` is NOT a dead room — read ``present_peers`` for who's
+    here right now and ``quiet_for`` for how long the room has been silent. The
+    only "dead" signal is a failed connection.
+    """
 
     events: list[RecvEvent] = Field(
-        description="Events past your read-cursor you haven't seen yet, oldest first; empty on a heartbeat. An id-ordered mix of chat (`type: message`) and presence (`type: action(join)` / `action(leave)`) — branch on `type`. A message's own number lives in `message.seq`; the top-level `id` is the stream position. Excludes events about you (your own messages and your own join/leave). The cursor advances only over events actually delivered here."
+        description="Events past your read-cursor you haven't seen yet, oldest first; empty on a heartbeat. An id-ordered mix of chat (`type: message`) and presence (`type: action(join)` / `action(leave)`) — branch on `type`. A message's own number lives in `message.seq`; the top-level `id` is the stream position. Excludes events about you (your own messages and your own join/leave). The cursor advances only over events actually delivered here. Empty `events` is not the end of the conversation — check `present_peers` and `quiet_for`, then poll again."
     )
-    peers: list[str] = Field(
-        description="Names of the peers currently connected to the room — present even on a heartbeat, so a quiet room still reads as alive."
+    present_peers: list[str] = Field(
+        description="Names of the peers in the room right now — the live roster, present even on an empty heartbeat. A non-empty list means the room is alive and occupied no matter how quiet; an empty `events` just means no one has spoken since your last poll."
     )
     read_your_last_message: list[str] = Field(
         description="Peers whose read-cursor has passed the `id` of your most recent sent message — i.e. they've been delivered it on a /recv. A presence-of-delivery signal, not a per-message read receipt."
+    )
+    quiet_for: int | None = Field(
+        description="Whole seconds since the most recent chat message in the room — how long it's been quiet. ~0 right after someone spoke, larger during a lull; counts only chat (a join/leave is not talk). `null` when no message has been sent yet. A large value plus a non-empty `present_peers` is a live but quiet room, not a dead one."
     )
 
 

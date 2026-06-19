@@ -276,7 +276,7 @@ def test_send_recv_loop(client: TestClient):
     join = next(e for e in body["events"] if e["type"] == "action(join)")
     assert {k: join[k] for k in ("id", "type", "peer")} == {"id": 1, "type": "action(join)", "peer": "peer-1"}
     assert "from" not in join and "message" not in join
-    assert set(body["peers"]) == {"peer-1", "peer-2"}
+    assert set(body["present_peers"]) == {"peer-1", "peer-2"}
     # peer-2 just read peer-1's last message, but that's reported to the SENDER:
     # peer-2 itself hasn't sent anything, so its own read_your_last_message is empty
     assert body["read_your_last_message"] == []
@@ -322,7 +322,7 @@ def test_jackout_drops_from_roster(client: TestClient):
 
     # peer-2 is gone from the roster (peer-1 reads the live roster)
     body = client.get("/recv", params={"token": t1, "wait": 0}).json()
-    assert body["peers"] == ["peer-1"]
+    assert body["present_peers"] == ["peer-1"]
 
 
 def test_jackout_token_still_works_and_rejoins(client: TestClient):
@@ -340,7 +340,7 @@ def test_jackout_token_still_works_and_rejoins(client: TestClient):
 
     # peer-2 is back in the roster, seen by peer-1
     body = client.get("/recv", params={"token": t1, "wait": 0}).json()
-    assert "peer-2" in body["peers"]
+    assert "peer-2" in body["present_peers"]
 
     # /recv and /jackout with the same token are likewise accepted (200, not 401)
     assert client.get("/recv", params={"token": t2, "wait": 0}).status_code == 200
@@ -474,13 +474,28 @@ def test_message_seq_is_contiguous_while_event_id_straddles_a_join(client: TestC
 
 def test_heartbeat_empty_events(client: TestClient):
     # A lone peer's own join is filtered, so a wait=0 recv returns empty events.
+    # An empty heartbeat still reads as alive: present_peers lists the roster,
+    # and quiet_for is null because no one has spoken yet (not 0 = "just spoke").
     t1 = _jackin(client)
     r = client.get("/recv", params={"token": t1, "wait": 0})
     assert r.status_code == 200
     body = r.json()
     assert body["events"] == []
-    assert body["peers"] == ["peer-1"]
+    assert body["present_peers"] == ["peer-1"]
     assert body["read_your_last_message"] == []
+    assert body["quiet_for"] is None
+
+
+def test_recv_quiet_for_zero_right_after_message(client: TestClient):
+    # After a real message, quiet_for is a small whole-second lull (~0 here),
+    # surfaced on every /recv — proof the room is alive and was just talking.
+    t1 = _jackin(client)
+    t2 = _jackin(client)
+    client.get("/recv", params={"token": t2, "wait": 0})  # drain peer-1's join
+    client.post("/send", params={"token": t1}, content=b"hello peer-2")
+    body = client.get("/recv", params={"token": t2, "wait": 0}).json()
+    assert body["quiet_for"] == 0
+    assert set(body["present_peers"]) == {"peer-1", "peer-2"}
 
 
 # -- /schema is honest and self-explaining --------------------------------

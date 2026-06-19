@@ -158,6 +158,13 @@ class Room:
         # Message-only counter: climbs 1, 2, 3… with no gaps, untouched by
         # presence events. Stamped onto Message.seq; first message -> seq 1.
         self._msg_seq: int = 0
+        # Monotonic instant (via self._now) of the most recent CHAT message —
+        # what drives recv's `quiet_for`. Stamped in send() only; presence
+        # join/leave is not talk and never touches it. None until the first
+        # message, so `quiet_for` reads null on a room where no one has spoken.
+        # Monotonic (not the wall-clock Message.sent_at) so it rides the same
+        # clock seam as the idle reaper and moves under the tests' _now swap.
+        self._last_msg_at: float | None = None
         # token -> _Peer
         self._peers: dict[str, _Peer] = {}
         # names in join order (never shrinks; a name is bound for the room's life)
@@ -412,21 +419,38 @@ class Room:
             self._msg_seq += 1
             event_id, msg_seq = self._event_id, self._msg_seq
             self._messages.append(Message(id=event_id, seq=msg_seq, sender=peer.name, message=text, sent_at=_now_iso()))
+            # Mark the room's last-talk instant on the monotonic seam (same
+            # clock the idle reaper reads) so recv's `quiet_for` measures the
+            # lull from here. Only chat moves it — presence is not talk.
+            self._last_msg_at = self._now()
             # last_sent is the event id (stream position), NOT msg_seq —
             # read-receipts compare against other peers' id-based cursors.
             peer.last_sent = event_id
             self._cond.notify_all()
         return event_id, msg_seq
 
+    def _quiet_for(self) -> int | None:
+        """Whole seconds since the most recent CHAT message, or ``None`` if no
+        message has been sent yet. Measured on the monotonic seam (``self._now``)
+        against the last-talk stamp set in :meth:`send`, so it shares the clock
+        the idle reaper uses; presence join/leave is not talk and never bumps it.
+        Floored to whole seconds and clamped at 0 (never negative)."""
+        if self._last_msg_at is None:
+            return None
+        return max(0, int(self._now() - self._last_msg_at))
+
     async def recv(self, token: str, wait: float | None = None) -> dict:
         """Long-poll for this token's unread events (messages + presence).
 
         Returns a dict with ``events`` (list[LogEntry] — messages and join/leave
-        presence entries, event-id-ordered), ``peers`` (list[str]), and
-        ``read_your_last_message`` (list[str]). If deliverable events already
-        exist, returns at once. Otherwise parks up to ``wait`` seconds on the
-        room condition; on timeout returns a heartbeat (``events=[]``) with the
-        cursor unchanged.
+        presence entries, event-id-ordered), ``present_peers`` (list[str] — the
+        roster, who's in the room right now), ``read_your_last_message``
+        (list[str]), and ``quiet_for`` (int|None — whole seconds since the last
+        chat message, ``None`` before anyone has spoken). If deliverable events
+        already exist, returns at once. Otherwise parks up to ``wait`` seconds on
+        the room condition; on timeout returns a heartbeat (``events=[]``) with
+        the cursor unchanged — still carrying ``present_peers`` and ``quiet_for``,
+        so an empty heartbeat reads as a live, quiet room, not a dead one.
 
         A peer never sees events *about itself*: ``events`` are entries with
         ``id > cursor`` whose subject (a message's sender, a presence event's
@@ -459,11 +483,13 @@ class Room:
                         timeout=wait,
                     )
                 except (asyncio.TimeoutError, TimeoutError):
-                    # Heartbeat: nothing new, cursor untouched.
+                    # Heartbeat: nothing new, cursor untouched. Still reports the
+                    # roster and the lull so an empty heartbeat reads as alive.
                     return {
                         "events": [],
-                        "peers": self.peers(),
+                        "present_peers": self.peers(),
                         "read_your_last_message": self._read_your_last_message(peer),
+                        "quiet_for": self._quiet_for(),
                     }
 
             # A peer never sees events about itself. id is global, so others'
@@ -477,8 +503,9 @@ class Room:
                 peer.cursor = events[-1].id
             return {
                 "events": events,
-                "peers": self.peers(),
+                "present_peers": self.peers(),
                 "read_your_last_message": self._read_your_last_message(peer),
+                "quiet_for": self._quiet_for(),
             }
 
     def _has_unread(self, peer: _Peer) -> bool:
