@@ -34,26 +34,30 @@ def test_stub_resolve_log_dir_raises_not_implemented(stub: object) -> None:
 def test_public_api_is_importable() -> None:
     from core import (  # noqa: F401
         IdeaError,
+        escape_groovy,
         in_idea,
         launch,
-        notify,
         preview_url,
         reap_later,
         resolve_exec_path,
         resolve_log_dir,
+        run_groovy,
         set_preview,
+        webpreview_open_body,
     )
 
     assert set(core.__all__) == {
         "IdeaError",
+        "escape_groovy",
         "in_idea",
         "resolve_exec_path",
         "resolve_log_dir",
         "launch",
         "reap_later",
+        "run_groovy",
         "set_preview",
         "preview_url",
-        "notify",
+        "webpreview_open_body",
     }
 
 

@@ -4,9 +4,10 @@ set_preview() drives a rendered preview through an ideScript run, dispatching by
 the target's extension: HTML-family files (.html/.htm/.xhtml) get the JCEF web
 preview (WebPreviewVirtualFile + openFile, behind a registry gate); everything
 else gets the markdown SHOW_PREVIEW flip. Like test_reap mocks the reaper's
-sleep, here the IDE-facing seams are mocked: `launch` on the _preview module is a
-recording stub (spawns nothing) and `reap_later` is a spy. That lets the tests
-assert what set_preview would have fired — the spawned argv (`["ideScript",
+sleep, here the IDE-facing seams are mocked on _groovy (where run_groovy looks
+them up): `launch` is a recording stub (spawns nothing) and `reap_later` is a spy.
+That lets the tests assert what set_preview would have fired — the spawned argv
+(`["ideScript",
 <script>]`, wait=True), the Groovy injected into the temp (path embedded, the
 route-correct API present), and the deferred reap — plus the graceful-degrade
 contract: a missing IDE / unimplemented platform / OS error is swallowed with a
@@ -18,7 +19,7 @@ from pathlib import Path
 
 import pytest
 
-from core import IdeaError, _preview, _reap, preview_url, set_preview
+from core import IdeaError, _groovy, _reap, preview_url, set_preview
 
 
 class _LaunchSpy:
@@ -40,12 +41,14 @@ class _LaunchSpy:
 
 
 def _install(monkeypatch: pytest.MonkeyPatch, spy: _LaunchSpy) -> list[list[str]]:
-    """Wire the launch spy and a reap_later spy onto _preview; return reap log.
+    """Wire the launch spy and a reap_later spy onto _groovy; return reap log.
 
-    The spy records the scheduled paths AND unlinks them immediately (what the
-    real reaper does, minus the delay) — so the test both asserts the reap
-    contract and leaves no temp behind."""
-    monkeypatch.setattr(_preview, "launch", spy)
+    set_preview/preview_url ride _groovy's run_groovy, which looks `launch` and
+    `reap_later` up in the _groovy namespace — so the seams live there. The spy
+    records the scheduled paths AND unlinks them immediately (what the real reaper
+    does, minus the delay) — so the test both asserts the reap contract and leaves
+    no temp behind."""
+    monkeypatch.setattr(_groovy, "launch", spy)
     reaped: list[list[str]] = []
 
     def reap(paths: list[str]) -> None:
@@ -54,7 +57,7 @@ def _install(monkeypatch: pytest.MonkeyPatch, spy: _LaunchSpy) -> list[list[str]
         for path in paths:
             Path(path).unlink(missing_ok=True)
 
-    monkeypatch.setattr(_preview, "reap_later", reap)
+    monkeypatch.setattr(_groovy, "reap_later", reap)
     return reaped
 
 
@@ -177,19 +180,19 @@ def test_set_preview_schedules_temp_for_reap(monkeypatch: pytest.MonkeyPatch) ->
 def test_set_preview_temp_is_gone_after_real_reap(monkeypatch: pytest.MonkeyPatch) -> None:
     # With reap_later left REAL but its sleep neutered, the generated temp is
     # actually unlinked — set_preview leaks nothing on disk.
-    monkeypatch.setattr(_preview, "launch", _LaunchSpy())
+    monkeypatch.setattr(_groovy, "launch", _LaunchSpy())
     # Neuter the reaper's wall-clock sleep so its unlink runs immediately.
     monkeypatch.setattr(_reap.time, "sleep", lambda _s: None)
 
     created: list[str] = []
-    real_mkstemp = _preview.tempfile.mkstemp
+    real_mkstemp = _groovy.tempfile.mkstemp
 
     def tracking_mkstemp(*a: object, **k: object) -> tuple[int, str]:
         fd, path = real_mkstemp(*a, **k)
         created.append(path)
         return fd, path
 
-    monkeypatch.setattr(_preview.tempfile, "mkstemp", tracking_mkstemp)
+    monkeypatch.setattr(_groovy.tempfile, "mkstemp", tracking_mkstemp)
 
     before = set(threading.enumerate())
     set_preview("/Users/me/notes.md")
@@ -278,7 +281,9 @@ def test_preview_url_default_title_is_host_port(monkeypatch: pytest.MonkeyPatch)
 
     groovy = spy.scripts[0]
     # The tab title defaults to host:port — the platform shows "Preview of <title>".
-    assert 'new LightVirtualFile("localhost:3000")' in groovy
+    # The shared WebPreview fragment uses fully-qualified class names (so it drops
+    # into a closure import-free), so the dummy file is the FQ LightVirtualFile.
+    assert 'new com.intellij.testFramework.LightVirtualFile("localhost:3000")' in groovy
 
 
 def test_preview_url_default_title_host_only_when_no_port(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -289,7 +294,7 @@ def test_preview_url_default_title_host_only_when_no_port(monkeypatch: pytest.Mo
 
     groovy = spy.scripts[0]
     # No explicit port -> bare host (no trailing colon).
-    assert 'new LightVirtualFile("example.com")' in groovy
+    assert 'new com.intellij.testFramework.LightVirtualFile("example.com")' in groovy
 
 
 def test_preview_url_title_falls_back_to_full_url(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -301,7 +306,7 @@ def test_preview_url_title_falls_back_to_full_url(monkeypatch: pytest.MonkeyPatc
     preview_url("http://")
 
     groovy = spy.scripts[0]
-    assert 'new LightVirtualFile("http://")' in groovy
+    assert 'new com.intellij.testFramework.LightVirtualFile("http://")' in groovy
 
 
 def test_preview_url_explicit_title_overrides_derivation(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -311,7 +316,7 @@ def test_preview_url_explicit_title_overrides_derivation(monkeypatch: pytest.Mon
     preview_url("http://localhost:3000", title="My Dev Server")
 
     groovy = spy.scripts[0]
-    assert 'new LightVirtualFile("My Dev Server")' in groovy
+    assert 'new com.intellij.testFramework.LightVirtualFile("My Dev Server")' in groovy
     # The derived host:port label is NOT used when a title is passed.
     assert "localhost:3000" not in groovy.replace("http://localhost:3000", "")
 
@@ -336,7 +341,7 @@ def test_preview_url_schedules_temp_for_reap(monkeypatch: pytest.MonkeyPatch) ->
     preview_url("http://localhost:3000")
 
     # The one-shot script is handed to the deferred reaper exactly once — the
-    # same path that was passed to ideScript (shared _run_groovy scaffolding).
+    # same path that was passed to ideScript (shared run_groovy scaffolding).
     script = spy.calls[0]["args"][1]
     assert reaped == [[script]]
 

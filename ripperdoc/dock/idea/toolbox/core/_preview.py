@@ -29,26 +29,22 @@ encoded URL in a `WebPreviewVirtualFile` backed by a throwaway LightVirtualFile
 (the tab is titled "Preview of <title>"), routing it to the same JCEF
 WebPreviewFileEditor. Same registry gate; same EDT run.
 
-Both entry points share one scaffolding path (`_run_groovy`): generate a one-shot
-temp script, run it via `launch(["ideScript", script], wait=True)`, then hand the
-temp to reap_later for a deferred unlink (the toolbox's fire-and-forget cleanup
-idiom). `set_preview` is BEST-EFFORT — preview is a nicety layered on the open,
-never a gate — so a missing live IDE / unavailable ideScript / stub platform is
+Both entry points share one scaffolding path — `run_groovy`, the shared
+ideScript bridge from `_groovy`: generate a one-shot temp script, run it via
+`launch(["ideScript", script], wait=True)`, then hand the temp to reap_later for a
+deferred unlink (the toolbox's fire-and-forget cleanup idiom). `set_preview` is
+BEST-EFFORT — preview is a nicety layered on the open, never a gate — so a missing
+live IDE / unavailable ideScript / stub platform is
 swallowed with a short stderr note and it returns without raising, leaving the
 open intact. `preview_url` shares that never-raise scaffolding too, but callers
 that have nothing else to fall back on (open_url) treat the stderr note as a hard
 failure and exit non-zero.
 """
 
-import os
-import sys
-import tempfile
 from pathlib import Path
 from urllib.parse import urlsplit
 
-from ._errors import IdeaError
-from ._launch import launch
-from ._reap import reap_later
+from ._groovy import escape_groovy, run_groovy
 
 # HTML-family extensions that route to the JCEF web preview instead of the
 # markdown SHOW_PREVIEW flip. Named so adding ".svg" etc. later is a one-line
@@ -115,48 +111,77 @@ ApplicationManager.getApplication().invokeLater {{
 }}
 """
 
+# The proven WebPreview-open OPERATION, factored out as a SINGLE SOURCE OF TRUTH
+# so every caller that opens a URL in the JCEF web-preview tab composes the same
+# Groovy and can't drift. Both `_GROOVY_URLPREVIEW` below and notify.py's
+# `open-preview` action build on this fragment — see `webpreview_open_body`.
+#
+# A self-contained statement block (NOT a full script): it assumes a `project`
+# variable is already in scope and uses fully-qualified class names so it needs no
+# imports, letting it drop verbatim into either a top-level script body or a
+# closure body. {url} and {title} are filled as escaped Groovy string literals.
+# The handle from the live probe: gate on the web-preview + JCEF registry keys
+# (no-op in-IDE if either is off), encode the URL via Urls.newFromEncoded, wrap it
+# in a WebPreviewVirtualFile backed by a throwaway LightVirtualFile named {title}
+# (so the tab reads "Preview of {title}"), and open that — the platform routes it
+# to WebPreviewFileEditor / JCEF. No VFS lookup (the dummy stands in) and no
+# CUSTOM_ORIGINAL_FILE needed.
+_WEBPREVIEW_OPEN_BODY = """\
+if (!(com.intellij.openapi.util.registry.Registry.is("ide.web.preview.enabled") \
+&& com.intellij.openapi.util.registry.Registry.is("ide.browser.jcef.enabled"))) return
+def url = com.intellij.util.Urls.newFromEncoded("{url}")
+def dummy = new com.intellij.testFramework.LightVirtualFile("{title}")
+def previewFile = new com.intellij.ide.browsers.actions.WebPreviewVirtualFile(dummy, url)
+com.intellij.openapi.fileEditor.FileEditorManager.getInstance({project}).openFile(previewFile, true)\
+"""
+
+
+def webpreview_open_body(
+    url_literal: str, title_literal: str, *, project_var: str = "project", indent: str = ""
+) -> str:
+    """Render the shared WebPreview-open fragment with `url`/`title` literals.
+
+    The single source of truth for opening a URL in the IDE's JCEF web-preview
+    tab — both `_GROOVY_URLPREVIEW` and notify.py's `open-preview` action compose
+    this, so the proven mechanism can't drift between them. `url_literal` and
+    `title_literal` must already be escaped Groovy string literals (the caller
+    runs them through `escape_groovy`).
+
+    `project_var` is the name of the in-scope Project the open targets — it
+    defaults to `project` (the script path's local), but a closure nested inside a
+    scope that already binds `project` (notify's action) must pass a non-colliding
+    name, since Groovy forbids re-declaring an enclosing-scope variable. `indent`
+    is prefixed to every line so the block aligns when spliced into a deeper
+    nesting level (a script's invokeLater vs. a closure).
+    """
+    body = _WEBPREVIEW_OPEN_BODY.format(url=url_literal, title=title_literal, project=project_var)
+    if not indent:
+        return body
+    return "\n".join(indent + line for line in body.splitlines())
+
+
 # Groovy for an arbitrary http/https URL: open it straight into the IDE's
-# embedded JCEF web-preview tab. {url} and {title} are filled as escaped Groovy
-# string literals. The proven handle from the live probe: encode the URL via
-# Urls.newFromEncoded, wrap it in a WebPreviewVirtualFile backed by a throwaway
-# LightVirtualFile named {title} (so the tab reads "Preview of {title}"), and
-# open that — the platform routes it to WebPreviewFileEditor / JCEF. No VFS
-# lookup (the dummy file stands in) and no CUSTOM_ORIGINAL_FILE needed. Gated on
-# the web-preview + JCEF registry keys; if either is off it no-ops in-IDE.
+# embedded JCEF web-preview tab. {body} is filled with the shared WebPreview-open
+# fragment (see `_WEBPREVIEW_OPEN_BODY` / `webpreview_open_body`) — the single
+# source of truth for the open, so this script and notify's `open-preview` action
+# never diverge. The wrapper here is the script-specific part: run on the EDT, grab
+# the first open project, and guard the whole body so a stray throwable lands in
+# idea.log rather than escaping the ideScript run.
 _GROOVY_URLPREVIEW = """\
 import com.intellij.openapi.application.ApplicationManager
-import com.intellij.openapi.fileEditor.FileEditorManager
 import com.intellij.openapi.project.ProjectManager
-import com.intellij.openapi.util.registry.Registry
-import com.intellij.util.Urls
-import com.intellij.testFramework.LightVirtualFile
-import com.intellij.ide.browsers.actions.WebPreviewVirtualFile
 
 ApplicationManager.getApplication().invokeLater {{
     try {{
         def projects = ProjectManager.getInstance().getOpenProjects()
         if (projects.length == 0) return
         def project = projects[0]
-        if (!(Registry.is("ide.web.preview.enabled") && Registry.is("ide.browser.jcef.enabled"))) return
-        def url = Urls.newFromEncoded("{url}")
-        def dummy = new LightVirtualFile("{title}")
-        def previewFile = new WebPreviewVirtualFile(dummy, url)
-        FileEditorManager.getInstance(project).openFile(previewFile, true)
+{body}
     }} catch (Throwable t) {{
         t.printStackTrace()
     }}
 }}
 """
-
-
-def _escape_groovy(literal: str) -> str:
-    """Escape `literal` for safe embedding inside a Groovy double-quoted string.
-
-    Backslashes first (so an escaped quote's backslash isn't re-escaped), then
-    double quotes — the same rule the path literals use, hoisted out so the URL
-    and tab-title templates share one escaper.
-    """
-    return literal.replace("\\", "\\\\").replace('"', '\\"')
 
 
 def _title_for(url: str) -> str:
@@ -179,38 +204,10 @@ def _groovy_for(path: str) -> str:
     case-insensitively) get the JCEF web-preview Groovy; everything else gets the
     markdown SHOW_PREVIEW flip.
     """
-    literal = _escape_groovy(path)
+    literal = escape_groovy(path)
     ext = Path(path).suffix.lower()
     template = _GROOVY_WEBPREVIEW if ext in HTML_PREVIEW_EXTS else _GROOVY_SETLAYOUT
     return template.format(path=literal)
-
-
-def _run_groovy(groovy: str, *, note: str) -> None:
-    """Run a one-shot `groovy` script in the live IDE; never raise.
-
-    The shared scaffolding behind set_preview/preview_url: spill `groovy` to a
-    temp `.groovy`, run it via `launch(["ideScript", script], wait=True)` (block
-    until the IDE has evaluated it), then hand the temp to the deferred reaper
-    rather than racing the IDE's async read (mirrors open_inline).
-
-    A missing live IDE (IdeaError), an unimplemented platform
-    (NotImplementedError), or an OS error spawning the launcher is swallowed with
-    a `{note}` stderr line — the function never raises. Callers that have a
-    fallback (set_preview) let the note stand; callers that don't (preview_url
-    via open_url) treat the note as a hard failure at the CLI boundary.
-    """
-    fd, script = tempfile.mkstemp(suffix=".groovy")
-    try:
-        with os.fdopen(fd, "w") as handle:
-            handle.write(groovy)
-        try:
-            launch(["ideScript", script], wait=True)
-        except (IdeaError, NotImplementedError, OSError) as exc:
-            print(f"{note} ({exc})", file=sys.stderr)
-    finally:
-        # ideScript forwards to the running IDE async; hand the temp to the
-        # deferred reaper rather than racing the read (mirrors open_inline).
-        reap_later([script])
 
 
 def set_preview(path: str) -> None:
@@ -218,21 +215,21 @@ def set_preview(path: str) -> None:
 
     Generates a one-shot Groovy with `path` injected — the JCEF web preview for
     HTML-family targets, the SHOW_PREVIEW flip otherwise — and runs it through
-    the shared `_run_groovy` scaffolding (blocking ideScript run + deferred reap).
+    the shared `run_groovy` scaffolding (blocking ideScript run + deferred reap).
 
     NEVER raises: a missing live IDE (IdeaError), an unimplemented platform
     (NotImplementedError), or any OS error spawning the launcher is swallowed
     with a short stderr note, so the caller's open is never turned into a
     failure. Non-preview filetypes are a clean no-op (guarded inside the Groovy).
     """
-    _run_groovy(_groovy_for(path), note="preview: could not set preview")
+    run_groovy(_groovy_for(path), note="preview: could not set preview")
 
 
 def preview_url(url: str, title: str | None = None) -> None:
     """Open `url` in the running IDE's embedded JCEF web-preview tab (best-effort).
 
     Renders the URL Groovy with `url` and a tab `title` injected (both escaped as
-    Groovy string literals) and runs it through the shared `_run_groovy`
+    Groovy string literals) and runs it through the shared `run_groovy`
     scaffolding. The platform opens a WebPreviewVirtualFile over the encoded URL,
     landing it in a WebPreviewFileEditor / JCEF tab titled "Preview of <title>".
 
@@ -245,5 +242,9 @@ def preview_url(url: str, title: str | None = None) -> None:
     gate (web-preview + JCEF) handles the JCEF-off case as a clean no-op.
     """
     label = title if title is not None else _title_for(url)
-    groovy = _GROOVY_URLPREVIEW.format(url=_escape_groovy(url), title=_escape_groovy(label))
-    _run_groovy(groovy, note="preview: could not open URL preview")
+    # The open itself is the shared fragment (parity with notify's open-preview);
+    # this script only adds the EDT + project-fetch + throwable-guard wrapper. The
+    # body sits two levels deep (invokeLater + try), so indent it to 8 spaces.
+    body = webpreview_open_body(escape_groovy(url), escape_groovy(label), indent=" " * 8)
+    groovy = _GROOVY_URLPREVIEW.format(body=body)
+    run_groovy(groovy, note="preview: could not open URL preview")
