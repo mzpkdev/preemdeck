@@ -7,9 +7,9 @@
   },
   "plugins": [
     {
-      "name": "jetbrains-ide",
+      "name": "idea",
       "description": "Auto-open specs, briefs, and plans in the correct JetBrains IDE",
-      "source": "./jetbrains-ide",
+      "source": "./idea",
       "version": "0.1.0",
       "category": "dock"
     }

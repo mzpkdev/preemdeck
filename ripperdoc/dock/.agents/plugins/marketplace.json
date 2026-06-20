@@ -5,8 +5,8 @@
   },
   "plugins": [
     {
-      "name": "jetbrains-ide",
-      "source": "./jetbrains-ide",
+      "name": "idea",
+      "source": "./idea",
       "policy": "allow",
       "category": "dock"
     }

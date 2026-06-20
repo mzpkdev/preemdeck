@@ -1,0 +1,15 @@
+{
+  "name": "idea",
+  "description": "Auto-open specs, briefs, and plans in the correct JetBrains IDE",
+  "version": "0.1.0",
+  "author": {
+    "name": "preemdeck"
+  },
+  "keywords": [
+    "dock",
+    "jetbrains",
+    "ide",
+    "auto-open",
+    "acp"
+  ]
+}
