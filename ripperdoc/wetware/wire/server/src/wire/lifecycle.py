@@ -98,7 +98,7 @@ def detect_lan_ip() -> str:
 
 
 def render_handoff(url: str, secret: str) -> str:
-    """Render the operator handoff block, verbatim per PLAN_WIRE.md.
+    """Render the operator handoff block.
 
     The fenced ``bash`` block holds a literal instruction for a *peer* agent —
     it is printed, never executed. ``url`` and ``secret`` are substituted live.
