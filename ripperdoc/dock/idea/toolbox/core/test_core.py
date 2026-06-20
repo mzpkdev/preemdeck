@@ -36,6 +36,7 @@ def test_public_api_is_importable() -> None:
         IdeaError,
         in_idea,
         launch,
+        notify,
         preview_url,
         reap_later,
         resolve_exec_path,
@@ -52,6 +53,7 @@ def test_public_api_is_importable() -> None:
         "reap_later",
         "set_preview",
         "preview_url",
+        "notify",
     }
 
 

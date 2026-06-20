@@ -22,18 +22,21 @@ else:
 # Cross-platform (no per-OS split). _launch imports resolve_exec_path lazily,
 # inside launch(), to avoid a cycle with this module, so it's import-safe here.
 # _preview builds on _launch/_reap (importing them directly, not via this
-# module), so it's import-safe here too.
+# module), so it's import-safe here too. _notify reuses _preview's _run_groovy /
+# _escape_groovy bridge (importing them directly), so it's import-safe as well.
 from ._launch import launch
+from ._notify import notify
 from ._preview import preview_url, set_preview
 from ._reap import reap_later
 
 __all__ = [
     "IdeaError",
     "in_idea",
+    "launch",
+    "notify",
+    "preview_url",
+    "reap_later",
     "resolve_exec_path",
     "resolve_log_dir",
-    "launch",
-    "reap_later",
     "set_preview",
-    "preview_url",
 ]
