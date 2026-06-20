@@ -8,7 +8,7 @@ description: |
   suggestion in the editor", "merge this in", "3-way merge"), or NOTIFY them in-IDE ("notify
   me", "pop a notification", "let me know when it's done", "toast/balloon"). Covers every
   CLI tool: open_file, open_url, open_inline, diff_file, diff_inline, merge_file, merge_inline,
-  read_logs, notify.
+  read_logs, notify, in_idea.
 user-invocable: true
 allowed-tools: [Bash]
 ---
@@ -25,18 +25,19 @@ Every tool drives the JetBrains IDE that **launched this terminal** — it walks
 (WebStorm, PyCharm, IntelliJ IDEA, GoLand, PhpStorm, RubyMine, CLion, Rider, DataGrip, RustRover). There is **no
 browser/editor fallback**: if the terminal is not running inside a JetBrains IDE, every tool fails clean.
 
-- The CLI gate is `in_idea()` (true when `__CFBundleIdentifier` starts with `com.jetbrains.` or
-  `TERMINAL_EMULATOR == "JetBrains-JediTerm"`). When it's false, the tool prints
-  `<tool>: no JetBrains IDE in the process ancestry` to stderr and **exits 1**.
+- Each tool first checks it's inside a live JetBrains terminal — run `in_idea.py` to make that check yourself (see
+  below). When the check fails, the tool prints `<tool>: no JetBrains IDE in the process ancestry` to stderr and **exits
+  1**.
 - **Exit-code semantics:** `0` = the action was dispatched to the IDE; `1` = no live IDE (or, for the path-taking tools,
   a missing input / OS error). The `--type`/`--action` validation errors in `notify` exit `2` (argparse usage error).
 - The IDE is the one that *launched* the process, not whichever is focused. Switching focus does not retarget it;
   quitting the launching IDE makes the tools fail rather than hit a different IDE.
 
-So before relying on these, you can confirm you're in a JetBrains terminal:
+So before relying on these, confirm you're in a JetBrains terminal with `in_idea.py` (exit `0` inside, `1` outside):
 
 ```bash
-[ "${__CFBundleIdentifier#com.jetbrains.}" != "$__CFBundleIdentifier" ] || [ "$TERMINAL_EMULATOR" = "JetBrains-JediTerm" ] && echo "in a JetBrains terminal" || echo "NOT in a JetBrains IDE — these tools will exit 1"
+python3 "${CLAUDE_PLUGIN_ROOT}/toolbox/in_idea.py"        # prints "in a JetBrains IDE terminal" / "not …"
+python3 "${CLAUDE_PLUGIN_ROOT}/toolbox/in_idea.py" -q && echo "good to go"   # quiet: gate on the exit code
 ```
 
 ## Canonical invocation
@@ -263,6 +264,26 @@ Print the last `n` lines of the active IDE's `idea.log` (from its resolved log d
 ```bash
 python3 "$TB/read_logs.py"       # last 50 lines (default)
 python3 "$TB/read_logs.py" 200   # last 200 lines
+```
+
+## in_idea.py — check you're in a JetBrains terminal
+
+```
+in_idea.py [-h] [-q]
+```
+
+Report whether this terminal is running inside a live JetBrains IDE — the same gate every other tool applies before it
+acts. Prints `in a JetBrains IDE terminal` / `not in a JetBrains IDE terminal` to stdout and, more usefully, sets the
+**exit code**: `0` inside, `1` outside. Use it to confirm the toolbox will work before you dispatch, or as a shell gate.
+
+- `-q`, `--quiet` — print nothing; signal the result through the exit code only.
+
+**When to use:** sanity-check the environment before relying on the other tools, or gate a script on being inside the
+IDE.
+
+```bash
+python3 "$TB/in_idea.py"                                        # print yes/no, set the exit code
+python3 "$TB/in_idea.py" -q && python3 "$TB/notify.py" "ready"  # only notify if inside
 ```
 
 ## notify.py — pop an in-IDE notification balloon
