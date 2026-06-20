@@ -1,0 +1,317 @@
+---
+description: |
+  Drive the running JetBrains IDE from the terminal — the idea toolbox CLI. Use whenever the
+  user wants to OPEN a file or URL in the IDE ("open X in the IDE/WebStorm/PyCharm", "pull this
+  up", "jump to line N", "preview localhost"), SHOW a DIFF or review a proposed change ("diff
+  these", "show me the diff", "review this edit/suggestion side by side"), present a code
+  SNIPPET / SUGGESTION inline or MERGE one into a file ("show this snippet", "drop this
+  suggestion in the editor", "merge this in", "3-way merge"), or NOTIFY them in-IDE ("notify
+  me", "pop a notification", "let me know when it's done", "toast/balloon"). Covers every
+  CLI tool: open_file, open_url, open_inline, diff_file, diff_inline, merge_file, merge_inline,
+  read_logs, notify.
+user-invocable: true
+allowed-tools: [Bash]
+---
+
+# idea:integration
+
+A manual for the **idea toolbox** — a set of small Python CLIs that drive the *currently running* JetBrains IDE from the
+terminal: open files/URLs, show diffs, present code suggestions, run 3-way merges, tail the IDE log, and pop
+notification balloons.
+
+## Hard requirement: a live JetBrains terminal
+
+Every tool drives the JetBrains IDE that **launched this terminal** — it walks the process ancestry to that IDE binary
+(WebStorm, PyCharm, IntelliJ IDEA, GoLand, PhpStorm, RubyMine, CLion, Rider, DataGrip, RustRover). There is **no
+browser/editor fallback**: if the terminal is not running inside a JetBrains IDE, every tool fails clean.
+
+- The CLI gate is `in_idea()` (true when `__CFBundleIdentifier` starts with `com.jetbrains.` or
+  `TERMINAL_EMULATOR == "JetBrains-JediTerm"`). When it's false, the tool prints
+  `<tool>: no JetBrains IDE in the process ancestry` to stderr and **exits 1**.
+- **Exit-code semantics:** `0` = the action was dispatched to the IDE; `1` = no live IDE (or, for the path-taking tools,
+  a missing input / OS error). The `--type`/`--action` validation errors in `notify` exit `2` (argparse usage error).
+- The IDE is the one that *launched* the process, not whichever is focused. Switching focus does not retarget it;
+  quitting the launching IDE makes the tools fail rather than hit a different IDE.
+
+So before relying on these, you can confirm you're in a JetBrains terminal:
+
+```bash
+[ "${__CFBundleIdentifier#com.jetbrains.}" != "$__CFBundleIdentifier" ] || [ "$TERMINAL_EMULATOR" = "JetBrains-JediTerm" ] && echo "in a JetBrains terminal" || echo "NOT in a JetBrains IDE — these tools will exit 1"
+```
+
+## Canonical invocation
+
+The tools live in the plugin's `toolbox/` dir and are run with `python3` by **absolute path**. Anchor on
+`${CLAUDE_PLUGIN_ROOT}` (this plugin's root) so it works from any working directory — each script puts its own dir on
+`sys.path`, so the run is **cwd-independent** (you do *not* need to `cd` into the toolbox):
+
+```bash
+python3 "${CLAUDE_PLUGIN_ROOT}/toolbox/<tool>.py" [args…]
+```
+
+For brevity below, assume:
+
+```bash
+TB="${CLAUDE_PLUGIN_ROOT}/toolbox"
+```
+
+Requires only a stock `python3` (standard library only — `argparse`, `pathlib`, `tempfile`).
+
+## Fire-and-forget vs `--wait`
+
+Most tools are **fire-and-forget**: they spawn the IDE action async and return immediately (the command exits `0`,
+prints nothing). Pass `--wait` to **block** until the user closes the tab / applies the merge, and then the tool
+**prints the result to stdout** (the edited file, the reconciled LEFT diff pane, or the merged output). Use `--wait`
+when you need to read back what the user did; otherwise just dispatch and move on.
+
+The `*_inline` tools spill their string args to temp files (the IDE only operates on files). On the `--wait` path the
+temps are removed synchronously; on fire-and-forget they're handed to a deferred reaper, so you never need to clean up.
+
+## Intent → tool map
+
+Pick the tool from what the user asked for:
+
+| The user says…                                                             | Tool              |
+| -------------------------------------------------------------------------- | ----------------- |
+| "open `<file>` in the IDE", "jump to line N", "pull up `app.py`"           | `open_file.py`    |
+| "open `<url>`", "preview localhost:3000", "show that page in the IDE"      | `open_url.py`     |
+| "show me this snippet/string", "open this text", "render this markdown"    | `open_inline.py`  |
+| "diff these two files", "show the diff", "review this change side by side" | `diff_file.py`    |
+| "diff this old vs new text", "compare these two snippets"                  | `diff_inline.py`  |
+| "merge these files", "3-way merge", "reconcile with a base"                | `merge_file.py`   |
+| "merge this suggestion in", "drop this proposed code into the file"        | `merge_inline.py` |
+| "what's in the IDE log", "tail the IDE's log", "show recent IDE log lines" | `read_logs.py`    |
+| "notify me", "pop a balloon", "let me know when X finishes", "toast me"    | `notify.py`       |
+
+Rules of thumb:
+
+- A **file on disk** → the `_file` variants. A **string you already hold** (a snippet, generated text, a draft) → the
+  `_inline` variants.
+- Just *showing* a suggestion read-only → `open_inline`/`diff_inline`. Letting the user *accept it into* a file →
+  `merge_inline` (or `diff_*` `--wait`, where the user pulls chunks into the LEFT pane and you read it back).
+- Need to **read back** the user's edits/decision → add `--wait`.
+
+______________________________________________________________________
+
+## open_file.py — open a file in the IDE
+
+```
+open_file.py [-h] [--line LINE] [--column COLUMN] [--wait] [--preview] path
+```
+
+Open `path` at an optional caret position. Fire-and-forget by default; `--wait` blocks until the tab closes and then
+prints the file's full text (whether or not it was edited).
+
+- `path` — file to open (resolved to an absolute path).
+- `--line LINE` — 1-based line to put the caret on (default `1`).
+- `--column COLUMN` — 1-based column (optional).
+- `--wait` — block until the tab closes, then print the file's contents to stdout.
+- `--preview` — after opening, flip the editor to WebStorm's rendered preview (best-effort; a no-op for filetypes that
+  have no preview). Useful for Markdown/HTML.
+
+**When to use:** the user wants a real file opened, or wants to land on a specific line.
+
+```bash
+python3 "$TB/open_file.py" src/app.py --line 42      # jump to line 42, fire-and-forget
+python3 "$TB/open_file.py" notes.md --wait           # block until closed, then print the file
+python3 "$TB/open_file.py" README.md --preview       # open, then flip to rendered preview
+```
+
+## open_url.py — open an http(s) URL in the IDE's preview
+
+```
+open_url.py [-h] [--title TITLE] url
+```
+
+Open `url` in the IDE's embedded JCEF web-preview tab. Fire-and-forget (there's no editor to block on — **no
+`--wait`**). **No browser fallback:** if there's no live IDE it exits 1 rather than shelling out to a browser.
+
+- `url` — must be a non-empty **http/https** URL (anything else → usage note, exit 1).
+- `--title TITLE` — tab label (the tab shows `Preview of <title>`); defaults to the URL's host[:port].
+
+**When to use:** the user wants to view a page/dev-server *inside* the IDE.
+
+```bash
+python3 "$TB/open_url.py" http://localhost:3000              # preview a local dev server
+python3 "$TB/open_url.py" https://example.com --title docs   # custom tab label
+```
+
+## open_inline.py — open a string in the IDE
+
+```
+open_inline.py [-h] [--suffix SUFFIX] [--wait] [--preview] inline
+```
+
+String-native wrapper over `open_file`: spills `inline` to a temp file and opens it. Use this to show a snippet or any
+generated text you're holding as a string (no need to write a file first).
+
+- `inline` — the literal string to open.
+- `--suffix SUFFIX` — temp-file suffix; the IDE uses it to pick syntax highlighting (default `.txt`). E.g.
+  `--suffix .py`, `--suffix .md`.
+- `--wait` — block until the tab closes, then print the (possibly edited) contents to stdout.
+- `--preview` — after opening, flip to rendered preview (pair with `--suffix .md`/`.html`).
+
+**When to use:** "show me this snippet", "open this text", "render this markdown". Add `--wait` if you want to read back
+the user's edits.
+
+```bash
+python3 "$TB/open_inline.py" "$snippet" --suffix .py        # open with .py highlighting
+python3 "$TB/open_inline.py" "$snippet" --wait              # block until closed, then print
+python3 "$TB/open_inline.py" "$md" --suffix .md --preview   # open, then flip to rendered preview
+```
+
+## diff_file.py — 2-way diff of two files
+
+```
+diff_file.py [-h] [--wait] target suggestion
+```
+
+Open a 2-way diff. Panes map straight to `idea diff L R`: **`target` is LEFT, `suggestion` is RIGHT**. The LEFT pane is
+the editable/reported side — the user edits LEFT or pulls chunks from the RIGHT via the gutter arrows. With `--wait`,
+blocks until the diff tab closes and prints the **LEFT file's** full text. Both inputs are resolved strictly: a missing
+path fails before launch (exit 1).
+
+- `target` — left pane; the file you reconcile into and get back.
+- `suggestion` — right pane; the proposed version.
+- `--wait` — block until the diff closes, then print LEFT.
+
+**When to use:** "show the diff between these files", "review this change side by side". Convention: put the
+user's/current file on the LEFT (`target`) so `--wait` reads back the reconciled result.
+
+```bash
+python3 "$TB/diff_file.py" mine.py theirs.py          # open the diff, fire-and-forget
+python3 "$TB/diff_file.py" mine.py theirs.py --wait   # block until closed, then print LEFT
+```
+
+## diff_inline.py — 2-way diff of two strings
+
+```
+diff_inline.py [-h] [--suffix SUFFIX] [--wait] target suggestion
+```
+
+Same as `diff_file` but each side is a string (spilled to a temp file). `target` → LEFT, `suggestion` → RIGHT; `--wait`
+prints the reconciled LEFT pane.
+
+- `target` / `suggestion` — left / right strings.
+- `--suffix SUFFIX` — shared suffix for both temps, for syntax highlighting (default `.txt`).
+- `--wait` — block, then print LEFT.
+
+**When to use:** compare two snippets / an old vs new version you hold as strings — e.g. show the user the current code
+vs a proposed rewrite.
+
+```bash
+python3 "$TB/diff_inline.py" "$old" "$new" --suffix .py   # diff with .py highlighting
+python3 "$TB/diff_inline.py" "$old" "$new" --wait         # block until closed, then print LEFT
+```
+
+## merge_file.py — 3-way merge of two files (optional base)
+
+```
+merge_file.py [-h] [--wait] target suggestion [base]
+```
+
+Open the IDE's native 3-way merge: `target` (local) vs `suggestion` (remote), with an optional `base` (common ancestor).
+The result is written to an **internal output temp** (not one of your files — the inputs are read-only). `idea merge`
+**blocks natively** until the user hits Apply, so there's no native `--wait`; this tool's `--wait` joins that process
+and then prints the merged result. Inputs are resolved strictly (missing path → exit 1).
+
+- `target` — local pane (your version).
+- `suggestion` — remote pane (the proposed version).
+- `base` — optional 3-way base (common ancestor).
+- `--wait` — block until the user applies, then print the merged result to stdout.
+
+**When to use:** the user wants to reconcile two file versions, optionally against a base.
+
+```bash
+python3 "$TB/merge_file.py" mine.py theirs.py base.py   # 3-way merge with a base
+python3 "$TB/merge_file.py" mine.py theirs.py --wait    # block until applied, then print
+```
+
+## merge_inline.py — 3-way merge of strings (optional base)
+
+```
+merge_inline.py [-h] [--suffix SUFFIX] [--wait] target suggestion [base]
+```
+
+String-native `merge_file`: each version is a string spilled to a temp file. Use this to let the user **merge a proposed
+snippet into their version** without writing files first.
+
+- `target` / `suggestion` — local / remote strings.
+- `base` — optional common-ancestor string.
+- `--suffix SUFFIX` — shared suffix for every temp, for syntax highlighting (default `.txt`).
+- `--wait` — block until applied, then print the merged result.
+
+**When to use:** "merge this suggestion into my code." Add `--wait` to capture the applied result.
+
+```bash
+python3 "$TB/merge_inline.py" "$mine" "$theirs" "$base" --suffix .py   # merge with a base
+python3 "$TB/merge_inline.py" "$mine" "$theirs" --wait                 # block until applied, print
+```
+
+## read_logs.py — tail the IDE's log
+
+```
+read_logs.py [-h] [n]
+```
+
+Print the last `n` lines of the active IDE's `idea.log` (from its resolved log dir).
+
+- `n` — number of trailing lines to print (optional positional; default `50`).
+
+**When to use:** diagnose IDE-side behavior — confirm an action reached the IDE, inspect an ideScript error, etc.
+
+```bash
+python3 "$TB/read_logs.py"       # last 50 lines (default)
+python3 "$TB/read_logs.py" 200   # last 200 lines
+```
+
+## notify.py — pop an in-IDE notification balloon
+
+```
+notify.py [-h] [--title TITLE] [--type {info,warning,error}] [--action NAME[=ARG]] message
+```
+
+Raise a transient notification balloon in the live IDE (via the platform Notification API). Fire-and-forget — there's no
+tab to block on, **no `--wait`**. It is **best-effort and never raises**: the worker swallows failures with a stderr
+note, and the CLI treats dispatch as success (the only non-zero exits are `1` for no live IDE and `2` for an invalid
+`--type`/`--action`).
+
+- `message` — the balloon body text (positional).
+
+- `--title TITLE` — balloon title (default `"PreemDeck"`).
+
+- `--type {info,warning,error}` — severity → NotificationType icon (default `info`).
+
+- `--action NAME[=ARG]` — add a clickable button; **repeatable** (buttons render in the order given). `NAME` must be one
+  of:
+
+  - `open-url=<url>` — open the URL in the **external browser**.
+  - `open-file=<path>` — open the path **in the editor**.
+  - `open-preview=<url>` — open the URL in the IDE's **JCEF web-preview** tab (same mechanism as `open_url`).
+
+  Each of these three **requires** an arg (`--action open-url=https://…`); a bare or unknown name is a usage error (exit
+  2).
+
+**When to use:** tell the user something finished or needs attention — especially after a fire-and-forget action — and
+optionally give them a one-click way to follow up.
+
+```bash
+python3 "$TB/notify.py" "build finished"                              # info balloon, default title
+python3 "$TB/notify.py" --title Deploy "shipped to prod"              # custom title
+python3 "$TB/notify.py" --type error "tests failed"                   # error severity/icon
+python3 "$TB/notify.py" --action open-url=https://ci.example.com "build done"      # browser button
+python3 "$TB/notify.py" --action open-preview=http://localhost:3000 "dev up"       # JCEF preview
+python3 "$TB/notify.py" --action open-file=/tmp/build.log "see log"                # editor button
+# two buttons + error severity:
+python3 "$TB/notify.py" --action open-file=/tmp/build.log --action open-url=https://ci.example.com \
+        --type error "build failed"
+```
+
+## Notes
+
+- **Quote string args.** `open_inline`/`diff_inline`/`merge_inline` and `notify` take literal strings — wrap them in
+  quotes so the shell doesn't split them.
+- **Reading results back.** Only `--wait` prints anything to stdout (the edited file / reconciled LEFT pane / merged
+  output). Without it the tools dispatch silently and exit `0`.
+- **No cleanup needed.** The inline/merge tools manage their own temp files (synchronous unlink on `--wait`, deferred
+  reap otherwise).
