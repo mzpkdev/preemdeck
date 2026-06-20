@@ -36,9 +36,11 @@ def test_public_api_is_importable() -> None:
         JetBrainsError,
         in_jetbrains,
         launch,
+        preview_url,
         reap_later,
         resolve_exec_path,
         resolve_log_dir,
+        set_preview,
     )
 
     assert set(core.__all__) == {
@@ -48,6 +50,8 @@ def test_public_api_is_importable() -> None:
         "resolve_log_dir",
         "launch",
         "reap_later",
+        "set_preview",
+        "preview_url",
     }
 
 

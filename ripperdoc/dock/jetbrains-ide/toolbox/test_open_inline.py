@@ -24,15 +24,17 @@ EDITED = "EDITED\n"
 
 
 class _Recorder:
-    """An open_file() stub: records path + wait and reads the temp's contents now."""
+    """An open_file() stub: records path + wait + preview, reads the temp now."""
 
     def __init__(self) -> None:
         self.calls: list[dict[str, object]] = []
 
-    def __call__(self, path: str, line: int = 1, column: int | None = None, *, wait: bool = False) -> str | None:
+    def __call__(
+        self, path: str, line: int = 1, column: int | None = None, *, wait: bool = False, preview: bool = False
+    ) -> str | None:
         # Read the temp BEFORE open_inline's cleanup can touch it.
         seen = Path(path).read_text()
-        self.calls.append({"path": path, "wait": wait, "seen": seen})
+        self.calls.append({"path": path, "wait": wait, "preview": preview, "seen": seen})
         return EDITED if wait else None
 
 
@@ -108,6 +110,28 @@ def test_open_inline_jetbrains_error_propagates(monkeypatch: pytest.MonkeyPatch)
     assert not os.path.exists(seen_paths[0])
 
 
+def test_open_inline_default_does_not_request_preview(monkeypatch: pytest.MonkeyPatch) -> None:
+    rec = _Recorder()
+    monkeypatch.setattr(open_inline, "open_file", rec)
+    monkeypatch.setattr(open_inline, "reap_later", lambda paths: None)
+
+    # Default: preview is off, so open_file is asked NOT to preview (default path).
+    assert open_inline_fn("x\n") is None
+    assert rec.calls[0]["preview"] is False
+
+
+def test_open_inline_preview_threads_to_open_file(monkeypatch: pytest.MonkeyPatch) -> None:
+    rec = _Recorder()
+    monkeypatch.setattr(open_inline, "open_file", rec)
+
+    # preview=True is handed straight to open_file, which previews the spilled
+    # temp — the temp carries the suffix, so the IDE treats it as a .md file.
+    assert open_inline_fn("# title\n", suffix=".md", wait=True, preview=True) == EDITED
+    call = rec.calls[0]
+    assert call["preview"] is True
+    assert str(call["path"]).endswith(".md")
+
+
 # --- main() CLI -------------------------------------------------------------
 
 
@@ -115,8 +139,8 @@ def _capture_open_inline(monkeypatch: pytest.MonkeyPatch, returns: str | None = 
     """Replace open_inline.open_inline with a recorder; return the captured calls."""
     captured: list[dict[str, object]] = []
 
-    def fake(content: str, *, suffix: str = ".txt", wait: bool = False) -> str | None:
-        captured.append({"content": content, "suffix": suffix, "wait": wait})
+    def fake(content: str, *, suffix: str = ".txt", wait: bool = False, preview: bool = False) -> str | None:
+        captured.append({"content": content, "suffix": suffix, "wait": wait, "preview": preview})
         return returns
 
     monkeypatch.setattr(open_inline, "open_inline", fake)
@@ -126,20 +150,27 @@ def _capture_open_inline(monkeypatch: pytest.MonkeyPatch, returns: str | None = 
 def test_main_inline_only_defaults_no_wait(monkeypatch: pytest.MonkeyPatch) -> None:
     captured = _capture_open_inline(monkeypatch)
     assert open_inline.main(["some text"]) == 0
-    # Default: fire-and-forget (wait=False), suffix .txt.
-    assert captured == [{"content": "some text", "suffix": ".txt", "wait": False}]
+    # Default: fire-and-forget (wait=False), suffix .txt, no preview.
+    assert captured == [{"content": "some text", "suffix": ".txt", "wait": False, "preview": False}]
 
 
 def test_main_suffix_flag_reaches_util(monkeypatch: pytest.MonkeyPatch) -> None:
     captured = _capture_open_inline(monkeypatch)
     assert open_inline.main(["x = 1", "--suffix", ".py"]) == 0
-    assert captured == [{"content": "x = 1", "suffix": ".py", "wait": False}]
+    assert captured == [{"content": "x = 1", "suffix": ".py", "wait": False, "preview": False}]
 
 
 def test_main_wait_flag_reaches_util(monkeypatch: pytest.MonkeyPatch) -> None:
     captured = _capture_open_inline(monkeypatch)
     assert open_inline.main(["body", "--wait"]) == 0
-    assert captured == [{"content": "body", "suffix": ".txt", "wait": True}]
+    assert captured == [{"content": "body", "suffix": ".txt", "wait": True, "preview": False}]
+
+
+def test_main_preview_flag_reaches_util(monkeypatch: pytest.MonkeyPatch) -> None:
+    captured = _capture_open_inline(monkeypatch)
+    assert open_inline.main(["# title", "--suffix", ".md", "--preview"]) == 0
+    # --preview -> preview=True, alongside the suffix that makes the temp previewable.
+    assert captured == [{"content": "# title", "suffix": ".md", "wait": False, "preview": True}]
 
 
 def test_main_wait_prints_edited_contents(monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]) -> None:

@@ -127,12 +127,12 @@ def test_reap_later_is_handed_the_delay(monkeypatch: pytest.MonkeyPatch, tmp_pat
     _finish(thread, gate)
 
 
-def test_reap_later_default_delay_is_one_second(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+def test_reap_later_default_delay_is_three_seconds(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     a = tmp_path / "a.txt"
     a.write_text("a")
 
-    # Called without delay -> the REAP_DELAY default (1.0s) reaches the sleep.
-    assert _reap.REAP_DELAY == 1.0
+    # Called without delay -> the REAP_DELAY default (3.0s) reaches the sleep.
+    assert _reap.REAP_DELAY == 3.0
     thread, gate = _gated_reap(monkeypatch, [a])
     assert gate.slept == [_reap.REAP_DELAY]
     _finish(thread, gate)

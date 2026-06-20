@@ -113,6 +113,54 @@ def test_open_file_launch_jetbrains_error_propagates(monkeypatch: pytest.MonkeyP
         open_file_fn(str(tmp_path / "thing.py"))
 
 
+# --- open_file --preview ----------------------------------------------------
+
+
+def test_open_file_default_does_not_set_preview(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    # Default path is untouched: without preview, set_preview is NEVER called
+    # (no ideScript fires), so the no-flag behavior is byte-for-byte as before.
+    calls: list[dict[str, object]] = []
+    monkeypatch.setattr(open_file, "launch", _stub_launch(calls))
+    previewed: list[str] = []
+    monkeypatch.setattr(open_file, "set_preview", lambda target: previewed.append(target))
+
+    target = tmp_path / "thing.md"
+    target.write_text(ORIGINAL)
+    assert open_file_fn(str(target)) is None
+    assert previewed == []
+
+
+def test_open_file_preview_sets_preview_on_resolved_target(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    # With preview=True, set_preview fires once AFTER the open, on the resolved
+    # absolute target (the same path launch was handed).
+    calls: list[dict[str, object]] = []
+    monkeypatch.setattr(open_file, "launch", _stub_launch(calls))
+    previewed: list[str] = []
+    monkeypatch.setattr(open_file, "set_preview", lambda target: previewed.append(target))
+
+    target = tmp_path / "thing.md"
+    target.write_text(ORIGINAL)
+    assert open_file_fn(str(target), preview=True) is None
+    assert previewed == [str(target.resolve())]
+    # The open itself is unchanged — preview is layered on, not a substitute.
+    assert calls == [{"args": ["--line", "1", str(target.resolve())], "wait": False}]
+
+
+def test_open_file_preview_composes_with_line_column_wait(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    # --preview must not disturb --line/--column/--wait: the argv carries them all
+    # and set_preview still fires on the resolved target after the (wait) open.
+    calls: list[dict[str, object]] = []
+    monkeypatch.setattr(open_file, "launch", _stub_launch(calls, edits=EDITED))
+    previewed: list[str] = []
+    monkeypatch.setattr(open_file, "set_preview", lambda target: previewed.append(target))
+
+    target = tmp_path / "thing.md"
+    target.write_text(ORIGINAL)
+    assert open_file_fn(str(target), 12, 5, wait=True, preview=True) == EDITED
+    assert calls == [{"args": ["--line", "12", "--column", "5", str(target.resolve())], "wait": True}]
+    assert previewed == [str(target.resolve())]
+
+
 # --- main() CLI -------------------------------------------------------------
 
 
@@ -120,8 +168,10 @@ def _capture_open_file(monkeypatch: pytest.MonkeyPatch, returns: str | None = No
     """Replace open_file.open_file with a recorder; return the captured calls."""
     captured: list[dict[str, object]] = []
 
-    def fake(path: str, line: int = 1, column: int | None = None, *, wait: bool = False) -> str | None:
-        captured.append({"path": path, "line": line, "column": column, "wait": wait})
+    def fake(
+        path: str, line: int = 1, column: int | None = None, *, wait: bool = False, preview: bool = False
+    ) -> str | None:
+        captured.append({"path": path, "line": line, "column": column, "wait": wait, "preview": preview})
         return returns
 
     monkeypatch.setattr(open_file, "open_file", fake)
@@ -131,28 +181,42 @@ def _capture_open_file(monkeypatch: pytest.MonkeyPatch, returns: str | None = No
 def test_main_path_only_defaults_no_wait(monkeypatch: pytest.MonkeyPatch) -> None:
     captured = _capture_open_file(monkeypatch)
     assert open_file.main(["/x/foo.py"]) == 0
-    # Default: fire-and-forget (wait=False).
-    assert captured == [{"path": "/x/foo.py", "line": 1, "column": None, "wait": False}]
+    # Default: fire-and-forget (wait=False), no preview.
+    assert captured == [{"path": "/x/foo.py", "line": 1, "column": None, "wait": False, "preview": False}]
 
 
 def test_main_parses_line_and_column(monkeypatch: pytest.MonkeyPatch) -> None:
     captured = _capture_open_file(monkeypatch)
     assert open_file.main(["/x/foo.py", "--line", "42", "--column", "7"]) == 0
-    assert captured == [{"path": "/x/foo.py", "line": 42, "column": 7, "wait": False}]
+    assert captured == [{"path": "/x/foo.py", "line": 42, "column": 7, "wait": False, "preview": False}]
 
 
 def test_main_wait_flag_reaches_util(monkeypatch: pytest.MonkeyPatch) -> None:
     captured = _capture_open_file(monkeypatch)
     assert open_file.main(["/x/foo.py", "--wait"]) == 0
     # --wait -> wait=True.
-    assert captured == [{"path": "/x/foo.py", "line": 1, "column": None, "wait": True}]
+    assert captured == [{"path": "/x/foo.py", "line": 1, "column": None, "wait": True, "preview": False}]
+
+
+def test_main_preview_flag_reaches_util(monkeypatch: pytest.MonkeyPatch) -> None:
+    captured = _capture_open_file(monkeypatch)
+    assert open_file.main(["/x/foo.py", "--preview"]) == 0
+    # --preview -> preview=True; everything else stays at its default.
+    assert captured == [{"path": "/x/foo.py", "line": 1, "column": None, "wait": False, "preview": True}]
+
+
+def test_main_no_preview_flag_leaves_preview_false(monkeypatch: pytest.MonkeyPatch) -> None:
+    # There is NO --no-preview flag: absence of --preview simply means preview=False.
+    captured = _capture_open_file(monkeypatch)
+    assert open_file.main(["/x/foo.py"]) == 0
+    assert captured[0]["preview"] is False
 
 
 def test_main_flags_order_independent(monkeypatch: pytest.MonkeyPatch) -> None:
     # argparse accepts optionals before the positional path and in any order.
     captured = _capture_open_file(monkeypatch)
-    assert open_file.main(["--column", "7", "--wait", "--line", "42", "/x/foo.py"]) == 0
-    assert captured == [{"path": "/x/foo.py", "line": 42, "column": 7, "wait": True}]
+    assert open_file.main(["--column", "7", "--preview", "--wait", "--line", "42", "/x/foo.py"]) == 0
+    assert captured == [{"path": "/x/foo.py", "line": 42, "column": 7, "wait": True, "preview": True}]
 
 
 def test_main_wait_prints_returned_contents(

@@ -16,7 +16,7 @@ from core import JetBrainsError, reap_later
 from open_file import open_file
 
 
-def open_inline(content: str, *, suffix: str = ".txt", wait: bool = False) -> str | None:
+def open_inline(content: str, *, suffix: str = ".txt", wait: bool = False, preview: bool = False) -> str | None:
     """Open `content` in the running JetBrains IDE by routing it through a temp file.
 
     `content` is written to a fresh temp file (the fd is closed before opening so
@@ -29,6 +29,11 @@ def open_inline(content: str, *, suffix: str = ".txt", wait: bool = False) -> st
       * wait=False -> open_file() just launched the IDE async and still needs the
         temp on disk right now; there is no synchronous signal for when it's safe
         to delete, so it schedules a deferred reap (reap_later) and returns None.
+
+    Opt-in `preview=True` (default off) is threaded straight to open_file(), which
+    flips the editor to WebStorm's rendered preview after the open. It previews
+    the spilled temp — which works because the temp carries `suffix`, so the IDE
+    treats it as the right filetype (e.g. `--suffix .md` -> a previewable editor).
     """
     fd, path = tempfile.mkstemp(suffix=suffix)
     try:
@@ -36,7 +41,7 @@ def open_inline(content: str, *, suffix: str = ".txt", wait: bool = False) -> st
             handle.write(content)
         # fd is now closed (os.fdopen's context manager closed it): the IDE opens
         # a fully-written, flushed file.
-        contents = open_file(path, wait=wait)
+        contents = open_file(path, wait=wait, preview=preview)
         if wait:
             return contents
         # Fire-and-forget: the IDE was launched async and is (or will be) reading
@@ -58,8 +63,9 @@ def main(argv: list[str]) -> int:
         description="Open an inline string in the running JetBrains IDE.",
         epilog=(
             "Examples:\n"
-            '  open_inline.py "$snippet" --suffix .py   # open with .py highlighting\n'
-            '  open_inline.py "$snippet" --wait         # block until closed, then print'
+            '  open_inline.py "$snippet" --suffix .py        # open with .py highlighting\n'
+            '  open_inline.py "$snippet" --wait              # block until closed, then print\n'
+            '  open_inline.py "$md" --suffix .md --preview   # open, then flip to rendered preview'
         ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
@@ -70,9 +76,14 @@ def main(argv: list[str]) -> int:
     parser.add_argument(
         "--wait", action="store_true", help="block until the tab closes, then print the file's contents"
     )
+    parser.add_argument(
+        "--preview",
+        action="store_true",
+        help="after opening, flip the editor to WebStorm's rendered preview (best-effort; no-op for non-preview types)",
+    )
     ns = parser.parse_args(argv)
     try:
-        contents = open_inline(ns.inline, suffix=ns.suffix, wait=ns.wait)
+        contents = open_inline(ns.inline, suffix=ns.suffix, wait=ns.wait, preview=ns.preview)
     except JetBrainsError as exc:
         print(f"open_inline: {exc}", file=sys.stderr)
         return 1

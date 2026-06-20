@@ -21,7 +21,10 @@ else:
 
 # Cross-platform (no per-OS split). _launch imports resolve_exec_path lazily,
 # inside launch(), to avoid a cycle with this module, so it's import-safe here.
+# _preview builds on _launch/_reap (importing them directly, not via this
+# module), so it's import-safe here too.
 from ._launch import launch
+from ._preview import preview_url, set_preview
 from ._reap import reap_later
 
 __all__ = [
@@ -31,4 +34,6 @@ __all__ = [
     "resolve_log_dir",
     "launch",
     "reap_later",
+    "set_preview",
+    "preview_url",
 ]

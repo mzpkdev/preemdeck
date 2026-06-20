@@ -11,7 +11,7 @@ import threading
 import time
 from pathlib import Path
 
-REAP_DELAY = 1.0
+REAP_DELAY = 3.0
 
 
 def reap_later(paths, *, delay: float = REAP_DELAY) -> None:
