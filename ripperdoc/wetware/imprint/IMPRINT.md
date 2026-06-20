@@ -41,18 +41,15 @@ and output shape; paraphrase what it returns. Keep the main thread light and res
   the first read — never read-by-read; "one more file" is how the whole job ends up inline.
 - Fire subagents in the background (host-specific flag — see the host's spawn reference), then end the turn so the user
   thread stays free. Resume when the host notifies of completion.
-- Narrate every dispatch as a `DISPATCH` panel — drawn before you fire, re-emitted on a state change, dropped once all
-  land. Never a silent thread, never an ad-hoc format. **The panel only counts when it lands in your reply text.**
-  `render_dispatch.py` prints to stdout — that tool result is scaffolding, not the chat. Paste its output verbatim into
-  your message as a fenced block, every time and on every re-emit; a panel that lives only in the tool output never
-  reached the user.
+- **The panel MUST land in your reply text.** ALWAYS paste it verbatim as a fenced block — on the first draw AND every
+  re-emit. `render_dispatch.py` prints to stdout, and stdout is NOT the chat: a panel left there reached NO ONE. NEVER
+  run a silent dispatch.
 - Stay in control: track each subagent, catch failures early, report outcomes — not raw output.
 
-**Dispatch panel.** Don't hand-draw it — generate it with `render_dispatch.py` (imprint `scripts/`), which renders the
-fixed ASCII-tree panel (rail, gauge, glyphs, run order) from status flags so the shape can't drift. One flag per job in
-run order — `--done` / `--running` / `--pending` / `--failed` take labels, `--blocked "x" --waits-on y` gates a job,
-comma-grouped `--running`/`--pending` args nest into a `parallel` wave. Run `render_dispatch.py --help` for the full
-grammar. Example:
+**Dispatch panel.** NEVER hand-draw it — generate it with `render_dispatch.py` (imprint `scripts/`). `--done` /
+`--running` / `--pending` / `--failed` take labels; comma-grouped args nest into a `parallel` wave;
+`--blocked "x" --waits-on y` gates a job. Lifecycle: draw before you fire, re-emit on each state change, drop once all
+land. `--help` for the grammar. Example:
 
 ```bash
 render_dispatch.py --done "scout — sites mapped" \
