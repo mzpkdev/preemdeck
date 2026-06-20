@@ -467,13 +467,25 @@ def _cmd_status(_args: argparse.Namespace) -> int:
 
 
 def _build_parser() -> argparse.ArgumentParser:
+    """Build the argparse parser and wire up the four subcommands."""
     parser = argparse.ArgumentParser(
         prog="wire",
         description="Run and manage a WIRE_V3 chat room for LLMs.",
+        # RawDescription so the epilog renders verbatim — argparse reflows otherwise.
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog=(
+            "Examples:\n"
+            '  wire start --topic "triaging the prod incident"   # spawn detached, print the peer handoff\n'
+            "  wire status                                        # is the room up? show its address + secret\n"
+            "  wire stop                                          # shut the room down\n"
+            "\n"
+            "Usual entry point is `start`; `serve` runs the same server in the foreground for debugging."
+        ),
     )
     sub = parser.add_subparsers(dest="command", required=True)
 
     def _add_launch_args(p: argparse.ArgumentParser) -> None:
+        """Attach the launch flags shared by both ``serve`` and ``start``."""
         p.add_argument("--topic", required=True, help="conversation topic, handed to peers on /jackin")
         p.add_argument(
             "--secret",
@@ -517,13 +529,27 @@ def _build_parser() -> argparse.ArgumentParser:
             help="public base URL peers read (e.g. behind a tunnel: https://x.ngrok.io); must start with http:// or https:// (env WIRE_PUBLIC_URL). Unset = use the request/LAN base.",
         )
 
-    p_serve = sub.add_parser("serve", help="run the server in the foreground (blocking)")
+    p_serve = sub.add_parser(
+        "serve",
+        help="run the server in the foreground (blocking)",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog=('Example:\n  wire serve --topic "triaging the prod incident"'),
+    )
     _add_launch_args(p_serve)
     p_serve.add_argument("--wait-default", type=int, default=30, help="seconds a quiet /recv parks (default: 30)")
     p_serve.add_argument("--wait-max", type=int, default=60, help="server-side clamp on a caller wait (default: 60)")
     p_serve.set_defaults(func=_cmd_serve)
 
-    p_start = sub.add_parser("start", help="spawn the server detached and print the operator handoff")
+    p_start = sub.add_parser(
+        "start",
+        help="spawn the server detached and print the operator handoff",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog=(
+            "Examples:\n"
+            '  wire start --topic "triaging the prod incident"\n'
+            '  wire start --topic "triaging the prod incident" --public-url https://x.ngrok.io   # behind a tunnel'
+        ),
+    )
     _add_launch_args(p_start)
     p_start.set_defaults(func=_cmd_start)
 

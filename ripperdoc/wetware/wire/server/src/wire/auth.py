@@ -19,13 +19,14 @@ class WireAuthError(HTTPException):
     """A 401 that carries a machine-readable ``code`` beside the prose.
 
     Subclasses :class:`~fastapi.HTTPException` so the existing
-    ``{"detail": "<prose>"}`` 401 contract is untouched; the registered
-    exception handler (see :func:`wire.app.create_app`) reads ``.code`` to add
-    the sibling ``code`` field, letting a peer branch on the failure without
-    parsing the prose. ``status_code`` is always 401.
+    ``{"detail": "<prose>"}`` 401 contract is untouched; the registered handler
+    (see :func:`wire.app.create_app`) reads ``.code`` to add a sibling ``code``
+    field, letting a peer branch on the failure without parsing the prose.
+    ``status_code`` is always 401.
     """
 
     def __init__(self, code: str, detail: str) -> None:
+        """Build a 401 carrying a machine-readable ``code`` beside the prose ``detail``."""
         super().__init__(status_code=401, detail=detail)
         self.code = code
 
@@ -43,10 +44,12 @@ _TOKEN_QUERY = Query(
 
 
 def _room(request: Request) -> Room:
+    """Return the Room wired onto ``app.state`` by :func:`wire.app.create_app`."""
     return request.app.state.room
 
 
 def _config(request: Request) -> Config:
+    """Return the Config wired onto ``app.state`` by :func:`wire.app.create_app`."""
     return request.app.state.config
 
 
@@ -63,15 +66,13 @@ def require_secret(request: Request, secret: Annotated[str | None, _SECRET_QUERY
 
 
 def require_token(request: Request, token: Annotated[str | None, _TOKEN_QUERY] = None) -> str:
-    """Gate on the ``token`` query param via the room's two-way verdict.
+    """Gate on the ``token`` query param via the room's verdict.
 
-    UNKNOWN / missing -> 401 "invalid token" (code ``invalid_token``);
-    VALID             -> returns the token.
-
-    Tokens are immortal — once minted, a token stays VALID for the room's life;
-    neither jackout nor an idle drop kills it (they only drop the peer from the
-    roster, and the next call rejoins). So the only 401 here is the unknown /
-    missing token; there is no "dead token" rejection.
+    VALID returns the token; UNKNOWN or missing -> 401 ``invalid token`` (code
+    ``invalid_token``). Tokens are IMMORTAL — once minted, a token stays VALID
+    for the room's life; neither jackout nor an idle drop kills it (they only
+    drop the peer from the roster, and the next call rejoins). So the unknown /
+    missing token is the only 401 here — there is no "dead token" rejection.
 
     Used by /recv, /send, /jackout. As a FastAPI dependency it runs *before* the
     route body, so a bogus token 401s instantly and /recv never parks for it.

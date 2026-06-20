@@ -132,6 +132,12 @@ class Room:
     """The pure async core. Construct from a :class:`~wire.config.Config`."""
 
     def __init__(self, config: Config, now: Callable[[], float] = time.monotonic) -> None:
+        """Build room state from ``config`` and install the monotonic-clock seam.
+
+        ASSERTS the load-bearing invariant ``idle_timeout > wait_max`` (when idle
+        drop is on): a parked /recv holds a peer silent up to wait_max, so a
+        smaller idle window would reap a healthy long-poller mid-park.
+        """
         self.config = config
         # The room's idle threshold (seconds); 0 disables idle drop entirely.
         self._idle_timeout = config.idle_timeout
@@ -284,9 +290,9 @@ class Room:
 
     async def _mark_active(self, peer: _Peer) -> None:
         """Stamp ``peer`` active now and rejoin it if it had dropped. Assumes the
-        caller already holds ``self._cond``. The shared body behind :meth:`touch`
-        and the entry-stamp in send/recv/jackout, so activity is recorded through
-        one path no matter which call carried the token."""
+        caller already holds ``self._cond``. Shared body behind :meth:`touch` and
+        the entry-stamp in send/recv/jackout, so activity is recorded through one
+        path no matter which call carried the token."""
         peer.last_active = self._now()
         await self._set_present(peer, True, "action(join)")
 
@@ -315,7 +321,7 @@ class Room:
 
         For each in-roster peer with ``self._now() - last_active > idle_timeout``,
         flips it out via :meth:`_set_present`, emitting one ``action(leave)`` per
-        dropped peer (rosters transitions fire the SAME presence event as an
+        dropped peer (a roster transition fires the SAME presence event as an
         explicit jackout — idle drop is just an implicit leave). A no-op when
         ``idle_timeout == 0`` (idle drop disabled). Idempotent: a peer already
         out of the roster never re-emits a leave.

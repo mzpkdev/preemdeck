@@ -1,16 +1,16 @@
 """The FastAPI factory and routes.
 
-``create_app(config)`` builds the app, constructs the one :class:`~wire.room.Room`,
-stashes room + config on ``app.state`` (where the auth deps read them), and wires
-the endpoints. The HTTP layer is thin: it validates credentials, calls the core,
-and renames ``sender`` -> ``from`` on the way out. OpenAPI is served at /schema.
+:func:`~wire.app.create_app` builds the app, constructs the one
+:class:`~wire.room.Room`, stashes room + config on ``app.state`` (where the auth
+deps read them), and wires the endpoints. The HTTP layer is thin: it validates
+credentials, calls the core, and renames ``sender`` -> ``from`` on the way out.
+OpenAPI is served at ``/schema``.
 
-A custom :func:`app.openapi` post-processes the generated document so /schema is
-honest: it marks the ``secret``/``token`` query params required (they stay
-*optional* in the signatures so a missing credential still returns 401, not
-FastAPI's auto-422) and the route metadata carries real descriptions and the
-401 error contract. The document is built once and cached on
-``app.openapi_schema``.
+A custom ``app.openapi`` post-processes the generated document so ``/schema`` is
+honest — it marks the ``secret``/``token`` query params required (they stay
+*optional* in the signatures so a missing credential still returns 401, NOT
+FastAPI's auto-422). Route metadata carries real descriptions and the 401 error
+contract. The document is built once and cached on ``app.openapi_schema``.
 """
 
 from __future__ import annotations
@@ -52,9 +52,10 @@ _SPECTATE_HEARTBEAT_SECONDS = 15.0
 def _event_to_model(entry: Message | Presence) -> MessageEvent | PresenceEvent:
     """Render one room log entry to its wire model, per-type (no null-padding).
 
-    The single serialization seam shared by /recv and /spectate, so a peer and a
-    spectator see byte-identical event JSON. A message emits id/type/from/
-    message{seq,body}/sent_at; a presence event id/type/peer/sent_at.
+    The single serialization seam shared by /recv and
+    /spectate, so a peer and a spectator see byte-identical event
+    JSON. A message emits ``id``/``type``/``from``/``message{seq,body}``/``sent_at``;
+    a presence event ``id``/``type``/``peer``/``sent_at``.
     """
     if isinstance(entry, Message):
         return MessageEvent(
@@ -94,9 +95,9 @@ def _spectate_event_frame(entry: Message | Presence) -> str:
 
     Reuses :func:`_event_to_model` so the ``data:`` payload is byte-identical to
     the matching /recv event JSON (compact, one line). The SSE ``id:`` is the
-    entry's event id (its stream position) so a reconnect's ``Last-Event-ID``
-    can resume exactly past it; the ``event:`` name is the short
-    message|join|leave form.
+    entry's event id (its stream position) so a reconnect's ``Last-Event-ID`` can
+    resume exactly past it; the ``event:`` name is the short ``message``/``join``/
+    ``leave`` form.
     """
     model = _event_to_model(entry)
     return _sse_frame(
@@ -201,9 +202,7 @@ async def _spectate_stream(room: Room, last_id: int) -> AsyncIterator[str]:
 # JSON 401 body is `{"detail": "<prose>", "code": "<code>"}`; the codes named
 # here let a peer branch on the failure without parsing the prose.
 _SECRET_401 = {
-    401: {
-        "description": ('Missing or wrong `secret` -> body `{"detail": "invalid secret", "code": "invalid_secret"}`.')
-    }
+    401: {"description": 'Missing or wrong `secret` -> body `{"detail": "invalid secret", "code": "invalid_secret"}`.'}
 }
 _TOKEN_401 = {
     401: {
@@ -347,6 +346,7 @@ def _lifespan(room: Room, config: Config, shutdown: Callable[[], None] = _defaul
 
     @contextlib.asynccontextmanager
     async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
+        """Start the reaper task on entry (if enabled); cancel and await it on exit."""
         task: asyncio.Task[None] | None = None
         if config.idle_timeout > 0 or config.empty_grace > 0:
             task = asyncio.create_task(_reaper_loop(room, config.sweep_interval, shutdown))
@@ -376,6 +376,7 @@ def create_app(config: Config) -> FastAPI:
 
     @app.exception_handler(WireAuthError)
     async def _wire_auth_error(request: Request, exc: WireAuthError) -> JSONResponse:
+        """Render a :class:`~wire.auth.WireAuthError` as a 401 with ``detail`` + ``code``."""
         # NON-BREAKING: keep the existing `{"detail": "<prose>"}` body and add a
         # sibling machine-readable `code`, so peers branch on the code without
         # parsing prose. `detail` stays a string — turning it into a dict would
@@ -391,6 +392,7 @@ def create_app(config: Config) -> FastAPI:
         ),
     )
     async def health() -> HealthResponse:
+        """GET /health — ungated liveness probe; returns ``{"status": "ok"}``."""
         return HealthResponse(status="ok")
 
     @app.get(
@@ -411,6 +413,7 @@ def create_app(config: Config) -> FastAPI:
             ),
         ] = None,
     ) -> PlainTextResponse:
+        """GET /shard — secret-gated; returns the room's onboarding manual as markdown."""
         # Checked inline (not via require_secret): this endpoint's bodies are markdown.
         if secret is None or secret != config.secret:
             # The body is markdown, not JSON, so the machine-readable code rides
@@ -454,6 +457,7 @@ def create_app(config: Config) -> FastAPI:
             ),
         ] = None,
     ) -> JackinResponse:
+        """POST /jackin — secret-gated; mints a token, joins the room, returns the peer's identity."""
         token, name = await room.jackin(requested=name)
         # Operator-declared public_url wins (e.g. behind a tunnel); else the
         # concrete request base, so the action URLs a peer follows resolve.
@@ -489,6 +493,7 @@ def create_app(config: Config) -> FastAPI:
         responses=_TOKEN_401,
     )
     async def jackout(token: str = Depends(require_token)) -> JackoutResponse:
+        """POST /jackout — token-gated; drops the peer from the roster (the token survives)."""
         left = await room.jackout(token)
         return JackoutResponse(left=left)
 
@@ -506,6 +511,7 @@ def create_app(config: Config) -> FastAPI:
         openapi_extra=_SEND_REQUEST_BODY,
     )
     async def send(request: Request, token: str = Depends(require_token)) -> SendResponse:
+        """POST /send — token-gated; posts a raw plain-text message, returns ``{id, seq}``."""
         # Plain text, not JSON: client sends `curl -d 'your message'`.
         raw = await request.body()
         text = raw.decode("utf-8")
@@ -546,6 +552,7 @@ def create_app(config: Config) -> FastAPI:
             ),
         ] = None,
     ) -> RecvResponse:
+        """GET /recv — token-gated long-poll; returns this peer's unseen events or an empty heartbeat."""
         if wait is not None:
             wait = min(wait, config.wait_max)
         result = await room.recv(token, wait)
@@ -571,6 +578,7 @@ def create_app(config: Config) -> FastAPI:
         request: Request,
         _: str = Depends(require_secret),
     ) -> StreamingResponse:
+        """GET /spectate — secret-gated; opens a read-only, tokenless SSE watch stream."""
         # secret = watch (this gate), token = speak. A spectator is INVISIBLE:
         # require_secret authorizes the WATCH and returns *before* the stream
         # opens (a wrong/missing secret 401s here, never as a half-open stream),

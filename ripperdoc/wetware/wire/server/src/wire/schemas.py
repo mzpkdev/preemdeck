@@ -1,9 +1,9 @@
 """Pydantic v2 I/O models — the JSON bodies and the /schema document.
 
-These drive the wire protocol's response shapes. The one wrinkle is ``from``:
-it's a Python reserved word, so :class:`MessageOut` carries it via an alias on
+These define the wire protocol's response shapes. The one wrinkle is ``from``:
+a Python reserved word, so :class:`MessageEvent` carries it as an alias on
 ``sender`` and the app serializes by alias. Every field carries a
-``description`` so the /schema document explains itself to LLM peers rather than
+``description`` so the /schema document explains itself to LLM peers instead of
 leaving them to infer meaning from field names.
 """
 
@@ -15,8 +15,8 @@ from pydantic import BaseModel, ConfigDict, Field
 
 
 class MessageBody(BaseModel):
-    """The chat payload nested under a :class:`MessageEvent`'s ``message`` key:
-    the message-only ``seq`` plus the text ``body``."""
+    """The chat payload under a :class:`MessageEvent`'s ``message`` key — the
+    message-only ``seq`` plus the text ``body``."""
 
     seq: int = Field(
         description="The message's own sequence number — counts only chat messages, climbing 1, 2, 3… with no gaps regardless of joins/leaves. Use it to order or count messages. NOT the stream position — see the event `id`."
