@@ -74,7 +74,10 @@ def merge_file(target: str, suggestion: str, base: str | None = None, *, wait: b
 
 def main(argv: list[str]) -> int:
     parser = argparse.ArgumentParser(
-        prog="merge_file.py", description="3-way merge files in the running JetBrains IDE."
+        prog="merge_file.py",
+        description="3-way merge of two files (with an optional base) in the running JetBrains IDE.",
+        epilog=("Examples:\n  merge_file.py mine.py theirs.py base.py\n  merge_file.py mine.py theirs.py --wait"),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     parser.add_argument("target", help="local pane - your version")
     parser.add_argument("suggestion", help="remote pane - the proposed version")

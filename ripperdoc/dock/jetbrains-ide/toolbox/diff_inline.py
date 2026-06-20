@@ -66,11 +66,16 @@ def diff_inline(target: str, suggestion: str, *, suffix: str = ".txt", wait: boo
 
 def main(argv: list[str]) -> int:
     parser = argparse.ArgumentParser(
-        prog="diff_inline.py", description="Diff inline strings in the running JetBrains IDE."
+        prog="diff_inline.py",
+        description="Diff inline strings in the running JetBrains IDE.",
+        epilog=('Examples:\n  diff_inline.py "$old" "$new" --suffix .py\n  diff_inline.py "$old" "$new" --wait'),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     parser.add_argument("target", help="left pane - the file you reconcile into and get back")
     parser.add_argument("suggestion", help="right pane - the proposed version")
-    parser.add_argument("--suffix", default=".txt", help="suffix shared by both temp files (IDE syntax-highlight hint)")
+    parser.add_argument(
+        "--suffix", default=".txt", help="suffix for both temp files, gives the IDE a syntax-highlighting hint"
+    )
     parser.add_argument(
         "--wait", action="store_true", help="block until the diff tab closes, then print the LEFT pane's contents"
     )

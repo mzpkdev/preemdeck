@@ -42,7 +42,12 @@ def diff_file(target: str, suggestion: str, *, wait: bool = False) -> str | None
 
 
 def main(argv: list[str]) -> int:
-    parser = argparse.ArgumentParser(prog="diff_file.py", description="Diff files in the running JetBrains IDE.")
+    parser = argparse.ArgumentParser(
+        prog="diff_file.py",
+        description="Diff two files in the running JetBrains IDE.",
+        epilog=("Examples:\n  diff_file.py mine.py theirs.py\n  diff_file.py mine.py theirs.py --wait"),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
     parser.add_argument("target", help="left pane - the file you reconcile into and get back")
     parser.add_argument("suggestion", help="right pane - the proposed version")
     parser.add_argument(

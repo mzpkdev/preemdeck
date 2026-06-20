@@ -72,12 +72,21 @@ def merge_inline(
 
 def main(argv: list[str]) -> int:
     parser = argparse.ArgumentParser(
-        prog="merge_inline.py", description="3-way merge inline strings in the running JetBrains IDE."
+        prog="merge_inline.py",
+        description="3-way merge inline strings in the running JetBrains IDE.",
+        epilog=(
+            "Examples:\n"
+            '  merge_inline.py "$mine" "$theirs" "$base" --suffix .py\n'
+            '  merge_inline.py "$mine" "$theirs" --wait'
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     parser.add_argument("target", help="local pane - your version")
     parser.add_argument("suggestion", help="remote pane - the proposed version")
     parser.add_argument("base", nargs="?", help="optional common ancestor (the 3-way base)")
-    parser.add_argument("--suffix", default=".txt", help="suffix shared by every temp file (IDE syntax-highlight hint)")
+    parser.add_argument(
+        "--suffix", default=".txt", help="suffix for every temp file, gives the IDE a syntax-highlighting hint"
+    )
     parser.add_argument(
         "--wait", action="store_true", help="block until the user applies, then print the merged result"
     )

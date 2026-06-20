@@ -31,11 +31,18 @@ def open_file(path: str, line: int = 1, column: int | None = None, *, wait: bool
 
 
 def main(argv: list[str]) -> int:
-    parser = argparse.ArgumentParser(prog="open_file.py", description="Open a file in the running JetBrains IDE.")
-    parser.add_argument("path")
-    parser.add_argument("--line", type=int, default=1)
-    parser.add_argument("--column", type=int, default=None)
-    parser.add_argument("--wait", action="store_true", help="block until the file is edited, then print its contents")
+    parser = argparse.ArgumentParser(
+        prog="open_file.py",
+        description="Open a file in the running JetBrains IDE.",
+        epilog=("Examples:\n  open_file.py src/app.py --line 42\n  open_file.py notes.md --wait"),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    parser.add_argument("path", help="file to open")
+    parser.add_argument("--line", type=int, default=1, help="1-based line to put the caret on (default 1)")
+    parser.add_argument("--column", type=int, default=None, help="1-based column to put the caret on")
+    parser.add_argument(
+        "--wait", action="store_true", help="block until the tab closes, then print the file's contents"
+    )
     ns = parser.parse_args(argv)
     try:
         contents = open_file(ns.path, ns.line, ns.column, wait=ns.wait)

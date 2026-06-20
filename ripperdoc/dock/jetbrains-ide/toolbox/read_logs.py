@@ -22,7 +22,10 @@ def read_logs(n: int = 50) -> list[str]:
 
 def main(argv: list[str]) -> int:
     parser = argparse.ArgumentParser(
-        prog="read_logs.py", description="Read the last N lines of the running JetBrains IDE's log."
+        prog="read_logs.py",
+        description="Read the last N lines of the running JetBrains IDE's log.",
+        epilog=("Examples:\n  read_logs.py\n  read_logs.py 200"),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     parser.add_argument("n", type=int, nargs="?", default=50, help="number of trailing log lines to print (default 50)")
     ns = parser.parse_args(argv)

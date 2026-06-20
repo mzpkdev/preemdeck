@@ -1,11 +1,12 @@
 #!/usr/bin/env python3
 """Open an inline string in the running JetBrains IDE via a temp file.
 
-Usage:  open_inline.py <inline> [--suffix S] [--wait]
+A thin string-native wrapper over open_file: the string is spilled to a temp
+file (named with `suffix` so the IDE picks the right syntax highlighting),
+opened, and - on the wait path - the edited text is handed back. The IDE only
+opens files, so the temp is the bridge.
 
-A thin string-native wrapper over open_file(): writes `content` to a temp file
-(named with `suffix` so the IDE picks the right syntax highlighting), opens it,
-and — on the wait path — hands back the edited text.
+Usage:  open_inline.py <inline> [--suffix S] [--wait]
 """
 
 import argparse
@@ -46,7 +47,7 @@ def open_inline(content: str, *, suffix: str = ".txt", wait: bool = False) -> st
         reap_later([path])
         return None
     finally:
-        # Only the wait=True path is safe to clean up synchronously here —
+        # Only the wait=True path is safe to clean up synchronously here -
         # open_file() has already returned the edited text, so the temp is done.
         # The wait=False reap is deferred via reap_later above, not run here.
         if wait:
@@ -57,10 +58,16 @@ def main(argv: list[str]) -> int:
     parser = argparse.ArgumentParser(
         prog="open_inline.py",
         description="Open an inline string in the running JetBrains IDE.",
+        epilog=('Examples:\n  open_inline.py "$snippet" --suffix .py\n  open_inline.py "$snippet" --wait'),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     parser.add_argument("inline", help="the literal string to open")
-    parser.add_argument("--suffix", default=".txt", help="temp-file suffix for IDE syntax highlighting")
-    parser.add_argument("--wait", action="store_true", help="block until edited, then print the contents")
+    parser.add_argument(
+        "--suffix", default=".txt", help="suffix for the temp file, gives the IDE a syntax-highlighting hint"
+    )
+    parser.add_argument(
+        "--wait", action="store_true", help="block until the tab closes, then print the file's contents"
+    )
     ns = parser.parse_args(argv)
     try:
         contents = open_inline(ns.inline, suffix=ns.suffix, wait=ns.wait)
