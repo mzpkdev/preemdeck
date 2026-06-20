@@ -1,23 +1,23 @@
 #!/usr/bin/env python3
-"""Render a DISPATCH ASCII-tree panel from status flags.
+"""Render a JOBS ASCII-tree panel from status flags.
 
 Draws the fixed subagent-dispatch panel as a box-drawing tree:
-a `DISPATCH  <gauge>  <done>/<total>` root over one branch per job. This is the
+a `JOBS  <gauge>  <done>/<total>` root over one branch per job. This is the
 no-tail mode — each branch is `<glyph> <label>` (plus ` — waits on X` for a
 blocked job); there is no lane/tail split and no tail-stripe alignment.
 
 Grammar (status flags, each takes one or more LABEL args):
-  --done LABEL...      ⏹︎ done
-  --running LABEL...   ▶︎ running   (comma-groupable into a parallel wave)
-  --pending LABEL...   ⏸︎ queued    (comma-groupable into a parallel wave)
-  --failed LABEL...    ⏺︎ failed
-  --blocked LABEL      ⏏︎ blocked; must be followed by `--waits-on X`, which
+  --done LABEL...      ■ done
+  --running LABEL...   ▣ running   (comma-groupable into a parallel wave)
+  --pending LABEL...   □ queued    (comma-groupable into a parallel wave)
+  --failed LABEL...    ⊞ failed
+  --blocked LABEL      ⊟ blocked; must be followed by `--waits-on X`, which
                        appends ` — waits on X` to that job's line.
 
 A LABEL is a single label — the whole arg string is the job's text.
 
 Parallel waves (only --running / --pending): a comma-grouped arg renders as a
-bare `parallel` node with its members nested one rail-level beneath it.
+bare `⎇` node with its members nested one rail-level beneath it.
   - tight comma separates members:        "a,b"      -> wave [a, b]
   - a trailing bare comma continues into
     the next arg:                          "a," "b"   -> wave [a, b]
@@ -28,7 +28,7 @@ For --done / --failed / --blocked, commas are always literal.
 Order is left-to-right command-line order; flags may repeat and interleave.
 
 Auto-computed (never input): total = leaf-job count (each wave member counts;
-the parallel node does not), done = count of ⏹︎ jobs, gauge = "▰"*done +
+the parallel node does not), done = count of ■ jobs, gauge = "▰"*done +
 "▱"*(total-done), one segment per leaf.
 
 Fails LOUD (nonzero exit + stderr) on: no jobs, an unknown flag, `--waits-on`
@@ -42,14 +42,15 @@ import sys
 from dataclasses import dataclass, field
 
 GLYPH = {
-    "done": "⏹︎",  # ⏹ U+23F9 stop + U+FE0E text presentation
-    "running": "▶︎",  # ▶ U+25B6 play + U+FE0E text presentation
-    "pending": "⏸︎",  # ⏸ U+23F8 pause + U+FE0E text presentation  queued
-    "failed": "⏺︎",  # ⏺ U+23FA record + U+FE0E text presentation
-    "blocked": "⏏︎",  # ⏏ U+23CF eject + U+FE0E text presentation
+    "done": "■",  # ■ U+25A0 black square
+    "running": "▣",  # ▣ U+25A3 white square containing black small square
+    "pending": "□",  # □ U+25A1 white square  queued
+    "failed": "⊞",  # ⊞ U+229E squared plus
+    "blocked": "⊟",  # ⊟ U+229F squared minus
 }
 FILLED = "▰"  # ▰
 EMPTY = "▱"  # ▱
+PARALLEL = "⎇"  # ⎇ U+2387 — parallel-wave node label
 
 STATUS_FLAGS = {
     "--done": "done",
@@ -200,7 +201,7 @@ def parse(argv: list[str]) -> list[Node]:
 
 
 def render(nodes: list[Node]) -> str:
-    """Render parsed nodes into the DISPATCH panel text (no trailing newline)."""
+    """Render parsed nodes into the JOBS panel text (no trailing newline)."""
     if not nodes:
         raise DispatchError("no jobs to dispatch")
 
@@ -209,20 +210,20 @@ def render(nodes: list[Node]) -> str:
     for node in nodes:
         if node.status == "parallel":
             total += len(node.members)
-            # parallel members are running/pending → never ⏹, so add 0 to done
+            # parallel members are running/pending → never ■, so add 0 to done
         else:
             total += 1
             if node.status == "done":
                 done += 1
 
     gauge = FILLED * done + EMPTY * (total - done)
-    lines = [f"DISPATCH  {gauge}  {done}/{total}"]
+    lines = [f"JOBS  {gauge}  {done}/{total}"]
 
     for idx, node in enumerate(nodes):
         last = idx == len(nodes) - 1
         branch = ELBOW if last else TEE
         if node.status == "parallel":
-            lines.append(f"{branch}parallel")
+            lines.append(f"{branch}{PARALLEL}")
             member_glyph = GLYPH[node.member_status]
             cont = GAP if last else PIPE
             for midx, member in enumerate(node.members):
