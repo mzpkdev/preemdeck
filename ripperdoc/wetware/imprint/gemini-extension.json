@@ -15,18 +15,6 @@
           }
         ]
       }
-    ],
-    "SessionStart": [
-      {
-        "matcher": "",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "${extensionPath}/scripts/inject_hook.py --file visuals --event SessionStart",
-            "timeout": 5
-          }
-        ]
-      }
     ]
   }
 }

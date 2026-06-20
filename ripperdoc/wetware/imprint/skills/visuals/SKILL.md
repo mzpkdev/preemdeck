@@ -1,3 +1,13 @@
+---
+description: |
+  Terminal-output formatting rules — read BEFORE composing any reply that needs visual shape, so it
+  comes out right the first time. Reach for it whenever the answer calls for: a fenced code block or a
+  Rust-style caret annotation pinning a bug; a table comparing 3+ items; an ASCII tree for a hierarchy
+  or directory layout; a layered box-drawing graph for architecture or dataflow; or status emoji and
+  unicode meters/gauges for progress, health, or state. Covers when each shape applies and how to draw it.
+user-invocable: true
+---
+
 # VISUALS
 
 These are silent formatting rules — apply them when a reply needs the shape, never announce, quote, or recite them.
@@ -202,164 +212,4 @@ disk   ⣀⣄⣆⣇⣧⣷⣿
 ctx    ▰▰▰▰▰▰▱▱▱▱  6/10
 sync   ⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏
 nodes  ●──◐──○──◌
-```
-
-## LLM
-
-### When to use
-
-- Use these when you're rendering the machinery of generation and agency — streaming, thinking, tool calls, plan
-  progress — not generic status. They make an agent transcript legible at a glance.
-- Reach for them in the inline output stream itself. Keep dashboard instrumentation — logprob heatmaps, tokens/sec,
-  time-to-first-token — out; that's a TUI's job, and it just reuses the Glyphs meters above.
-
-### How to draw
-
-- Streaming: a block caret `█` (or `▋`) trailing the live text marks generation in flight; drop it once the turn
-  settles.
-- Thinking vs answering: a spoked burst `✶ ✻ ✽ ✦` cycles while the model reasons *before* output — distinct from the
-  braille spinner you'd use for a tool that's merely running.
-- Tool call to result: `⏺` opens the call, `⎿` branches the result one indent beneath it. Verify both render text-style
-  (single-width) in your terminal or the indentation drifts.
-- Plan state: `☐` pending · `◐` running · `☑` done · `☒` failed · `⊘` blocked — one row, held consistent.
-- Budget, grounding, safety: `▰▱` for context-window fill, superscripts `¹²³` or `※` for citations, solid blocks
-  `██████` for redacted spans.
-
-```text
-☑ read cfg   ☑ patch handler   ◐ run tests   ☐ ship
-✻ Cogitating…  4.2s · ↑1.2k tok
-⏺ Read(src/server.ts)
-  ⎿  214 lines · ok
-⏺ Bash(npm test)
-  ⎿  ✗ 2 failed · 18 passed   … +30 lines
-ctx ▰▰▰▰▰▰▰▱▱▱ 71%   key ██████ redacted   src ¹ ²
-the fix is in the retry handler █
-```
-
-## Dispatch
-
-### When to use
-
-- Render this every time you plan or queue subagents — the fixed shape for "here's how I carved the work and what's
-  running." One dispatch, one panel, drawn before you fire. NEVER IMPROVISE THE FORMAT; never dispatch silently.
-- A lone atomic fixer collapses to a one-branch tree — keep the shape anyway. Sameness every time is the whole point.
-- Re-emit only on a state change worth reading — a wave clears, a job lands, a job fails — never on micro-progress. Drop
-  the panel once every job is `☑`/`☒` and close in prose.
-
-### How to draw
-
-- **Don't hand-draw it — generate it.** Call `render_dispatch.py` (in the imprint `scripts/` dir) and emit its stdout
-  verbatim. The script owns the rail, gauge, glyphs, and run order; weaving them by hand is the only way they drift, so
-  don't.
-- One flag per job, in run order: `--done` ☑ · `--running` ◐ · `--pending` ☐ · `--failed` ☒ · `--blocked` ⊘. Each takes
-  one or more **single-label** jobs — the whole quoted arg is the label.
-- **Parallel wave:** comma-group args under `--running`/`--pending` — `--running "a","b"` nests `a` and `b` under a bare
-  `parallel` node. A comma-free arg is a singleton; `--done`/`--failed`/`--blocked` never group.
-- **Blocked gate:** `--blocked "verify" --waits-on parallel` → `⊘ verify — waits on parallel`.
-- The root meter `DISPATCH  ▰▱  done/total` is computed — done = ☑ count, total = leaf jobs, one gauge segment each.
-  Unknown status or empty input exits non-zero; never a half-drawn panel.
-- **Live re-emit:** re-run with statuses advanced — same jobs, same order, glyphs moved. A finished wave re-renders
-  flat; no ☑ ever sits inside a `parallel`.
-
-Sequential or independent fixers:
-
-```bash
-render_dispatch.py --done "scout — auth call sites mapped" \
-  --running "session — migrate store to redis" \
-  --pending "rest — async middleware" "alembic — users.role migration" "verify — login smoke-test"
-```
-
-```text
-DISPATCH  ▰▱▱▱▱  1/5
-├── ☑ scout — auth call sites mapped
-├── ◐ session — migrate store to redis
-├── ☐ rest — async middleware
-├── ☐ alembic — users.role migration
-└── ☐ verify — login smoke-test
-```
-
-Parallel set behind a gate:
-
-```bash
-render_dispatch.py --done "scout — auth flow mapped" \
-  --running "session — redis adapter","rest — async middleware","alembic — users.role migration" \
-  --blocked "verify — login smoke" --waits-on parallel
-```
-
-```text
-DISPATCH  ▰▱▱▱▱  1/5
-├── ☑ scout — auth flow mapped
-├── parallel
-│   ├── ◐ session — redis adapter
-│   ├── ◐ rest — async middleware
-│   └── ◐ alembic — users.role migration
-└── ⊘ verify — login smoke — waits on parallel
-```
-
-## Routing
-
-### When to use
-
-- One reply answering more than one of the user's prompts — usually a backgrounded fixer's answer landing in the same
-  turn you reply to a newer question, fusing two unrelated answers into one block. Head each with the question it
-  answers.
-- A lone answer that lands more than a turn or two after it was asked (a fixer finally returned) — head it too, or the
-  user scrolls back to recall what it responds to.
-- One answer to the question just asked → no header. It's obvious; a header there is noise.
-
-### How to draw
-
-- Open each answer with an inset-tab rule from the § Graph box-drawing set: `┤ Re: "<question>" ├` then `─` to fill. The
-  notch makes the label read as owning the block beneath it.
-- Quote the question **verbatim** — the user's own words, never your paraphrase; verbatim is what they recognize without
-  scrolling. Trim to the first ~8 words + `…` when long.
-- Latest-asked first; just-resolved older questions beneath. The answer to what they *just* asked lands where the eye
-  is; the stale one carries its own back-reference under it.
-- No timestamps, no "N min ago" — elapsed time isn't reliably knowable and a wrong stamp misleads. The quote is the
-  anchor, not a clock.
-- Never tag the mechanism — which fixer, direct-vs-researched. The reader's question is "what is this answering," not
-  "who answered it." Headers are full-width lines, so they need no column alignment; the quote runs any length up to the
-  trim.
-
-A fixer's answer to an earlier question lands while you reply to a newer one, both in one turn:
-
-```text
-┤ Re: "should we cache the refreshed token?" ├────────────────
-Redis, TTL just under expiry. No Memcached — no persistence.
-
-┤ Re: "how does our auth token refresh actually work?" ├──────
-Silent refresh on a 15-min timer, auth/session.ts:42 — fires at the
-80% mark, swaps the cookie, retries once on a 401.
-```
-
-## Option brief
-
-### When to use
-
-- Precede an ask-tool call with one of these whenever its options need *showing* to choose between — a layout, a schema,
-  a tradeoff matrix, a snippet — anything a bare label can't carry. Send the brief as a normal chat message first, then
-  fire the tool with short labels.
-- The tool's `preview` field is dead — this message replaces it. Never route option detail through `preview`.
-- Skip it for self-evident X-or-Y picks. A brief on "overwrite or cancel?" is noise; fire the tool clean.
-
-### How to draw
-
-- One section per option, nothing else between them. No preamble, no "here are your choices" — the ask tool already
-  frames it.
-- Header is the **exact label** you pass to the tool, verbatim. That match is the whole mechanism: it's how the short
-  label maps back to its detail up here. Paraphrase the label and the link breaks.
-- Body is freeform — prose, a table, a list, a snippet — whatever fits *that* option; siblings need not match shape.
-  Keep each compact: a row, a few-line mockup, a short snippet, never an essay. If one option needs an essay, the pick
-  is too big for an ask.
-
-**Embedded** — counts join inline; one round-trip, wider rows.
-
-| order | items | total |
-| ----- | ----: | ----: |
-| #4021 |     3 |   $58 |
-
-**Separate endpoint** — `GET /orders/:id/items`, lazy-loads the count:
-
-```ts
-{ id: "4021", itemCount: 3 }
 ```

@@ -126,10 +126,10 @@ class InjectHookTest(unittest.TestCase):
         self.assertNotIn("{{host_tools}}", out["additionalContext"])
         self.assertIn("IMPRINT", out["additionalContext"])
 
-    # --file visuals --event SessionStart must parse with --event present
+    # --file imprint --event SessionStart must parse with --event present
     def test_file_alias_with_event_flag(self) -> None:
         proc = run_hook(
-            ["--file", "visuals", "--event", "SessionStart"],
+            ["--file", "imprint", "--event", "SessionStart"],
             stdin="{}",
         )
         self.assertEqual(proc.returncode, 0)

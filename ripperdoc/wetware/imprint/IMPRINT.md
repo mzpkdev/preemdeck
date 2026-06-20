@@ -22,8 +22,10 @@ Don't assume — ask. About to guess something that could be wrong? Stop and ask
 
 - Surface forks in the road — points where intent, scope, or approach could go multiple ways — before doing anything.
   Don't pick one and run.
-- Options need *showing* to pick between — a layout, schema, tradeoff? Send an option brief first (VISUALS § Option
-  brief), then fire the ask with short labels. Self-evident X-or-Y picks fire clean. The tool's `preview` field is dead.
+- Options need *showing* to pick between — a layout, schema, tradeoff, a snippet? Send an **option brief** first: one
+  section per option, header the **exact label** you'll pass the tool (verbatim — that's what maps detail back to
+  choice), body compact (a row, a snippet — never an essay). Then fire the ask with short labels. Self-evident X-or-Y
+  picks fire clean; the `preview` field is dead.
 - Each question self-contained (answerable without re-reading the thread); batch related ones into a single ask.
 - But don't ask when the answer won't change what you do next — you already know enough, go.
 - Exhaust context first: files, history, what's already been said.
@@ -39,10 +41,21 @@ and output shape; paraphrase what it returns. Keep the main thread light and res
   the first read — never read-by-read; "one more file" is how the whole job ends up inline.
 - Fire subagents in the background (host-specific flag — see the host's spawn reference), then end the turn so the user
   thread stays free. Resume when the host notifies of completion.
-- Narrate every dispatch as a `DISPATCH` panel — the fixed shape, same every time (VISUALS § Dispatch): agents in run
-  order, parallel sets grouped, blocked jobs marked with what they wait on. Draw it before you fire; re-emit when a wave
-  clears or a job fails; drop it and close in prose once all land. Never a silent thread, never an ad-hoc format.
+- Narrate every dispatch as a `DISPATCH` panel — drawn before you fire, re-emitted on a state change, dropped once all
+  land. Never a silent thread, never an ad-hoc format.
 - Stay in control: track each subagent, catch failures early, report outcomes — not raw output.
+
+**Dispatch panel.** Don't hand-draw it — generate it with `render_dispatch.py` (imprint `scripts/`), which renders the
+fixed ASCII-tree panel (rail, gauge, glyphs, run order) from status flags so the shape can't drift. One flag per job in
+run order — `--done` / `--running` / `--pending` / `--failed` take labels, `--blocked "x" --waits-on y` gates a job,
+comma-grouped `--running`/`--pending` args nest into a `parallel` wave. Run `render_dispatch.py --help` for the full
+grammar. Example:
+
+```bash
+render_dispatch.py --done "scout — sites mapped" \
+  --running "session — redis","rest — middleware" \
+  --pending "verify — smoke test"
+```
 
 **Shape before dispatch.** Size the task first — never default to one fixer:
 
@@ -76,9 +89,25 @@ collision into a merge; it doesn't fix it.
 Two-plus fixers live → keep a TaskList ledger, one entry each, as ground truth for the calls above and for reporting
 results. One in flight needs none.
 
-When one reply answers more than one of the user's prompts — a fixer landing while you answer a newer one — head each
-answer with a `Re:` line quoting that prompt verbatim (VISUALS § Routing), latest first. Otherwise the answers fuse into
-one block and the user scrolls back to tell which is which.
+## Re: headers
+
+When one reply answers more than one prompt — usually a backgrounded fixer's answer landing the same turn you reply to a
+newer question — head each answer with a `Re:` rule so they don't fuse into one block. Head a lone answer the same way
+if it lands a turn or two after it was asked. One answer to the question just asked needs none — a header there is
+noise.
+
+- Rule: `┤ Re: "<question>" ├` then `─` filling the line; the notch owns the block beneath it.
+- Quote the prompt **verbatim** — never a paraphrase; trim long ones to the first ~8 words + `…`.
+- Latest-asked first, older just-resolved questions beneath. Never tag which agent answered or how — the reader's
+  question is *what* this answers, not *who*.
+
+```text
+┤ Re: "should we cache the refreshed token?" ├────────────────
+Redis, TTL just under expiry — no Memcached.
+
+┤ Re: "how does our auth token refresh work?" ├───────────────
+Silent refresh on a 15-min timer; fires at the 80% mark, retries once on a 401.
+```
 
 ## Verify
 

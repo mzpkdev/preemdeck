@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
-"""Render a DISPATCH ASCII-tree panel from status flags — the § Dispatch shape.
+"""Render a DISPATCH ASCII-tree panel from status flags.
 
-Draws the fixed subagent-dispatch panel from VISUALS.md as a box-drawing tree:
+Draws the fixed subagent-dispatch panel as a box-drawing tree:
 a `DISPATCH  <gauge>  <done>/<total>` root over one branch per job. This is the
 no-tail mode — each branch is `<glyph> <label>` (plus ` — waits on X` for a
 blocked job); there is no lane/tail split and no tail-stripe alignment.
@@ -44,7 +44,7 @@ from dataclasses import dataclass, field
 GLYPH = {
     "done": "☑",  # ☑
     "running": "◐",  # ◐
-    "pending": "☐",  # ☐  (VISUALS "queued")
+    "pending": "☐",  # ☐  queued
     "failed": "☒",  # ☒
     "blocked": "⊘",  # ⊘
 }
@@ -60,7 +60,7 @@ STATUS_FLAGS = {
 }
 WAVE_FLAGS = {"--running", "--pending"}  # only these comma-group into waves
 
-# Rail pieces (verbatim from VISUALS § Tree / § Dispatch).
+# Rail pieces (box-drawing tree rails).
 TEE = "├── "  # ├──
 ELBOW = "└── "  # └──
 PIPE = "│   "  # │ + 3 spaces
@@ -240,6 +240,9 @@ def render(nodes: list[Node]) -> str:
 
 
 def main(argv: list[str]) -> int:
+    if "-h" in argv or "--help" in argv:
+        print((__doc__ or "").strip())
+        return 0
     try:
         nodes = parse(argv)
         panel = render(nodes)

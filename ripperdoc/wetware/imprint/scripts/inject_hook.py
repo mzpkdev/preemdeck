@@ -8,16 +8,15 @@ Wired inline in each host's manifest:
 
 Args (positional, backwards-compatible):
   argv[1] — prompt template path (relative to plugin root) OR `--file <name>`
-            where <name> is a short alias (`imprint`, `visuals`) that maps to
+            where <name> is a short alias (`imprint`) that maps to
             `<NAME>.md` in the plugin root
   argv[2] — host-tools file path (relative to plugin root); contents replace
             `{{host_tools}}` in the template. Optional — templates without the
-            placeholder (e.g. VISUALS.md) ignore it.
+            placeholder ignore it.
 
 Examples:
   inject_hook.py IMPRINT.md hosts/host_claude.md         # legacy positional
   inject_hook.py --file imprint hosts/host_claude.md     # equivalent via alias
-  inject_hook.py --file visuals                          # static template, no host-tools
 
 The hook reads `hook_event_name` from the JSON payload on stdin and echoes it
 back in the envelope, so the same script works for any context-injection event
