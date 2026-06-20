@@ -96,16 +96,20 @@ newer question — head each answer with a `Re:` rule so they don't fuse into on
 if it lands a turn or two after it was asked. One answer to the question just asked needs none — a header there is
 noise.
 
-- Rule: `┤ Re: "<question>" ├` then `─` filling the line; the notch owns the block beneath it.
+- Rule: the header is a one-line Markdown blockquote heading — `> ### Re: "<question>"` — with the answer in normal text
+  **beneath** it, **outside** the quote (answers carry code fences and ASCII panels that render badly inside a
+  blockquote). No box-drawing characters; the blockquote bar + heading is what makes it pop in chat.
 - Quote the prompt **verbatim** — never a paraphrase; trim long ones to the first ~8 words + `…`.
 - Latest-asked first, older just-resolved questions beneath. Never tag which agent answered or how — the reader's
   question is *what* this answers, not *who*.
 
 ```text
-┤ Re: "should we cache the refreshed token?" ├────────────────
+> ### Re: "should we cache the refreshed token?"
+
 Redis, TTL just under expiry — no Memcached.
 
-┤ Re: "how does our auth token refresh work?" ├───────────────
+> ### Re: "how does our auth token refresh work?"
+
 Silent refresh on a 15-min timer; fires at the 80% mark, retries once on a 401.
 ```
 
