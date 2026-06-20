@@ -1,8 +1,9 @@
 """Tests for read_logs - hermetic: read_logs.resolve_log_dir is monkeypatched to
 a tmp dir holding a written idea.log, so nothing ever touches a real IDE.
 
-read_logs(n) returns the last n lines; main wraps it, printing to stdout and
-mapping JetBrainsError / ValueError / OSError to exit code 1.
+read_logs(n) returns the last n lines; main wraps it in an argparse CLI, printing
+the lines newline-joined to stdout and mapping JetBrainsError / OSError to exit
+code 1. A non-int `n` is an argparse usage error (exit 2).
 """
 
 from pathlib import Path
@@ -80,6 +81,17 @@ def test_main_with_n_arg_prints_last_n_and_returns_0(
     assert out.err == ""
 
 
+def test_main_prints_lines_newline_joined(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    log_dir = _write_log(tmp_path, ["a", "b", "c", "d"])
+    monkeypatch.setattr(read_logs, "resolve_log_dir", lambda: log_dir)
+
+    assert read_logs.main(["3"]) == 0
+    out = capsys.readouterr()
+    assert out.out == "b\nc\nd\n"
+
+
 def test_main_returns_1_on_jetbrains_error_and_prints_nothing_to_stdout(
     monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
@@ -94,13 +106,15 @@ def test_main_returns_1_on_jetbrains_error_and_prints_nothing_to_stdout(
     assert "read_logs:" in out.err
 
 
-def test_main_returns_1_on_non_int_arg(
+def test_main_exits_2_on_non_int_arg(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     log_dir = _write_log(tmp_path, ["x", "y"])
     monkeypatch.setattr(read_logs, "resolve_log_dir", lambda: log_dir)
 
-    assert read_logs.main(["abc"]) == 1
+    with pytest.raises(SystemExit) as excinfo:
+        read_logs.main(["abc"])
+    assert excinfo.value.code == 2
     out = capsys.readouterr()
     assert out.out == ""
-    assert "read_logs:" in out.err
+    assert "usage:" in out.err

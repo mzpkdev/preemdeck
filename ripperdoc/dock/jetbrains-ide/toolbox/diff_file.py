@@ -1,103 +1,63 @@
 #!/usr/bin/env python3
-"""Diff two (or three) files in the running JetBrains IDE.
+"""Diff two files in the running JetBrains IDE.
 
-Usage:  diff_file.py <left> <right> [<third>] [--no-wait]
+Usage:  diff_file.py <target> <suggestion> [--wait]
 """
 
-import subprocess
+import argparse
 import sys
 from pathlib import Path
 
-from core import JetBrainsError, resolve_exec_path
+from core import JetBrainsError, launch
 
 
-def _snapshot(p: Path) -> tuple:
-    """A cheap identity for `p`: (exists, mtime_ns, size). Missing -> (False, 0, 0)."""
-    try:
-        st = p.stat()
-        return (True, st.st_mtime_ns, st.st_size)
-    except FileNotFoundError:
-        return (False, 0, 0)
+def diff_file(target: str, suggestion: str, *, wait: bool = False) -> str | None:
+    """Open a 2-way (`target` vs `suggestion`) diff in the running JetBrains IDE.
 
+    The positionals map straight onto `idea diff`'s panes in the given order:
+    `diff L R` (passthrough, no reordering) - `target` is the LEFT pane,
+    `suggestion` the RIGHT. Both inputs are resolved strictly, so a missing path
+    raises FileNotFoundError before anything launches.
 
-def diff_file(left: str, right: str, third: str | None = None, *, wait: bool = True) -> bool | None:
-    """Open a 2-way (`left` vs `right`) or 3-way diff in the running JetBrains IDE.
+    FIRE-AND-FORGET by default (`wait=False`): `launch()` spawns the IDE async and
+    the call returns None as soon as the process is started. With `wait=True`,
+    `launch()` appends the IDE's native `--wait` itself and blocks until the diff
+    tab is closed; the call then reads back and returns the `target` file's full text.
 
-    The positionals map straight onto `idea diff`'s panes in the given order: two
-    paths launch `idea diff L R`, three launch `idea diff L M R` (passthrough, no
-    reordering). BLOCKS by default (`wait=True`): launches with `--wait` and joins
-    on the launcher, so the call returns only once the viewer is dismissed. With
-    `wait=False` it is fire-and-forget: `--wait` is omitted and the launcher is not
-    joined, so the call returns as soon as the process is spawned. Every input is
-    resolved strictly, so a missing path raises FileNotFoundError before anything
-    launches. A failed spawn surfaces its OSError to the caller rather than being
-    swallowed.
+    The LEFT pane (`target`) is the editable/reported side: the user shapes the
+    `target` file (typing into it, or pulling chunks from the right `suggestion`
+    via the gutter arrows), so the `target` file is what we read back.
 
-    RESULT AWARENESS differs by arity:
-
-    2-way (`third is None`) + `wait=True` is the only result-aware path. `<left>`
-    is the editable/reported side: it's the file you want changes read back from, so
-    put it first; the reference goes second/right. The user shapes the LEFT file
-    (typing into it, or pulling chunks from the right reference via the gutter
-    arrows), so the LEFT file is what we watch. The right pane is reference-only:
-    edits there are intentionally ignored and not reported. Returns True iff the
-    human edited `<left>` during the diff, else False - detection is stat-based
-    (mtime_ns+size via the shared snapshot), so it flags *a write*, not a net content
-    change: an edit-then-revert reads as edited.
-
-    3-way (`third is not None`) is comparison-only and always returns None, even
-    when blocking. It launches (and joins, if `wait=True`) but never snapshots:
-    which pane IntelliJ makes editable in a 3-way diff is unverified, so reporting
-    off the wrong pane would be wrong - we decline to report rather than guess.
-
-    `wait=False` is also comparison-only for both arities: there is nothing to join,
-    so edits can't be observed and it returns None.
+    `launch()` is the single guard for a live IDE: it raises JetBrainsError if none
+    is found.
     """
-    ide = resolve_exec_path()
-    left = Path(left).resolve(strict=True)
-    left_abs = str(left)
-    right_abs = str(Path(right).resolve(strict=True))
-    cmd = [ide, "diff", left_abs, right_abs]
-    if third is not None:
-        cmd.append(str(Path(third).resolve(strict=True)))
-    if not wait:
-        subprocess.Popen(cmd)
-        return None
-    cmd.append("--wait")
-    # 3-way is comparison-only: no editable pane we trust, so launch, join, report
-    # nothing. Only the 2-way blocking path snapshots the left pane for an edit.
-    if third is not None:
-        subprocess.Popen(cmd).wait()
-        return None
-    before = _snapshot(left)
-    subprocess.Popen(cmd).wait()
-    # The after-snapshot assumes the IDE flushed `<left>` to disk before --wait
-    # returned (untested in mocks, where Popen is stubbed out).
-    after = _snapshot(left)
-    return after != before
-
-
-_USAGE = "usage: diff_file.py <left> <right> [<third>] [--no-wait]"
+    target_abs = str(Path(target).resolve(strict=True))
+    suggestion_abs = str(Path(suggestion).resolve(strict=True))
+    args = ["diff", target_abs, suggestion_abs]
+    # 2-way always watches `target` (LEFT), the editable/reported pane. With
+    # wait=True, launch() blocks on the IDE's native --wait; we then read the
+    # `target` file back. Do NOT append --wait here - launch() owns that.
+    launch(args, wait=wait)
+    return Path(target_abs).read_text() if wait else None
 
 
 def main(argv: list[str]) -> int:
-    wait = "--no-wait" not in argv
-    args = [a for a in argv if a != "--no-wait"]
-    if len(args) not in (2, 3):
-        print(_USAGE, file=sys.stderr)
-        return 2
+    parser = argparse.ArgumentParser(prog="diff_file.py", description="Diff files in the running JetBrains IDE.")
+    parser.add_argument("target", help="left pane - the file you reconcile into and get back")
+    parser.add_argument("suggestion", help="right pane - the proposed version")
+    parser.add_argument(
+        "--wait", action="store_true", help="block until the diff tab closes, then print the LEFT file's contents"
+    )
+    ns = parser.parse_args(argv)
     try:
-        # 2 positionals -> 2-way; 3 -> 3-way passthrough (third pane).
-        edited = diff_file(*args, wait=wait)
+        contents = diff_file(ns.target, ns.suggestion, wait=ns.wait)
     except (JetBrainsError, OSError, ValueError) as exc:
         print(f"diff_file: {exc}", file=sys.stderr)
         return 1
-    # Only the 2-way blocking path is result-aware: it reports the review outcome on
-    # stdout, where "unchanged" is a valid result, NOT a failure, so both branches
-    # exit 0. 3-way and --no-wait return None (comparison-only) -> nothing printed,
-    # still exit 0.
-    if edited is not None:
-        print("edited" if edited else "unchanged")
+    # Only --wait is result-aware: print the LEFT pane's text. Without it,
+    # diff_file() returns None (fire-and-forget) and nothing is printed.
+    if contents is not None:
+        print(contents, end="")
     return 0
 
 

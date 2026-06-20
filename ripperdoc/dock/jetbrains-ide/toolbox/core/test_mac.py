@@ -1,7 +1,7 @@
-"""Tests for core._mac — fixtures captured live under WebStorm this session.
+"""Tests for core.jetbrains_mac — fixtures captured live under WebStorm this session.
 
 resolve_exec_path() walks the process ancestry via `ps`; both `subprocess.run`
-and `os.getpid` are monkeypatched on the core._mac module so the walk is
+and `os.getpid` are monkeypatched on the core.jetbrains_mac module so the walk is
 hermetic. resolve_log_dir() is exercised against a fake JetBrains log tree under
 a tmp HOME, with mtimes set so the newest matching product dir wins.
 """
@@ -13,7 +13,7 @@ from pathlib import Path
 
 import pytest
 
-from core import JetBrainsError, _mac, in_jetbrains, resolve_exec_path
+from core import JetBrainsError, jetbrains_mac, in_jetbrains, resolve_exec_path
 
 WEBSTORM = "/Applications/WebStorm.app/Contents/MacOS/webstorm"
 
@@ -66,26 +66,26 @@ def test_in_jetbrains_false_when_neither_set(monkeypatch: pytest.MonkeyPatch) ->
 
 
 def test_resolve_exec_path_walks_ancestry_to_webstorm(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(_mac.os, "getpid", lambda: 7539)
-    monkeypatch.setattr(_mac.subprocess, "run", _fake_ps(ANCESTRY))
+    monkeypatch.setattr(jetbrains_mac.os, "getpid", lambda: 7539)
+    monkeypatch.setattr(jetbrains_mac.subprocess, "run", _fake_ps(ANCESTRY))
     assert resolve_exec_path() == WEBSTORM
 
 
 def test_resolve_exec_path_skips_python_app_ancestor(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(_mac.os, "getpid", lambda: 7539)
-    monkeypatch.setattr(_mac.subprocess, "run", _fake_ps(ANCESTRY))
+    monkeypatch.setattr(jetbrains_mac.os, "getpid", lambda: 7539)
+    monkeypatch.setattr(jetbrains_mac.subprocess, "run", _fake_ps(ANCESTRY))
     assert "Python.app" not in resolve_exec_path()
 
 
 def test_resolve_exec_path_raises_without_jetbrains_in_chain(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(_mac.os, "getpid", lambda: 4242)
-    monkeypatch.setattr(_mac.subprocess, "run", _fake_ps(NO_IDE))
+    monkeypatch.setattr(jetbrains_mac.os, "getpid", lambda: 4242)
+    monkeypatch.setattr(jetbrains_mac.subprocess, "run", _fake_ps(NO_IDE))
     with pytest.raises(JetBrainsError):
         resolve_exec_path()
 
 
 def test_resolve_log_dir_picks_active_product_newest_version(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
-    monkeypatch.setattr(_mac, "resolve_exec_path", lambda: "/x/WebStorm.app/Contents/MacOS/webstorm")
+    monkeypatch.setattr(jetbrains_mac, "resolve_exec_path", lambda: "/x/WebStorm.app/Contents/MacOS/webstorm")
     monkeypatch.setenv("HOME", str(tmp_path))
     base = tmp_path / "Library/Logs/JetBrains"
     newest = base / "WebStorm2025.3"
@@ -97,13 +97,13 @@ def test_resolve_log_dir_picks_active_product_newest_version(monkeypatch: pytest
     os.utime(older, (1_000, 1_000))
     os.utime(newest, (2_000, 2_000))
     os.utime(other, (3_000, 3_000))
-    assert _mac.resolve_log_dir() == newest
+    assert jetbrains_mac.resolve_log_dir() == newest
 
 
 def test_resolve_log_dir_raises_when_no_dir_matches_product(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     # Running product is GoLand, but the only log dir on disk is PyCharm's.
-    monkeypatch.setattr(_mac, "resolve_exec_path", lambda: "/x/GoLand.app/Contents/MacOS/goland")
+    monkeypatch.setattr(jetbrains_mac, "resolve_exec_path", lambda: "/x/GoLand.app/Contents/MacOS/goland")
     monkeypatch.setenv("HOME", str(tmp_path))
     (tmp_path / "Library/Logs/JetBrains/PyCharm2024.3").mkdir(parents=True)
     with pytest.raises(JetBrainsError):
-        _mac.resolve_log_dir()
+        jetbrains_mac.resolve_log_dir()

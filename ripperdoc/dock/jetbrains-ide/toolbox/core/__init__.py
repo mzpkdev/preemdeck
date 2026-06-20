@@ -5,12 +5,22 @@ import sys
 from ._errors import JetBrainsError
 
 if sys.platform == "darwin":
-    from ._mac import in_jetbrains, resolve_exec_path, resolve_log_dir
+    from .jetbrains_mac import in_jetbrains, resolve_exec_path, resolve_log_dir
 elif sys.platform.startswith("linux"):
-    from ._linux import in_jetbrains, resolve_exec_path, resolve_log_dir
+    from .jetbrains_linux import in_jetbrains, resolve_exec_path, resolve_log_dir
 elif sys.platform == "win32":
-    from ._windows import in_jetbrains, resolve_exec_path, resolve_log_dir
+    from .jetbrains_windows import in_jetbrains, resolve_exec_path, resolve_log_dir
 else:
     raise ImportError(f"Only macOS, Linux, and Windows are supported (got {sys.platform!r})")
 
-__all__ = ["JetBrainsError", "in_jetbrains", "resolve_exec_path", "resolve_log_dir"]
+# Cross-platform (no per-OS split). _launch imports resolve_exec_path lazily,
+# inside launch(), to avoid a cycle with this module, so it's import-safe here.
+from ._launch import launch
+
+__all__ = [
+    "JetBrainsError",
+    "in_jetbrains",
+    "resolve_exec_path",
+    "resolve_log_dir",
+    "launch",
+]
