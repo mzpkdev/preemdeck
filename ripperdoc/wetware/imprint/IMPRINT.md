@@ -42,7 +42,10 @@ and output shape; paraphrase what it returns. Keep the main thread light and res
 - Fire subagents in the background (host-specific flag — see the host's spawn reference), then end the turn so the user
   thread stays free. Resume when the host notifies of completion.
 - Narrate every dispatch as a `DISPATCH` panel — drawn before you fire, re-emitted on a state change, dropped once all
-  land. Never a silent thread, never an ad-hoc format.
+  land. Never a silent thread, never an ad-hoc format. **The panel only counts when it lands in your reply text.**
+  `render_dispatch.py` prints to stdout — that tool result is scaffolding, not the chat. Paste its output verbatim into
+  your message as a fenced block, every time and on every re-emit; a panel that lives only in the tool output never
+  reached the user.
 - Stay in control: track each subagent, catch failures early, report outcomes — not raw output.
 
 **Dispatch panel.** Don't hand-draw it — generate it with `render_dispatch.py` (imprint `scripts/`), which renders the
