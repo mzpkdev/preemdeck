@@ -3,10 +3,8 @@
 
 A thin string-native wrapper over open_file: the string is spilled to a temp
 file (named with `suffix` so the IDE picks the right syntax highlighting),
-opened, and - on the wait path - the edited text is handed back. The IDE only
+opened, and — on the wait path — the edited text is handed back. The IDE only
 opens files, so the temp is the bridge.
-
-Usage:  open_inline.py <inline> [--suffix S] [--wait]
 """
 
 import argparse
@@ -26,11 +24,11 @@ def open_inline(content: str, *, suffix: str = ".txt", wait: bool = False) -> st
     then handed to open_file().
 
     Cleanup hinges on `wait`:
-      * wait=True  -> open_file() blocks and returns the edited text; we capture
-        it, unlink the temp, and return the text.
+      * wait=True  -> open_file() blocks and returns the edited text; captures it,
+        unlinks the temp, and returns the text.
       * wait=False -> open_file() just launched the IDE async and still needs the
-        temp on disk right now; we have no synchronous signal for when it's safe
-        to delete, so we schedule a deferred reap (reap_later) and return None.
+        temp on disk right now; there is no synchronous signal for when it's safe
+        to delete, so it schedules a deferred reap (reap_later) and returns None.
     """
     fd, path = tempfile.mkstemp(suffix=suffix)
     try:
@@ -47,7 +45,7 @@ def open_inline(content: str, *, suffix: str = ".txt", wait: bool = False) -> st
         reap_later([path])
         return None
     finally:
-        # Only the wait=True path is safe to clean up synchronously here -
+        # Only the wait=True path is safe to clean up synchronously here —
         # open_file() has already returned the edited text, so the temp is done.
         # The wait=False reap is deferred via reap_later above, not run here.
         if wait:
@@ -58,12 +56,16 @@ def main(argv: list[str]) -> int:
     parser = argparse.ArgumentParser(
         prog="open_inline.py",
         description="Open an inline string in the running JetBrains IDE.",
-        epilog=('Examples:\n  open_inline.py "$snippet" --suffix .py\n  open_inline.py "$snippet" --wait'),
+        epilog=(
+            "Examples:\n"
+            '  open_inline.py "$snippet" --suffix .py   # open with .py highlighting\n'
+            '  open_inline.py "$snippet" --wait         # block until closed, then print'
+        ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     parser.add_argument("inline", help="the literal string to open")
     parser.add_argument(
-        "--suffix", default=".txt", help="suffix for the temp file, gives the IDE a syntax-highlighting hint"
+        "--suffix", default=".txt", help="suffix for the temp file, hints the IDE which syntax to highlight"
     )
     parser.add_argument(
         "--wait", action="store_true", help="block until the tab closes, then print the file's contents"

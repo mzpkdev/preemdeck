@@ -1,8 +1,5 @@
 #!/usr/bin/env python3
-"""Diff two files in the running JetBrains IDE.
-
-Usage:  diff_file.py <target> <suggestion> [--wait]
-"""
+"""Diff two files in the running JetBrains IDE."""
 
 import argparse
 import sys
@@ -15,7 +12,7 @@ def diff_file(target: str, suggestion: str, *, wait: bool = False) -> str | None
     """Open a 2-way (`target` vs `suggestion`) diff in the running JetBrains IDE.
 
     The positionals map straight onto `idea diff`'s panes in the given order:
-    `diff L R` (passthrough, no reordering) - `target` is the LEFT pane,
+    `diff L R` (passthrough, no reordering) — `target` is the LEFT pane,
     `suggestion` the RIGHT. Both inputs are resolved strictly, so a missing path
     raises FileNotFoundError before anything launches.
 
@@ -26,7 +23,7 @@ def diff_file(target: str, suggestion: str, *, wait: bool = False) -> str | None
 
     The LEFT pane (`target`) is the editable/reported side: the user shapes the
     `target` file (typing into it, or pulling chunks from the right `suggestion`
-    via the gutter arrows), so the `target` file is what we read back.
+    via the gutter arrows), so the `target` file is what gets read back.
 
     `launch()` is the single guard for a live IDE: it raises JetBrainsError if none
     is found.
@@ -35,8 +32,8 @@ def diff_file(target: str, suggestion: str, *, wait: bool = False) -> str | None
     suggestion_abs = str(Path(suggestion).resolve(strict=True))
     args = ["diff", target_abs, suggestion_abs]
     # 2-way always watches `target` (LEFT), the editable/reported pane. With
-    # wait=True, launch() blocks on the IDE's native --wait; we then read the
-    # `target` file back. Do NOT append --wait here - launch() owns that.
+    # wait=True, launch() blocks on the IDE's native --wait; then reads the
+    # `target` file back. Do NOT append --wait here — launch() owns that.
     launch(args, wait=wait)
     return Path(target_abs).read_text() if wait else None
 
@@ -45,11 +42,15 @@ def main(argv: list[str]) -> int:
     parser = argparse.ArgumentParser(
         prog="diff_file.py",
         description="Diff two files in the running JetBrains IDE.",
-        epilog=("Examples:\n  diff_file.py mine.py theirs.py\n  diff_file.py mine.py theirs.py --wait"),
+        epilog=(
+            "Examples:\n"
+            "  diff_file.py mine.py theirs.py          # open the diff, fire-and-forget\n"
+            "  diff_file.py mine.py theirs.py --wait   # block until closed, then print LEFT"
+        ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
-    parser.add_argument("target", help="left pane - the file you reconcile into and get back")
-    parser.add_argument("suggestion", help="right pane - the proposed version")
+    parser.add_argument("target", help="left pane — the file you reconcile into and get back")
+    parser.add_argument("suggestion", help="right pane — the proposed version")
     parser.add_argument(
         "--wait", action="store_true", help="block until the diff tab closes, then print the LEFT file's contents"
     )

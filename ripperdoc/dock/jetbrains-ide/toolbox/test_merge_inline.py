@@ -1,4 +1,4 @@
-"""Tests for merge_inline - hermetic: no real IDE, no real merge_file, no spawn.
+"""Tests for merge_inline — hermetic: no real IDE, no real merge_file, no spawn.
 
 merge_inline.merge_file is monkeypatched with a spy that records the paths it's
 handed (target, suggestion, base) plus the wait flag, AND snapshots each input

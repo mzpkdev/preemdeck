@@ -1,8 +1,5 @@
 #!/usr/bin/env python3
-"""Read the last N lines of the running JetBrains IDE's log.
-
-Usage:  read_logs.py [n]   (default 50)
-"""
+"""Read the last N lines of the running JetBrains IDE's log."""
 
 import argparse
 import sys
@@ -24,7 +21,7 @@ def main(argv: list[str]) -> int:
     parser = argparse.ArgumentParser(
         prog="read_logs.py",
         description="Read the last N lines of the running JetBrains IDE's log.",
-        epilog=("Examples:\n  read_logs.py\n  read_logs.py 200"),
+        epilog=("Examples:\n  read_logs.py       # last 50 lines (default)\n  read_logs.py 200   # last 200 lines"),
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     parser.add_argument("n", type=int, nargs="?", default=50, help="number of trailing log lines to print (default 50)")

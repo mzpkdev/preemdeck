@@ -1,4 +1,4 @@
-"""Tests for merge_file - hermetic: no real IDE, no real process spawn, no UI.
+"""Tests for merge_file — hermetic: no real IDE, no real process spawn, no UI.
 
 launch is monkeypatched on the merge_file module: it records its argv (NO `--wait`
 - merge blocks natively, so merge_file joins the process itself) and returns a

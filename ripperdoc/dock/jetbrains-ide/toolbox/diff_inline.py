@@ -4,8 +4,6 @@
 A string-native wrapper over diff_file: each version is spilled to a temp file
 and handed to diff_file, which drives the IDE and (with --wait) reads back the
 reconciled LEFT pane. The IDE only diffs files, so the temps are the bridge.
-
-Usage:  diff_inline.py <target> <suggestion> [--suffix S] [--wait]
 """
 
 import argparse
@@ -20,7 +18,7 @@ from diff_file import diff_file
 def diff_inline(target: str, suggestion: str, *, suffix: str = ".txt", wait: bool = False) -> str | None:
     """Diff inline strings by spilling each to a temp file, then delegating to diff_file.
 
-    Writes one temp file per version - `target` -> left, `suggestion` -> right -
+    Writes one temp file per version — `target` -> left, `suggestion` -> right —
     and calls `diff_file(target_tmp, suggestion_tmp, wait=wait)` in positional
     order so diff_file watches the correct (LEFT) pane. The return is diff_file's
     own: the LEFT pane's reconciled text on `wait=True`, None on `wait=False`.
@@ -32,7 +30,7 @@ def diff_inline(target: str, suggestion: str, *, suffix: str = ".txt", wait: boo
     - wait=True: diff_file has blocked until the diff tab closed and returned the
       contents, so the temps are spent; unlink both and return the contents.
     - wait=False: diff_file launched the IDE async and the temps are still open in
-      it right now, so they must outlive this call - schedule a deferred reap
+      it right now, so they must outlive this call — schedule a deferred reap
       (reap_later) for both and return None.
     The try/finally ensures the synchronous unlink fires only on the wait=True
     path, never out from under an async IDE.
@@ -68,13 +66,17 @@ def main(argv: list[str]) -> int:
     parser = argparse.ArgumentParser(
         prog="diff_inline.py",
         description="Diff inline strings in the running JetBrains IDE.",
-        epilog=('Examples:\n  diff_inline.py "$old" "$new" --suffix .py\n  diff_inline.py "$old" "$new" --wait'),
+        epilog=(
+            "Examples:\n"
+            '  diff_inline.py "$old" "$new" --suffix .py   # diff with .py highlighting\n'
+            '  diff_inline.py "$old" "$new" --wait         # block until closed, then print'
+        ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
-    parser.add_argument("target", help="left pane - the file you reconcile into and get back")
-    parser.add_argument("suggestion", help="right pane - the proposed version")
+    parser.add_argument("target", help="left pane — the file you reconcile into and get back")
+    parser.add_argument("suggestion", help="right pane — the proposed version")
     parser.add_argument(
-        "--suffix", default=".txt", help="suffix for both temp files, gives the IDE a syntax-highlighting hint"
+        "--suffix", default=".txt", help="suffix for both temp files, hints the IDE which syntax to highlight"
     )
     parser.add_argument(
         "--wait", action="store_true", help="block until the diff tab closes, then print the LEFT pane's contents"

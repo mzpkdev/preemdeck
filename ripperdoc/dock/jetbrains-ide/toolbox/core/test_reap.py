@@ -1,11 +1,12 @@
-"""Tests for core._reap - hermetic: no real sleep blocks the suite.
+"""Tests for core._reap — hermetic: no real sleep blocks the suite.
 
 reap_later spawns a NON-DAEMON thread that sleeps `delay` then unlinks each
 path. Catching that thread by polling threading.enumerate() races the reaper
-(a delay=0 worker can finish before we look), so instead we gate the seam: the
-reaper's time.sleep is monkeypatched to block on an Event the test controls.
-That makes the worker provably alive at a known point - we grab it, make our
-assertions, then release it and join. No test waits on wall-clock time.
+(a delay=0 worker can finish before the test looks), so instead the test gates
+the seam: the reaper's time.sleep is monkeypatched to block on an Event the test
+controls. That makes the worker provably alive at a known point — the test grabs
+it, makes its assertions, then releases it and joins. No test waits on wall-clock
+time.
 """
 
 import threading
@@ -100,7 +101,7 @@ def test_reap_later_missing_path_does_not_raise(monkeypatch: pytest.MonkeyPatch,
 
 
 def test_reap_later_tolerates_empty(monkeypatch: pytest.MonkeyPatch) -> None:
-    # Empty iterable: the reaper just sleeps and unlinks nothing - no error.
+    # Empty iterable: the reaper just sleeps and unlinks nothing — no error.
     thread, gate = _gated_reap(monkeypatch, [])
     _finish(thread, gate)
 
@@ -142,7 +143,7 @@ def test_reap_later_returns_promptly_without_waiting_delay(monkeypatch: pytest.M
     a.write_text("a")
 
     # The worker is parked inside the gated sleep (a 1-hour delay it never actually
-    # waits out). reap_later must return at once anyway - it never joins the worker.
+    # waits out). reap_later must return at once anyway — it never joins the worker.
     start = time.monotonic()
     thread, gate = _gated_reap(monkeypatch, [a], delay=3600)  # an hour; a join would hang
     elapsed = time.monotonic() - start

@@ -121,7 +121,7 @@ def test_detect_lan_ip_fallback(monkeypatch):
         def connect(self, addr):
             raise OSError("network is unreachable")
 
-        def getsockname(self):  # pragma: no cover - never reached
+        def getsockname(self):  # pragma: no cover — never reached
             raise AssertionError("should not be called after connect fails")
 
         def close(self):
@@ -398,8 +398,8 @@ def _serve_args(**overrides) -> argparse.Namespace:
 def test_cmd_serve_rejects_malformed_public_url(state_dir, monkeypatch, capsys):
     """A public_url with no http(s) scheme makes _cmd_serve exit 1 before boot.
 
-    The flag is resolved by _public_url, then validated in _cmd_serve. We never
-    reach uvicorn.run — pin it to fail loudly if the early return regresses.
+    The flag is resolved by _public_url, then validated in _cmd_serve. It never
+    reaches uvicorn.run — pin it to fail loudly if the early return regresses.
     """
     monkeypatch.delenv("WIRE_PUBLIC_URL", raising=False)
     monkeypatch.setattr(
@@ -424,7 +424,7 @@ def test_cmd_serve_rejects_malformed_public_url(state_dir, monkeypatch, capsys):
 def test_cmd_serve_wires_limit_concurrency(state_dir, monkeypatch, max_connections, expected_limit):
     """_cmd_serve passes limit_concurrency (0 → None) + the keep-alive trim to uvicorn.
 
-    We mock uvicorn.run so no real port is bound and capture its kwargs — this
+    Mocks uvicorn.run so no real port is bound and captures its kwargs — this
     pins the ceiling wiring without exercising uvicorn internals.
     """
     monkeypatch.delenv("WIRE_MAX_CONNECTIONS", raising=False)
@@ -547,8 +547,8 @@ def test_start_without_secret_mints_one(state_dir):
     """`start` with no --secret auto-generates a non-empty token into state.
 
     The two sibling start tests both pass `--secret s`, so neither hits the
-    auto-gen branch (_cmd_start, cli.py ~L153). Here we omit --secret and
-    assert state carries a generated, non-empty secret (not a passed-in value).
+    auto-gen branch (_cmd_start, cli.py ~L153). Here it omits --secret and
+    asserts state carries a generated, non-empty secret (not a passed-in value).
     """
     pid = None
     try:

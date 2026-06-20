@@ -1,4 +1,4 @@
-"""Tests for open_file - hermetic: no real IDE, no real subprocess, no polling.
+"""Tests for open_file — hermetic: no real IDE, no real subprocess, no polling.
 
 open_file.launch is monkeypatched on the module with a recording stub that
 captures the argv it's handed plus the `wait` kwarg, spawns nothing, and returns

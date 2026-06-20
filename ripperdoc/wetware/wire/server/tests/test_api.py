@@ -908,7 +908,7 @@ def test_lifespan_wires_real_shutdown_hook():
 
     The REAL process-exit path is intentionally NOT exercised here: invoking
     _default_shutdown raises SIGINT in this process and would tear down the
-    pytest runner. We only assert the wiring — that a real callable is the
+    pytest runner. This only asserts the wiring — that a real callable is the
     default hook and that _default_shutdown is signal.raise_signal(SIGINT)-shaped
     — WITHOUT ever calling it.
     """

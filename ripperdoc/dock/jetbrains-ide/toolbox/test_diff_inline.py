@@ -1,4 +1,4 @@
-"""Tests for diff_inline - hermetic: no real IDE, no real diff_file, no spawn.
+"""Tests for diff_inline — hermetic: no real IDE, no real diff_file, no spawn.
 
 diff_inline.diff_file is monkeypatched with a stub that records the two paths
 it's handed plus the wait flag, AND snapshots each temp's contents at call time

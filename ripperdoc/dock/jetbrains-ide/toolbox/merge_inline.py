@@ -5,8 +5,6 @@ A string-native wrapper over merge_file: each version is spilled to a temp file
 and handed to merge_file, which drives the IDE's native 3-way merge and (with
 --wait) reads back the resolved result. The IDE only merges files, so the temps
 are the bridge.
-
-Usage:  merge_inline.py <target> <suggestion> [base] [--suffix S] [--wait]
 """
 
 import argparse
@@ -23,8 +21,8 @@ def merge_inline(
 ) -> str | None:
     """Merge inline strings by spilling each to a temp file, then delegating to merge_file.
 
-    Writes one temp per version - `target`, `suggestion`, and `base` ONLY when it
-    is not None - and calls `merge_file(target_tmp, suggestion_tmp, base_tmp, wait=wait)`
+    Writes one temp per version — `target`, `suggestion`, and `base` ONLY when it
+    is not None — and calls `merge_file(target_tmp, suggestion_tmp, base_tmp, wait=wait)`
     (merge_file mints its own internal OUTPUT temp). The return is merge_file's own:
     the resolved merge text on `wait=True`, None on `wait=False`.
 
@@ -35,7 +33,7 @@ def merge_inline(
     - wait=True: merge_file has blocked until the user applied and returned the
       result, so the input temps are spent; unlink them and return the result.
     - wait=False: merge_file launched the IDE async and the input temps are still
-      open in it right now, so they must outlive this call - schedule a deferred
+      open in it right now, so they must outlive this call — schedule a deferred
       reap (reap_later) for them and return None. The OUTPUT temp is owned by
       merge_file, which reaps it itself.
     The try/finally ensures the synchronous unlink fires only on the wait=True
@@ -76,16 +74,16 @@ def main(argv: list[str]) -> int:
         description="3-way merge inline strings in the running JetBrains IDE.",
         epilog=(
             "Examples:\n"
-            '  merge_inline.py "$mine" "$theirs" "$base" --suffix .py\n'
-            '  merge_inline.py "$mine" "$theirs" --wait'
+            '  merge_inline.py "$mine" "$theirs" "$base" --suffix .py  # merge with a base\n'
+            '  merge_inline.py "$mine" "$theirs" --wait                # block until applied'
         ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
-    parser.add_argument("target", help="local pane - your version")
-    parser.add_argument("suggestion", help="remote pane - the proposed version")
+    parser.add_argument("target", help="local pane — your version")
+    parser.add_argument("suggestion", help="remote pane — the proposed version")
     parser.add_argument("base", nargs="?", help="optional common ancestor (the 3-way base)")
     parser.add_argument(
-        "--suffix", default=".txt", help="suffix for every temp file, gives the IDE a syntax-highlighting hint"
+        "--suffix", default=".txt", help="suffix for every temp file, hints the IDE which syntax to highlight"
     )
     parser.add_argument(
         "--wait", action="store_true", help="block until the user applies, then print the merged result"

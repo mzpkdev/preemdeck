@@ -1,14 +1,14 @@
-"""Tests for open_inline - hermetic: no real IDE, no real subprocess, no polling.
+"""Tests for open_inline — hermetic: no real IDE, no real subprocess, no polling.
 
 open_inline.open_file is monkeypatched with a recording stub that, at call time
 (before open_inline runs any cleanup), captures the temp path + wait flag AND
 reads the temp file's contents back off disk. It returns "EDITED\n" on the wait
-path and None otherwise, mirroring the real open_file contract. This lets us
-assert both what open_inline wrote into the temp and how it cleans up:
+path and None otherwise, mirroring the real open_file contract. This lets the
+tests assert both what open_inline wrote into the temp and how it cleans up:
   * wait=True  -> temp held exactly `content`, returns the edited text, temp is
     unlinked afterward.
   * wait=False -> launched async, returns None, and the temp is scheduled for a
-    deferred reap (open_inline.reap_later, mocked here as a spy - not actually run).
+    deferred reap (open_inline.reap_later, mocked here as a spy — not actually run).
 A JetBrainsError out of open_file surfaces as exit 1.
 """
 

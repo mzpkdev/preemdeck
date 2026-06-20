@@ -1,4 +1,4 @@
-"""Tests for read_logs - hermetic: read_logs.resolve_log_dir is monkeypatched to
+"""Tests for read_logs — hermetic: read_logs.resolve_log_dir is monkeypatched to
 a tmp dir holding a written idea.log, so nothing ever touches a real IDE.
 
 read_logs(n) returns the last n lines; main wraps it in an argparse CLI, printing

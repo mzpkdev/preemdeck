@@ -1,4 +1,4 @@
-"""JetBrains IDE toolbox - public API; delegates to the current platform.
+"""JetBrains IDE toolbox — public API; delegates to the current platform.
 
 Re-exports the detection surface (in_jetbrains, resolve_exec_path,
 resolve_log_dir) from the matching per-OS module, plus the cross-platform

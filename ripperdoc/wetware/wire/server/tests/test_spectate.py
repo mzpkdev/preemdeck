@@ -5,16 +5,16 @@ the rest of the suite. The endpoint is an INFINITE Server-Sent Events stream
 (``_spectate_stream`` is a ``while True`` generator), and NEITHER httpx's
 ``ASGITransport`` NOR Starlette's ``TestClient.stream`` can incrementally
 consume an endless body — both buffer the whole response before yielding it, so
-opening the stream hangs forever. So we drive the ASGI app directly: a minimal
-``http`` scope, a ``receive`` queue we feed ``http.request`` then
-``http.disconnect`` on, and a ``send`` that accumulates ``http.response.body``
-bytes into blank-line-delimited SSE frames. We read a BOUNDED number of frames
-under an ``asyncio.wait_for`` deadline, then disconnect — the open stream can
+opening the stream hangs forever. So the harness drives the ASGI app directly: a
+minimal ``http`` scope, a ``receive`` queue fed ``http.request`` then
+``http.disconnect``, and a ``send`` that accumulates ``http.response.body``
+bytes into blank-line-delimited SSE frames. It reads a BOUNDED number of frames
+under an ``asyncio.wait_for`` deadline, then disconnects — the open stream can
 never hang the test (see ``_collect_frames``).
 
 The heartbeat is driven by monkeypatching ``app._SPECTATE_HEARTBEAT_SECONDS`` to
 a tiny value so the quiet-window timeout fires in a fraction of a second instead
-of the real 15s (we never sit on a real wait).
+of the real 15s (never sits on a real wait).
 
 asyncio_mode is "auto" (see pyproject), so ``async def test_*`` runs directly.
 The 401-before-stream cases reuse the existing FastAPI ``TestClient`` — a wrong

@@ -28,7 +28,7 @@ IDE_BINARIES = frozenset(
 
 
 def in_jetbrains() -> bool:
-    """True when our terminal was launched by a JetBrains IDE."""
+    """True when this terminal was launched by a JetBrains IDE."""
     return (
         os.environ.get("__CFBundleIdentifier", "").startswith("com.jetbrains.")  # noqa: SIM112
         or os.environ.get("TERMINAL_EMULATOR") == "JetBrains-JediTerm"
@@ -66,7 +66,7 @@ def resolve_exec_path() -> str:
 
 
 def resolve_log_dir() -> Path:
-    """Log dir of the IDE we're running inside (active product, newest version).
+    """Log dir of the IDE this process is running inside (active product, newest version).
 
     Keyed off resolve_exec_path(), so it inherits the same anchoring: the IDE
     that launched this process, not whichever is focused.

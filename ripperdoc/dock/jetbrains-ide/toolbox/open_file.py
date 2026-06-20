@@ -1,8 +1,5 @@
 #!/usr/bin/env python3
-"""Open a file in the running JetBrains IDE.
-
-Usage:  open_file.py <path> [--line N] [--column N] [--wait]
-"""
+"""Open a file in the running JetBrains IDE."""
 
 import argparse
 import sys
@@ -17,7 +14,7 @@ def open_file(path: str, line: int = 1, column: int | None = None, *, wait: bool
     FIRE-AND-FORGET by default (`wait=False`): `launch()` spawns the IDE async and
     the call returns None as soon as the process is started. With `wait=True`,
     `launch(wait=True)` appends the IDE's native `--wait` and blocks until the tab
-    is closed; we then read the file back and return its full text (whether or not
+    is closed; then reads the file back and returns its full text (whether or not
     it was edited). `launch()` is the single guard for a live IDE: it raises
     JetBrainsError if none is found.
     """
@@ -34,7 +31,11 @@ def main(argv: list[str]) -> int:
     parser = argparse.ArgumentParser(
         prog="open_file.py",
         description="Open a file in the running JetBrains IDE.",
-        epilog=("Examples:\n  open_file.py src/app.py --line 42\n  open_file.py notes.md --wait"),
+        epilog=(
+            "Examples:\n"
+            "  open_file.py src/app.py --line 42   # jump to line 42, fire-and-forget\n"
+            "  open_file.py notes.md --wait        # block until closed, then print the file"
+        ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     parser.add_argument("path", help="file to open")

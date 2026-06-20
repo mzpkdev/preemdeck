@@ -1,7 +1,7 @@
-"""Tests for core._launch - hermetic, no real subprocess or IDE.
+"""Tests for core._launch — hermetic, no real subprocess or IDE.
 
 `subprocess.Popen` is monkeypatched with a recording stub on the _launch module
-and `resolve_exec_path` is faked, so we assert the exact spawned argv, whether the
+and `resolve_exec_path` is faked, so the test asserts the exact spawned argv, whether the
 native `--wait` flag is appended, whether `.wait()` is joined on (blocking), and
 that JetBrainsError propagates.
 """

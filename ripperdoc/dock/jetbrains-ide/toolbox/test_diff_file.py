@@ -1,8 +1,8 @@
-"""Tests for diff_file - hermetic: no real IDE, no real process spawn, no viewer.
+"""Tests for diff_file — hermetic: no real IDE, no real process spawn, no viewer.
 
 launch is monkeypatched on the diff_file module: it records its argv plus the
 `wait` flag and spawns nothing. The native --wait is launch()'s job now, so
-diff_file never appends it - the stub just captures whether wait was threaded
+diff_file never appends it — the stub just captures whether wait was threaded
 through. With wait=True, diff_file reads the LEFT file (`target`) back off disk
 after launch() returns, so a stub that wants to model an edit writes to the LEFT
 file before returning; an untouched file reads back its original contents.
@@ -87,7 +87,7 @@ def test_diff_wait_reads_left_back_off_disk(monkeypatch: pytest.MonkeyPatch, tmp
 
     # wait=True returns exactly the LEFT file's contents as they are after launch().
     assert diff_fn(str(target), str(suggestion), wait=True) == "AFTER EDIT\n"
-    # launch was asked to block (wait=True) - that's how the native --wait fires.
+    # launch was asked to block (wait=True) — that's how the native --wait fires.
     assert calls == [(["diff", str(target.resolve()), str(suggestion.resolve())], True)]
 
 
