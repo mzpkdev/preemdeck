@@ -109,17 +109,23 @@ def test_merge_wait_joins_returns_output_and_cleans_up(monkeypatch: pytest.Monke
     assert not Path(popens[0].output).exists()
 
 
-def test_merge_no_wait_returns_none_does_not_join(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+def test_merge_no_wait_returns_none_schedules_reap(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     calls: list[list[str]] = []
     popens: list[_FakePopen] = []
     monkeypatch.setattr(merge_file, "launch", _stub_launch(calls, popens))
+    # Spy on the reap seam so nothing is actually deleted (no real thread/sleep);
+    # we only assert the OUTPUT temp was *scheduled* for deferred cleanup.
+    reaped: list[list[str]] = []
+    monkeypatch.setattr(merge_file, "reap_later", lambda paths: reaped.append(list(paths)))
 
     target, suggestion = _make_inputs(tmp_path)[:2]
 
-    # Default (wait=False): returns None, proc.wait() NOT called, output temp left
-    # on disk (the IDE may still write it). Reap the leak this test owns.
+    # Default (wait=False): returns None, proc.wait() NOT called, output temp handed
+    # to reap_later (the IDE may still write it) instead of being leaked.
     assert merge_fn(str(target), str(suggestion)) is None
     assert popens[0].waited is False
+    assert reaped == [[popens[0].output]]
+    # Seam is mocked, so the output temp is still on disk; clean it up ourselves.
     assert Path(popens[0].output).exists()
     Path(popens[0].output).unlink()
 
@@ -163,12 +169,15 @@ def test_main_two_files_invokes_merge(monkeypatch: pytest.MonkeyPatch, tmp_path:
     calls: list[list[str]] = []
     popens: list[_FakePopen] = []
     monkeypatch.setattr(merge_file, "launch", _stub_launch(calls, popens))
+    # Mock the reap seam (no real thread/sleep); the output temp is scheduled, not leaked.
+    monkeypatch.setattr(merge_file, "reap_later", lambda paths: None)
 
     target, suggestion = _make_inputs(tmp_path)[:2]
 
-    # No --wait -> fire-and-forget, exit 0; reap the output temp this test leaks.
+    # No --wait -> fire-and-forget, exit 0.
     assert merge_file.main([str(target), str(suggestion)]) == 0
     assert calls[0][:3] == ["merge", str(target.resolve()), str(suggestion.resolve())]
+    # Seam is mocked, so the output temp remains on disk; clean it up ourselves.
     Path(popens[0].output).unlink()
 
 
@@ -194,11 +203,14 @@ def test_main_no_wait_prints_nothing(
     popens: list[_FakePopen] = []
     monkeypatch.setattr(merge_file, "launch", _stub_launch(calls, popens))
 
+    monkeypatch.setattr(merge_file, "reap_later", lambda paths: None)
+
     target, suggestion = _make_inputs(tmp_path)[:2]
 
     # No --wait -> fire-and-forget: None outcome, nothing printed.
     assert merge_file.main([str(target), str(suggestion)]) == 0
     assert capsys.readouterr().out == ""
+    # Seam is mocked, so the output temp remains on disk; clean it up ourselves.
     Path(popens[0].output).unlink()
 
 

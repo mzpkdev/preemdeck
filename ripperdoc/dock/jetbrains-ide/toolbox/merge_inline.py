@@ -14,7 +14,7 @@ import os
 import sys
 from tempfile import mkstemp
 
-from core import JetBrainsError
+from core import JetBrainsError, reap_later
 from merge_file import merge_file
 
 
@@ -34,11 +34,12 @@ def merge_inline(
     Cleanup is gated on `wait`:
     - wait=True: merge_file has blocked until the user applied and returned the
       result, so the input temps are spent; unlink them and return the result.
-    - wait=False: merge_file launched the IDE async and the temps are still open in
-      it, so they must outlive this call - leave them for the OS to reap and
-      return None.
-    The try/finally ensures unlink fires only on the wait=True path, never out
-    from under an async IDE.
+    - wait=False: merge_file launched the IDE async and the input temps are still
+      open in it right now, so they must outlive this call - schedule a deferred
+      reap (reap_later) for them and return None. The OUTPUT temp is owned by
+      merge_file, which reaps it itself.
+    The try/finally ensures the synchronous unlink fires only on the wait=True
+    path, never out from under an async IDE.
     """
     temps: list[str] = []
 
@@ -54,11 +55,16 @@ def merge_inline(
         suggestion_tmp = spill(suggestion)
         base_tmp = spill(base) if base is not None else None
         result = merge_file(target_tmp, suggestion_tmp, base_tmp, wait=wait)
+        if not wait:
+            # Fire-and-forget: the IDE was launched async and still has the input
+            # temps open, so schedule a deferred reap instead of leaking them. The
+            # output temp is merge_file's to reap, so it's not in `temps`.
+            reap_later(temps)
         return result
     finally:
         # wait=True: merge_file already returned the resolved text, so the input
-        # temps are spent and safe to remove. wait=False: the IDE was launched async
-        # and still has them open - no-wait inline leaves them for the OS to reap.
+        # temps are spent and safe to remove synchronously. wait=False: the reap is
+        # deferred via reap_later above, never run out from under an async IDE.
         if wait:
             for path in temps:
                 os.unlink(path)

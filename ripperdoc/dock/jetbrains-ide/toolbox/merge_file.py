@@ -10,7 +10,7 @@ import sys
 import tempfile
 from pathlib import Path
 
-from core import JetBrainsError, launch
+from core import JetBrainsError, launch, reap_later
 
 
 def merge_file(target: str, suggestion: str, base: str | None = None, *, wait: bool = False) -> str | None:
@@ -29,10 +29,11 @@ def merge_file(target: str, suggestion: str, base: str | None = None, *, wait: b
     process OURSELVES with `proc.wait()`.
 
     FIRE-AND-FORGET by default (`wait=False`): the IDE is spawned and the call
-    returns None immediately; the output temp is LEFT on disk because the IDE may
-    still write it once the user applies. With `wait=True`, we block on the spawned
-    process, then read back and return the resolved output's full text, unlinking
-    the output temp on the way out (try/finally - wait path only, after the read).
+    returns None immediately; the output temp is scheduled for a deferred reap
+    (reap_later) rather than leaked, since we have no synchronous signal for when
+    the IDE is done with it. With `wait=True`, we block on the spawned process,
+    then read back and return the resolved output's full text, unlinking the
+    output temp on the way out (try/finally - wait path only, after the read).
 
     `launch()` is the single guard for a live IDE: it raises JetBrainsError if none
     is found.
@@ -57,7 +58,9 @@ def merge_file(target: str, suggestion: str, base: str | None = None, *, wait: b
 
     if not wait:
         # Fire-and-forget: the IDE may still write `output` after the user applies,
-        # so leave the temp on disk (same no-cleanup-on-no-wait rule as inline tools).
+        # so we can't unlink it now; schedule a deferred reap instead of leaking it
+        # (same deferred-cleanup rule as the inline tools).
+        reap_later([output])
         return None
     try:
         # merge blocks natively; joining the spawned process is how we wait for Apply.

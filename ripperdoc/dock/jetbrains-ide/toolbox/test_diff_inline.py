@@ -69,22 +69,25 @@ def test_passes_wait_flag_through(monkeypatch: pytest.MonkeyPatch) -> None:
 # --- wait=False: launch only, no cleanup ------------------------------------
 
 
-def test_no_wait_returns_none_and_keeps_temps(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_no_wait_returns_none_and_schedules_reap(monkeypatch: pytest.MonkeyPatch) -> None:
     spy = _Spy(result=None)
     monkeypatch.setattr(diff_inline, "diff_file", spy)
+    # Spy on the reap seam so nothing is actually deleted (no real thread/sleep);
+    # we only assert both temps were *scheduled* for deferred cleanup.
+    reaped: list[list[str]] = []
+    monkeypatch.setattr(diff_inline, "reap_later", lambda paths: reaped.append(list(paths)))
 
     # Default (wait=False): diff_file is handed wait=False, returns None.
     assert diff_fn("alpha", "beta") is None
     assert spy.wait is False
-    # The IDE was launched async -> both temps must survive this call.
     assert len(spy.paths) == 2
-    try:
-        for path in spy.paths:
-            assert os.path.exists(path)
-    finally:
-        # this test owns the leak it asserts on; reap to keep tmp clean.
-        for path in spy.paths:
-            os.unlink(path)
+    # The IDE was launched async -> both temps are handed to reap_later (one call,
+    # both paths in positional order) instead of being leaked.
+    assert reaped == [spy.paths]
+    # The seam is mocked, so the temps are still on disk; clean them up ourselves.
+    for path in spy.paths:
+        assert os.path.exists(path)
+        os.unlink(path)
 
 
 # --- suffix override --------------------------------------------------------
@@ -128,11 +131,16 @@ def test_main_wait_prints_reconciled_contents(
 def test_main_no_wait_prints_nothing(monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]) -> None:
     spy = _Spy(result=None)
     monkeypatch.setattr(diff_inline, "diff_file", spy)
+    # Mock the reap seam (no real thread/sleep); the temps are scheduled, not leaked.
+    reaped: list[list[str]] = []
+    monkeypatch.setattr(diff_inline, "reap_later", lambda paths: reaped.append(list(paths)))
 
-    # No --wait -> fire-and-forget: None outcome, nothing printed. Reap the leak.
+    # No --wait -> fire-and-forget: None outcome, nothing printed.
     assert diff_inline.main(["alpha", "beta"]) == 0
     assert spy.wait is False
     assert capsys.readouterr().out == ""
+    assert reaped == [spy.paths]
+    # Seam is mocked, so the temps remain on disk; clean them up ourselves.
     for path in spy.paths:
         os.unlink(path)
 

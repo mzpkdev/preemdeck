@@ -13,7 +13,7 @@ import os
 import sys
 import tempfile
 
-from core import JetBrainsError
+from core import JetBrainsError, reap_later
 from open_file import open_file
 
 
@@ -28,8 +28,8 @@ def open_inline(content: str, *, suffix: str = ".txt", wait: bool = False) -> st
       * wait=True  -> open_file() blocks and returns the edited text; we capture
         it, unlink the temp, and return the text.
       * wait=False -> open_file() just launched the IDE async and still needs the
-        temp on disk; we have no signal for when it's safe to delete, so we leave
-        it for the OS to reap and return None.
+        temp on disk right now; we have no synchronous signal for when it's safe
+        to delete, so we schedule a deferred reap (reap_later) and return None.
     """
     fd, path = tempfile.mkstemp(suffix=suffix)
     try:
@@ -40,13 +40,15 @@ def open_inline(content: str, *, suffix: str = ".txt", wait: bool = False) -> st
         contents = open_file(path, wait=wait)
         if wait:
             return contents
+        # Fire-and-forget: the IDE was launched async and is (or will be) reading
+        # `path`, so deleting it now would yank the file out from under the editor.
+        # Schedule a deferred reap instead of leaking the temp.
+        reap_later([path])
         return None
     finally:
-        # Only the wait=True path is safe to clean up here — open_file() has
-        # already returned the edited text, so the temp is done. On wait=False the
-        # IDE was launched async and is (or will be) reading `path`; deleting it
-        # would yank the file out from under the editor, so we leave it: no-wait
-        # inline leaves the temp for the OS to reap.
+        # Only the wait=True path is safe to clean up synchronously here —
+        # open_file() has already returned the edited text, so the temp is done.
+        # The wait=False reap is deferred via reap_later above, not run here.
         if wait:
             os.unlink(path)
 

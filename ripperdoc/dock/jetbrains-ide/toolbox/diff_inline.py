@@ -13,7 +13,7 @@ import os
 import sys
 from tempfile import mkstemp
 
-from core import JetBrainsError
+from core import JetBrainsError, reap_later
 from diff_file import diff_file
 
 
@@ -32,10 +32,10 @@ def diff_inline(target: str, suggestion: str, *, suffix: str = ".txt", wait: boo
     - wait=True: diff_file has blocked until the diff tab closed and returned the
       contents, so the temps are spent; unlink both and return the contents.
     - wait=False: diff_file launched the IDE async and the temps are still open in
-      it, so they must outlive this call - leave them for the OS to reap and
-      return None.
-    The try/finally ensures unlink fires only on the wait=True path, never out
-    from under an async IDE.
+      it right now, so they must outlive this call - schedule a deferred reap
+      (reap_later) for both and return None.
+    The try/finally ensures the synchronous unlink fires only on the wait=True
+    path, never out from under an async IDE.
     """
     temps: list[str] = []
 
@@ -50,11 +50,15 @@ def diff_inline(target: str, suggestion: str, *, suffix: str = ".txt", wait: boo
         target_tmp = spill(target)
         suggestion_tmp = spill(suggestion)
         contents = diff_file(target_tmp, suggestion_tmp, wait=wait)
+        if not wait:
+            # Fire-and-forget: the IDE was launched async and still has both temps
+            # open, so schedule a deferred reap instead of leaking them.
+            reap_later([target_tmp, suggestion_tmp])
         return contents
     finally:
         # wait=True: diff_file already returned the reconciled text, so the temps
-        # are spent and safe to remove. wait=False: the IDE was launched async and
-        # still has the temps open - no-wait inline leaves them for the OS to reap.
+        # are spent and safe to remove synchronously. wait=False: the reap is
+        # deferred via reap_later above, never run out from under an async IDE.
         if wait:
             for path in temps:
                 os.unlink(path)

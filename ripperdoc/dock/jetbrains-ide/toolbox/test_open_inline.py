@@ -7,8 +7,8 @@ path and None otherwise, mirroring the real open_file contract. This lets us
 assert both what open_inline wrote into the temp and how it cleans up:
   * wait=True  -> temp held exactly `content`, returns the edited text, temp is
     unlinked afterward.
-  * wait=False -> launched async, returns None, temp is LEFT on disk (the
-    documented no-delete behavior).
+  * wait=False -> launched async, returns None, and the temp is scheduled for a
+    deferred reap (open_inline.reap_later, mocked here as a spy - not actually run).
 A JetBrainsError out of open_file surfaces as exit 1.
 """
 
@@ -58,9 +58,13 @@ def test_open_inline_wait_roundtrips_and_cleans_up(monkeypatch: pytest.MonkeyPat
     assert not os.path.exists(path)
 
 
-def test_open_inline_no_wait_returns_none_and_leaves_temp(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_open_inline_no_wait_returns_none_and_schedules_reap(monkeypatch: pytest.MonkeyPatch) -> None:
     rec = _Recorder()
     monkeypatch.setattr(open_inline, "open_file", rec)
+    # Spy on the reap seam so nothing is actually deleted (no real thread/sleep):
+    # we only assert the temp was *scheduled* for deferred cleanup.
+    reaped: list[list[str]] = []
+    monkeypatch.setattr(open_inline, "reap_later", lambda paths: reaped.append(list(paths)))
 
     content = "fire and forget\n"
     # wait=False: launch async, return None.
@@ -69,9 +73,11 @@ def test_open_inline_no_wait_returns_none_and_leaves_temp(monkeypatch: pytest.Mo
     call = rec.calls[0]
     assert call["wait"] is False
     assert call["seen"] == content
-    # Documented behavior: the temp is LEFT on disk for the OS to reap, because the
-    # async IDE may still be reading it. Lock that in (and clean up ourselves).
+    # Documented behavior: instead of leaking, the temp is handed to reap_later for
+    # a deferred unlink (exactly once, with the one temp path).
     path = str(call["path"])
+    assert reaped == [[path]]
+    # The seam is mocked, so the temp is still on disk here; clean it up ourselves.
     assert os.path.exists(path)
     os.unlink(path)
 

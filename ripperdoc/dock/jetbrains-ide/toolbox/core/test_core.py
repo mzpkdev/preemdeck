@@ -36,6 +36,7 @@ def test_public_api_is_importable() -> None:
         JetBrainsError,
         in_jetbrains,
         launch,
+        reap_later,
         resolve_exec_path,
         resolve_log_dir,
     )
@@ -46,6 +47,7 @@ def test_public_api_is_importable() -> None:
         "resolve_exec_path",
         "resolve_log_dir",
         "launch",
+        "reap_later",
     }
 
 

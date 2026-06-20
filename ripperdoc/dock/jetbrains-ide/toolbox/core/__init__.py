@@ -16,6 +16,7 @@ else:
 # Cross-platform (no per-OS split). _launch imports resolve_exec_path lazily,
 # inside launch(), to avoid a cycle with this module, so it's import-safe here.
 from ._launch import launch
+from ._reap import reap_later
 
 __all__ = [
     "JetBrainsError",
@@ -23,4 +24,5 @@ __all__ = [
     "resolve_exec_path",
     "resolve_log_dir",
     "launch",
+    "reap_later",
 ]
