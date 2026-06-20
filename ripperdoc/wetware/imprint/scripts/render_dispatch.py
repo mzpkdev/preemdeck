@@ -7,11 +7,11 @@ no-tail mode — each branch is `<glyph> <label>` (plus ` — waits on X` for a
 blocked job); there is no lane/tail split and no tail-stripe alignment.
 
 Grammar (status flags, each takes one or more LABEL args):
-  --done LABEL...      ☑ done
-  --running LABEL...   ◐ running   (comma-groupable into a parallel wave)
-  --pending LABEL...   ☐ queued    (comma-groupable into a parallel wave)
-  --failed LABEL...    ☒ failed
-  --blocked LABEL      ⊘ blocked; must be followed by `--waits-on X`, which
+  --done LABEL...      ⏹︎ done
+  --running LABEL...   ▶︎ running   (comma-groupable into a parallel wave)
+  --pending LABEL...   ⏸︎ queued    (comma-groupable into a parallel wave)
+  --failed LABEL...    ⏺︎ failed
+  --blocked LABEL      ⏏︎ blocked; must be followed by `--waits-on X`, which
                        appends ` — waits on X` to that job's line.
 
 A LABEL is a single label — the whole arg string is the job's text.
@@ -28,7 +28,7 @@ For --done / --failed / --blocked, commas are always literal.
 Order is left-to-right command-line order; flags may repeat and interleave.
 
 Auto-computed (never input): total = leaf-job count (each wave member counts;
-the parallel node does not), done = count of ☑ jobs, gauge = "▰"*done +
+the parallel node does not), done = count of ⏹︎ jobs, gauge = "▰"*done +
 "▱"*(total-done), one segment per leaf.
 
 Fails LOUD (nonzero exit + stderr) on: no jobs, an unknown flag, `--waits-on`
@@ -42,11 +42,11 @@ import sys
 from dataclasses import dataclass, field
 
 GLYPH = {
-    "done": "☑",  # ☑
-    "running": "◐",  # ◐
-    "pending": "☐",  # ☐  queued
-    "failed": "☒",  # ☒
-    "blocked": "⊘",  # ⊘
+    "done": "⏹︎",  # ⏹ U+23F9 stop + U+FE0E text presentation
+    "running": "▶︎",  # ▶ U+25B6 play + U+FE0E text presentation
+    "pending": "⏸︎",  # ⏸ U+23F8 pause + U+FE0E text presentation  queued
+    "failed": "⏺︎",  # ⏺ U+23FA record + U+FE0E text presentation
+    "blocked": "⏏︎",  # ⏏ U+23CF eject + U+FE0E text presentation
 }
 FILLED = "▰"  # ▰
 EMPTY = "▱"  # ▱
@@ -209,7 +209,7 @@ def render(nodes: list[Node]) -> str:
     for node in nodes:
         if node.status == "parallel":
             total += len(node.members)
-            # parallel members are running/pending → never ☑, so add 0 to done
+            # parallel members are running/pending → never ⏹, so add 0 to done
         else:
             total += 1
             if node.status == "done":
