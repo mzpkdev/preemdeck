@@ -15,18 +15,6 @@
           }
         ]
       }
-    ],
-    "AfterAgent": [
-      {
-        "matcher": "",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "${extensionPath}/scripts/notice_hook.py",
-            "timeout": 5
-          }
-        ]
-      }
     ]
   }
 }
