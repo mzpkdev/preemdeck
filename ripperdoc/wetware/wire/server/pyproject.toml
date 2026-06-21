@@ -13,15 +13,18 @@ dependencies = [
     "pydantic>=2",
 ]
 
-[project.optional-dependencies]
-test = [
+[project.scripts]
+wire = "wire.cli:main"
+
+# Test deps live in the default-synced `dev` group so a bare `uv run pytest`
+# from this dir (the workspace resolves this member) installs them. The
+# `wire:start`/`wire:stop` runtime path uses `uv run --no-sync` and is unaffected.
+[dependency-groups]
+dev = [
     "pytest",
     "pytest-asyncio",
     "httpx",
 ]
-
-[project.scripts]
-wire = "wire.cli:main"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/wire"]

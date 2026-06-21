@@ -942,8 +942,8 @@ dependencies = [
     { name = "uvicorn", extra = ["standard"] },
 ]
 
-[package.optional-dependencies]
-test = [
+[package.dev-dependencies]
+dev = [
     { name = "httpx" },
     { name = "pytest" },
     { name = "pytest-asyncio" },
@@ -952,10 +952,13 @@ test = [
 [package.metadata]
 requires-dist = [
     { name = "fastapi" },
-    { name = "httpx", marker = "extra == 'test'" },
     { name = "pydantic", specifier = ">=2" },
-    { name = "pytest", marker = "extra == 'test'" },
-    { name = "pytest-asyncio", marker = "extra == 'test'" },
     { name = "uvicorn", extras = ["standard"] },
 ]
-provides-extras = ["test"]
+
+[package.metadata.requires-dev]
+dev = [
+    { name = "httpx" },
+    { name = "pytest" },
+    { name = "pytest-asyncio" },
+]

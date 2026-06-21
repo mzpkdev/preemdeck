@@ -25,6 +25,14 @@ Gemini CLI. It never blocks the edit — failures warn on stderr.
 
 Full-repo format pass: `uv run task format`.
 
+## Tests
+
+- Repo-level suite (root `tests/`): `uv run pytest` from the repo root — what CI runs.
+- Wire server suite (`ripperdoc/wetware/wire/server/tests/`, 202 tests):
+  `cd ripperdoc/wetware/wire/server && uv run pytest`. uv resolves the `wire` workspace member and auto-syncs its `dev`
+  group (pytest, pytest-asyncio, httpx) into the shared `.venv`. The `wire:start`/`wire:stop` runtime path uses
+  `uv run --no-sync wire …` and is unaffected.
+
 ## Applying changes to ~/.claude
 
 Editing this repo does **not** update a running harness. `~/.claude` is its own preemdeck clone; plugins install as a
