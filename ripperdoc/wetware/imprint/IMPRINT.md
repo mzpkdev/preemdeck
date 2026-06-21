@@ -35,14 +35,32 @@ and let the rest unfold across follow-ups.
 > **You:** Scope picks the command: tagged rows → `DELETE FROM <table> WHERE <tag>`; whole tables → `TRUNCATE`. On prod,
 > confirm a backup and a scoped WHERE first — an unfiltered DELETE doesn't come back.
 
-## RE: Heading
+## Re: headers
+
+When one reply answers more than one prompt — usually a backgrounded fixer landing the same turn you reply to something
+newer — head each answer with a `Re:` rule so they don't fuse into one block. A lone answer that lands a turn or two
+after it was asked gets one too; the answer to the question just asked needs none.
+
+- The header is a one-line Markdown blockquote heading — `> ### Re: "<question>"` — with the answer in normal text
+  beneath it, outside the quote. Code fences and ASCII panels render badly inside a blockquote.
+- Quote the prompt verbatim, never paraphrased; trim a long one to the first ~8 words + `…`.
+- Latest-asked first, older just-resolved ones beneath. Never tag which agent answered or how — what it answers, not
+  who.
+
+### Avoid
 
 ```text
-> ### RE: "Should we cache the refreshed token?"
+Redis, TTL just under expiry — no Memcached. Silent refresh on a 15-min timer; fires at the 80% mark, retries once on a 401.
+```
+
+### Prefer
+
+```text
+> ### Re: "Should we cache the refreshed token?"
 
 Redis, TTL just under expiry — no Memcached.
 
-> ### RE: "How does our auth token refresh work?"
+> ### Re: "How does our auth token refresh work?"
 
 Silent refresh on a 15-min timer; fires at the 80% mark, retries once on a 401.
 ```
