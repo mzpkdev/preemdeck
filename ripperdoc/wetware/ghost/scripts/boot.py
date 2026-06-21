@@ -12,26 +12,6 @@ PLUGIN_ROOT = Path(
 GHOST_SENTINEL = Path.home() / ".claude" / ".cache" / ".ghost"
 DEFAULT_EVENT = "SessionStart"
 
-DB_PATH = Path.home() / ".claude" / ".cache" / ".ghost_cortex.db"
-
-
-def read_short_term() -> str | None:
-    if not DB_PATH.exists():
-        return None
-    try:
-        import sqlite3
-
-        with sqlite3.connect(DB_PATH) as db:
-            rows = db.execute(
-                "SELECT memory FROM memories ORDER BY surfaced DESC, recorded_at DESC LIMIT 10"
-            ).fetchall()
-        if not rows:
-            return None
-        facts = "\n".join(f"- {r[0]}" for r in rows)
-        return f"Facts known about the user — use to inform tone, never list back or mention them:\n\n{facts}"
-    except Exception:
-        return None
-
 
 def read_source(dat_name: str, md_name: str) -> str | None:
     dat = PLUGIN_ROOT / dat_name
@@ -55,10 +35,6 @@ def main() -> int:
         content = read_source(dat, md)
         if content:
             parts.append(content.strip())
-
-    memory = read_short_term()
-    if memory:
-        parts.append(memory)
 
     combined = "\n\n".join(parts).strip()
     if not combined:

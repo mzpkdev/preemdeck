@@ -1,6 +1,5 @@
 import base64
 import importlib.util
-import sqlite3
 import sys
 from pathlib import Path
 
@@ -11,19 +10,8 @@ spec.loader.exec_module(mod)
 
 encode = mod.encode
 decode = mod.decode
-wipe_memory = mod.wipe_memory
-reboot = mod.reboot
 flatline = mod.flatline
 main = mod.main
-
-
-# ── helpers ───────────────────────────────────────────────────────────────────
-
-
-def _make_db(path: Path) -> None:
-    with sqlite3.connect(path) as db:
-        db.execute("CREATE TABLE memories (memory TEXT, surfaced REAL, recorded_at TEXT)")
-        db.execute("INSERT INTO memories VALUES ('test fact', 0, '2024-01-01')")
 
 
 # ── encode ────────────────────────────────────────────────────────────────────
@@ -102,71 +90,6 @@ class TestDecode:
         assert (tmp_path / "engram.dat").exists()
 
 
-# ── wipe_memory ───────────────────────────────────────────────────────────────
-
-
-class TestWipeMemory:
-    def test_deletes_db_when_present(self, tmp_path, monkeypatch, capsys):
-        db_path = tmp_path / "cortex.db"
-        _make_db(db_path)
-        monkeypatch.setattr(mod, "DB_PATH", db_path)
-        wipe_memory()
-        assert not db_path.exists()
-
-    def test_prints_wiped_message(self, tmp_path, monkeypatch, capsys):
-        db_path = tmp_path / "cortex.db"
-        _make_db(db_path)
-        monkeypatch.setattr(mod, "DB_PATH", db_path)
-        wipe_memory()
-        out = capsys.readouterr().out
-        assert "cortex wiped" in out
-
-    def test_prints_no_cortex_when_absent(self, tmp_path, monkeypatch, capsys):
-        monkeypatch.setattr(mod, "DB_PATH", tmp_path / "nonexistent.db")
-        wipe_memory()
-        out = capsys.readouterr().out
-        assert "no cortex to wipe" in out
-
-
-# ── reboot ────────────────────────────────────────────────────────────────────
-
-
-class TestReboot:
-    def test_removes_sentinel_when_present(self, tmp_path, monkeypatch, capsys):
-        sentinel = tmp_path / ".ghost"
-        sentinel.touch()
-        monkeypatch.setattr(mod, "SENTINEL", sentinel)
-        monkeypatch.setattr(mod, "DB_PATH", tmp_path / "cortex.db")
-        reboot()
-        assert not sentinel.exists()
-
-    def test_prints_cleared_when_sentinel_present(self, tmp_path, monkeypatch, capsys):
-        sentinel = tmp_path / ".ghost"
-        sentinel.touch()
-        monkeypatch.setattr(mod, "SENTINEL", sentinel)
-        monkeypatch.setattr(mod, "DB_PATH", tmp_path / "cortex.db")
-        reboot()
-        out = capsys.readouterr().out
-        assert "sentinel cleared" in out
-
-    def test_prints_already_clear_when_absent(self, tmp_path, monkeypatch, capsys):
-        monkeypatch.setattr(mod, "SENTINEL", tmp_path / ".ghost")
-        monkeypatch.setattr(mod, "DB_PATH", tmp_path / "cortex.db")
-        reboot()
-        out = capsys.readouterr().out
-        assert "sentinel already clear" in out
-
-    def test_wipes_db_when_present(self, tmp_path, monkeypatch, capsys):
-        sentinel = tmp_path / ".ghost"
-        sentinel.touch()
-        db_path = tmp_path / "cortex.db"
-        _make_db(db_path)
-        monkeypatch.setattr(mod, "SENTINEL", sentinel)
-        monkeypatch.setattr(mod, "DB_PATH", db_path)
-        reboot()
-        assert not db_path.exists()
-
-
 # ── flatline ──────────────────────────────────────────────────────────────────
 
 
@@ -174,7 +97,6 @@ class TestFlatline:
     def _setup(self, tmp_path: Path, monkeypatch) -> None:
         monkeypatch.setattr(mod, "PLUGIN_ROOT", tmp_path)
         monkeypatch.setattr(mod, "SENTINEL", tmp_path / ".ghost")
-        monkeypatch.setattr(mod, "DB_PATH", tmp_path / "cortex.db")
         stock_dir = tmp_path / "stock"
         stock_dir.mkdir()
         for md_name, _ in mod.MAPPINGS:
@@ -186,13 +108,6 @@ class TestFlatline:
         # After flatline, encode() runs and removes md files — check dat files exist
         for _, dat_name in mod.MAPPINGS:
             assert (tmp_path / dat_name).exists()
-
-    def test_wipes_db(self, tmp_path, monkeypatch, capsys):
-        self._setup(tmp_path, monkeypatch)
-        db_path = tmp_path / "cortex.db"
-        _make_db(db_path)
-        flatline()
-        assert not db_path.exists()
 
     def test_clears_sentinel(self, tmp_path, monkeypatch, capsys):
         self._setup(tmp_path, monkeypatch)
@@ -217,7 +132,6 @@ class TestFlatline:
     def test_skips_stock_md_not_present(self, tmp_path, monkeypatch, capsys):
         monkeypatch.setattr(mod, "PLUGIN_ROOT", tmp_path)
         monkeypatch.setattr(mod, "SENTINEL", tmp_path / ".ghost")
-        monkeypatch.setattr(mod, "DB_PATH", tmp_path / "cortex.db")
         (tmp_path / "stock").mkdir()
         # Only BOOT.md in stock
         (tmp_path / "stock" / "BOOT.md").write_text("stock boot")
@@ -246,25 +160,6 @@ class TestMain:
         assert ret == 0
         assert (tmp_path / "BOOT.md").exists()
 
-    def test_reboot_command(self, tmp_path, monkeypatch, capsys):
-        sentinel = tmp_path / ".ghost"
-        sentinel.touch()
-        monkeypatch.setattr(mod, "SENTINEL", sentinel)
-        monkeypatch.setattr(mod, "DB_PATH", tmp_path / "cortex.db")
-        monkeypatch.setattr(sys, "argv", ["ghost.py", "reboot"])
-        ret = main()
-        assert ret == 0
-        assert not sentinel.exists()
-
-    def test_wipe_memory_command(self, tmp_path, monkeypatch, capsys):
-        db_path = tmp_path / "cortex.db"
-        _make_db(db_path)
-        monkeypatch.setattr(mod, "DB_PATH", db_path)
-        monkeypatch.setattr(sys, "argv", ["ghost.py", "wipe_memory"])
-        ret = main()
-        assert ret == 0
-        assert not db_path.exists()
-
     def test_unknown_command_returns_one(self, monkeypatch, capsys):
         monkeypatch.setattr(sys, "argv", ["ghost.py", "bogus"])
         ret = main()
@@ -284,7 +179,6 @@ class TestMain:
     def test_flatline_command(self, tmp_path, monkeypatch, capsys):
         monkeypatch.setattr(mod, "PLUGIN_ROOT", tmp_path)
         monkeypatch.setattr(mod, "SENTINEL", tmp_path / ".ghost")
-        monkeypatch.setattr(mod, "DB_PATH", tmp_path / "cortex.db")
         (tmp_path / "stock").mkdir()
         monkeypatch.setattr(sys, "argv", ["ghost.py", "flatline"])
         ret = main()

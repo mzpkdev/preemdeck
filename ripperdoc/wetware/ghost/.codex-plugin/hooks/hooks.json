@@ -7,11 +7,6 @@
             "type": "command",
             "command": "python3 ${PLUGIN_ROOT}/scripts/boot.py",
             "timeout": 5
-          },
-          {
-            "type": "command",
-            "command": "python3 ${PLUGIN_ROOT}/scripts/rapport.py",
-            "timeout": 5
           }
         ]
       }
@@ -23,17 +18,6 @@
             "type": "command",
             "command": "python3 ${PLUGIN_ROOT}/scripts/pulse.py",
             "timeout": 5
-          }
-        ]
-      }
-    ],
-    "Stop": [
-      {
-        "hooks": [
-          {
-            "type": "command",
-            "command": "python3 ${PLUGIN_ROOT}/scripts/engrave.py codex gpt-5.4-mini",
-            "timeout": 30
           }
         ]
       }

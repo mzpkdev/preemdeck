@@ -2,7 +2,6 @@ import base64
 import importlib.util
 import io
 import json
-import sqlite3
 from pathlib import Path
 
 spec = importlib.util.spec_from_file_location("boot", Path(__file__).parent / "boot.py")
@@ -10,53 +9,8 @@ assert spec is not None and spec.loader is not None
 mod = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(mod)
 
-read_short_term = mod.read_short_term
 read_source = mod.read_source
 main = mod.main
-
-
-# ── helpers ───────────────────────────────────────────────────────────────────
-
-
-def _make_db(path: Path, rows: list[str]) -> None:
-    with sqlite3.connect(path) as db:
-        db.execute("CREATE TABLE memories (memory TEXT, surfaced REAL, recorded_at TEXT)")
-        for row in rows:
-            db.execute("INSERT INTO memories VALUES (?, 0, '2024-01-01')", (row,))
-
-
-# ── read_short_term ───────────────────────────────────────────────────────────
-
-
-class TestReadShortTerm:
-    def test_returns_none_when_db_missing(self, tmp_path, monkeypatch):
-        monkeypatch.setattr(mod, "DB_PATH", tmp_path / "nonexistent.db")
-        assert read_short_term() is None
-
-    def test_returns_none_when_table_empty(self, tmp_path, monkeypatch):
-        db_path = tmp_path / "cortex.db"
-        _make_db(db_path, [])
-        monkeypatch.setattr(mod, "DB_PATH", db_path)
-        assert read_short_term() is None
-
-    def test_returns_formatted_memories(self, tmp_path, monkeypatch):
-        db_path = tmp_path / "cortex.db"
-        _make_db(db_path, ["likes Python", "dislikes YAML"])
-        monkeypatch.setattr(mod, "DB_PATH", db_path)
-        result = read_short_term()
-        assert result is not None
-        assert result.startswith("Facts known about the user")
-        assert "- likes Python" in result
-        assert "- dislikes YAML" in result
-
-    def test_limits_to_10_rows(self, tmp_path, monkeypatch):
-        db_path = tmp_path / "cortex.db"
-        _make_db(db_path, [f"fact {i}" for i in range(15)])
-        monkeypatch.setattr(mod, "DB_PATH", db_path)
-        result = read_short_term()
-        assert result is not None
-        lines = [ln for ln in result.splitlines() if ln.startswith("- ")]
-        assert len(lines) == 10
 
 
 # ── read_source ───────────────────────────────────────────────────────────────
@@ -96,7 +50,6 @@ class TestMain:
             sentinel.touch()
         monkeypatch.setattr(mod, "GHOST_SENTINEL", sentinel)
         monkeypatch.setattr(mod, "PLUGIN_ROOT", tmp_path)
-        monkeypatch.setattr(mod, "DB_PATH", tmp_path / "cortex.db")
         monkeypatch.setattr("sys.stdin", io.StringIO(stdin_data))
         return main()
 
@@ -133,19 +86,6 @@ class TestMain:
         out = capsys.readouterr().out.strip()
         data = json.loads(out)
         assert "firmware content" in data["hookSpecificOutput"]["additionalContext"]
-
-    def test_includes_short_term_memory(self, monkeypatch, tmp_path, capsys):
-        db_path = tmp_path / "cortex.db"
-        _make_db(db_path, ["user prefers dark mode"])
-        (tmp_path / "ENGRAM.md").write_text("engram")
-        monkeypatch.setattr(mod, "GHOST_SENTINEL", tmp_path / ".ghost")
-        monkeypatch.setattr(mod, "PLUGIN_ROOT", tmp_path)
-        monkeypatch.setattr(mod, "DB_PATH", db_path)
-        monkeypatch.setattr("sys.stdin", io.StringIO("{}"))
-        main()
-        out = capsys.readouterr().out.strip()
-        data = json.loads(out)
-        assert "user prefers dark mode" in data["hookSpecificOutput"]["additionalContext"]
 
     def test_default_event_name(self, monkeypatch, tmp_path, capsys):
         (tmp_path / "ENGRAM.md").write_text("content")

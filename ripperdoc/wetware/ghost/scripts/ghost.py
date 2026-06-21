@@ -40,16 +40,6 @@ def decode() -> None:
 
 SENTINEL = Path.home() / ".claude" / ".cache" / ".ghost"
 
-DB_PATH = Path.home() / ".claude" / ".cache" / ".ghost_cortex.db"
-
-
-def wipe_memory() -> None:
-    if DB_PATH.exists():
-        DB_PATH.unlink()
-        print("cortex wiped")
-    else:
-        print("no cortex to wipe")
-
 
 def flatline() -> None:
     stock_dir = PLUGIN_ROOT / "stock"
@@ -60,20 +50,10 @@ def flatline() -> None:
         dst = PLUGIN_ROOT / md_name
         dst.write_bytes(src.read_bytes())
     encode()
-    wipe_memory()
     if SENTINEL.exists():
         SENTINEL.unlink()
         print("sentinel cleared")
     print("persona wiped to stock")
-
-
-def reboot() -> None:
-    wipe_memory()
-    if SENTINEL.exists():
-        SENTINEL.unlink()
-        print("sentinel cleared")
-    else:
-        print("sentinel already clear")
 
 
 def main() -> int:
@@ -84,12 +64,8 @@ def main() -> int:
         decode()
     elif cmd == "flatline":
         flatline()
-    elif cmd == "reboot":
-        reboot()
-    elif cmd == "wipe_memory":
-        wipe_memory()
     else:
-        print("Usage: ghost.py {encode|decode|flatline|reboot|wipe_memory}", file=sys.stderr)
+        print("Usage: ghost.py {encode|decode|flatline}", file=sys.stderr)
         return 1
     return 0
 
