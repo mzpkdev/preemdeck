@@ -31,9 +31,12 @@ Auto-computed (never input): total = leaf-job count (each wave member counts;
 the parallel node does not), done = count of ■ jobs, gauge = "▰"*done +
 "▱"*(total-done), one segment per leaf.
 
-Fails LOUD (nonzero exit + stderr) on: no jobs, an unknown flag, `--waits-on`
-without a preceding `--blocked`, or `--waits-on` with no value. Never emits a
-partial or quietly-wrong panel.
+No jobs / no args is the IDLE state, not an error: it renders an empty panel
+(`JOBS  ▱  0/0` over a single `└── idle` node) to STDOUT and exits 0.
+
+Fails LOUD (nonzero exit + stderr) on: an unknown flag, `--waits-on` without a
+preceding `--blocked`, or `--waits-on` with no value. Never emits a partial or
+quietly-wrong panel.
 """
 
 from __future__ import annotations
@@ -203,7 +206,8 @@ def parse(argv: list[str]) -> list[Node]:
 def render(nodes: list[Node]) -> str:
     """Render parsed nodes into the JOBS panel text (no trailing newline)."""
     if not nodes:
-        raise DispatchError("no jobs to dispatch")
+        # idle state: empty 0/0 gauge over a single `idle` node
+        return f"JOBS  {EMPTY}  0/0\n{ELBOW}idle"
 
     total = 0
     done = 0

@@ -24,6 +24,18 @@
           }
         ]
       }
+    ],
+    "Stop": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/notice_hook.py",
+            "timeout": 5
+          }
+        ]
+      }
     ]
   }
 }

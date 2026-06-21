@@ -140,9 +140,10 @@ class RenderDispatchTest(unittest.TestCase):
         self.assertEqual(proc.stdout, "")
         self.assertNotEqual(proc.stderr.strip(), "")
 
-    # 15 — no jobs at all → nonzero exit
-    def test_error_empty(self) -> None:
-        self.assert_error([])
+    # 15 — no jobs at all → idle: empty 0/0 panel on stdout, exit 0 (not an error)
+    def test_empty_idle_panel(self) -> None:
+        expected = "JOBS  ▱  0/0\n└── idle"
+        self.assert_panel([], expected)
 
     # 16 — an unknown flag → nonzero exit
     def test_error_unknown_flag(self) -> None:
