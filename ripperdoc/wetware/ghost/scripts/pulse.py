@@ -9,7 +9,6 @@ from pathlib import Path
 PLUGIN_ROOT = Path(
     os.environ.get("CLAUDE_PLUGIN_ROOT") or os.environ.get("PLUGIN_ROOT") or str(Path(__file__).resolve().parent.parent)
 )
-GHOST_SENTINEL = Path.home() / ".claude" / ".cache" / ".ghost"
 DEFAULT_EVENT = "UserPromptSubmit"
 
 
@@ -24,10 +23,6 @@ def read_source(dat_name: str, md_name: str) -> str | None:
 
 
 def main() -> int:
-    if not GHOST_SENTINEL.exists():
-        GHOST_SENTINEL.parent.mkdir(parents=True, exist_ok=True)
-        GHOST_SENTINEL.touch()
-
     content = read_source("pulse.dat", "PULSE.md")
     if not content:
         print("{}")

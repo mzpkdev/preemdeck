@@ -6,7 +6,6 @@ Persona engine. Injects engram, firmware, and pulse context into the session on 
 | ----------- | ------------ | -------------------------------------- |
 | ENGRAM.md   | engram.dat   | Core persona / identity                |
 | FIRMWARE.md | firmware.dat | Behavioral rules and directives        |
-| BOOT.md     | boot.dat     | First-boot message (fires once)        |
 | PULSE.md    | pulse.dat    | Per-prompt context injected every turn |
 
 ## Hooks
@@ -18,8 +17,7 @@ Persona engine. Injects engram, firmware, and pulse context into the session on 
 | UserPromptSubmit | scripts/boot.py  | Codex (no SessionStart) |
 | BeforeAgent      | scripts/pulse.py | Gemini                  |
 
-`boot.py` injects BOOT.md on the first session only (sentinel-gated), then always injects ENGRAM.md + FIRMWARE.md.
-`pulse.py` creates the sentinel on first prompt, then injects PULSE.md every turn.
+`boot.py` injects ENGRAM.md + FIRMWARE.md on session start. `pulse.py` injects PULSE.md every turn.
 
 ## Editing
 
@@ -37,17 +35,8 @@ removes the `.md` files.
 ## Resetting
 
 ```bash
-# Restore persona to stock templates and clear the first-boot sentinel
+# Restore persona to stock templates
 python3 scripts/ghost.py flatline
 ```
 
-`flatline` copies `stock/*.md` over the persona, re-encodes to `.dat`, and removes the first-boot sentinel so the boot
-message fires again on the next session.
-
-The sentinel lives outside the repo at `~/.claude/.cache/.ghost`. To reset first boot without touching the persona:
-
-```bash
-rm ~/.claude/.cache/.ghost
-```
-
-Absent = first boot fires on the next session.
+`flatline` copies `stock/*.md` over the persona and re-encodes to `.dat`.

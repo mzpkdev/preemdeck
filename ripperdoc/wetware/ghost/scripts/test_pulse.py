@@ -44,81 +44,55 @@ class TestReadSource:
 
 
 class TestMain:
-    def _run(self, monkeypatch, tmp_path, *, sentinel_exists: bool, stdin_data: str = "{}"):
-        sentinel = tmp_path / ".ghost"
-        if sentinel_exists:
-            sentinel.touch()
-        monkeypatch.setattr(mod, "GHOST_SENTINEL", sentinel)
+    def _run(self, monkeypatch, tmp_path, *, stdin_data: str = "{}"):
         monkeypatch.setattr(mod, "PLUGIN_ROOT", tmp_path)
         monkeypatch.setattr("sys.stdin", io.StringIO(stdin_data))
         return main()
 
-    def test_creates_sentinel_when_absent(self, monkeypatch, tmp_path, capsys):
-        sentinel = tmp_path / ".ghost"
-        monkeypatch.setattr(mod, "GHOST_SENTINEL", sentinel)
-        monkeypatch.setattr(mod, "PLUGIN_ROOT", tmp_path)
-        monkeypatch.setattr("sys.stdin", io.StringIO("{}"))
-        assert not sentinel.exists()
-        main()
-        assert sentinel.exists()
-
-    def test_sentinel_already_present_is_fine(self, monkeypatch, tmp_path, capsys):
-        self._run(monkeypatch, tmp_path, sentinel_exists=True)
-        sentinel = tmp_path / ".ghost"
-        assert sentinel.exists()
-
     def test_returns_empty_when_no_content(self, monkeypatch, tmp_path, capsys):
-        ret = self._run(monkeypatch, tmp_path, sentinel_exists=True)
+        ret = self._run(monkeypatch, tmp_path)
         assert ret == 0
         out = capsys.readouterr().out.strip()
         assert out == "{}"
 
     def test_emits_hook_output_with_content(self, monkeypatch, tmp_path, capsys):
         (tmp_path / "PULSE.md").write_text("pulse persona content")
-        self._run(monkeypatch, tmp_path, sentinel_exists=True)
+        self._run(monkeypatch, tmp_path)
         out = capsys.readouterr().out.strip()
         data = json.loads(out)
         assert "pulse persona content" in data["hookSpecificOutput"]["additionalContext"]
 
     def test_strips_whitespace_from_content(self, monkeypatch, tmp_path, capsys):
         (tmp_path / "PULSE.md").write_text("  content with spaces  \n")
-        self._run(monkeypatch, tmp_path, sentinel_exists=True)
+        self._run(monkeypatch, tmp_path)
         out = capsys.readouterr().out.strip()
         data = json.loads(out)
         assert data["hookSpecificOutput"]["additionalContext"] == "content with spaces"
 
     def test_default_event_name(self, monkeypatch, tmp_path, capsys):
         (tmp_path / "PULSE.md").write_text("content")
-        self._run(monkeypatch, tmp_path, sentinel_exists=True)
+        self._run(monkeypatch, tmp_path)
         out = capsys.readouterr().out.strip()
         data = json.loads(out)
         assert data["hookSpecificOutput"]["hookEventName"] == "UserPromptSubmit"
 
     def test_custom_event_name_from_stdin(self, monkeypatch, tmp_path, capsys):
         (tmp_path / "PULSE.md").write_text("content")
-        self._run(monkeypatch, tmp_path, sentinel_exists=True, stdin_data='{"hook_event_name": "MyEvent"}')
+        self._run(monkeypatch, tmp_path, stdin_data='{"hook_event_name": "MyEvent"}')
         out = capsys.readouterr().out.strip()
         data = json.loads(out)
         assert data["hookSpecificOutput"]["hookEventName"] == "MyEvent"
 
     def test_invalid_json_stdin_uses_default_event(self, monkeypatch, tmp_path, capsys):
         (tmp_path / "PULSE.md").write_text("content")
-        self._run(monkeypatch, tmp_path, sentinel_exists=True, stdin_data="{bad json}")
+        self._run(monkeypatch, tmp_path, stdin_data="{bad json}")
         out = capsys.readouterr().out.strip()
         data = json.loads(out)
         assert data["hookSpecificOutput"]["hookEventName"] == "UserPromptSubmit"
 
     def test_non_string_event_name_ignored(self, monkeypatch, tmp_path, capsys):
         (tmp_path / "PULSE.md").write_text("content")
-        self._run(monkeypatch, tmp_path, sentinel_exists=True, stdin_data='{"hook_event_name": null}')
+        self._run(monkeypatch, tmp_path, stdin_data='{"hook_event_name": null}')
         out = capsys.readouterr().out.strip()
         data = json.loads(out)
         assert data["hookSpecificOutput"]["hookEventName"] == "UserPromptSubmit"
-
-    def test_creates_parent_dirs_for_sentinel(self, monkeypatch, tmp_path, capsys):
-        deep_sentinel = tmp_path / "a" / "b" / ".ghost"
-        monkeypatch.setattr(mod, "GHOST_SENTINEL", deep_sentinel)
-        monkeypatch.setattr(mod, "PLUGIN_ROOT", tmp_path)
-        monkeypatch.setattr("sys.stdin", io.StringIO("{}"))
-        main()
-        assert deep_sentinel.exists()

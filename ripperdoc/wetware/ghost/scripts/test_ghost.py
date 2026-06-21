@@ -34,10 +34,10 @@ class TestEncode:
 
     def test_skips_missing_md_files(self, tmp_path, monkeypatch, capsys):
         monkeypatch.setattr(mod, "PLUGIN_ROOT", tmp_path)
-        # Only BOOT.md present; others should be silently skipped
-        (tmp_path / "BOOT.md").write_text("boot")
+        # Only PULSE.md present; others should be silently skipped
+        (tmp_path / "PULSE.md").write_text("pulse")
         encode()
-        assert (tmp_path / "boot.dat").exists()
+        assert (tmp_path / "pulse.dat").exists()
         assert not (tmp_path / "engram.dat").exists()
 
     def test_prints_mapping_on_encode(self, tmp_path, monkeypatch, capsys):
@@ -70,9 +70,9 @@ class TestDecode:
 
     def test_skips_missing_dat_files(self, tmp_path, monkeypatch, capsys):
         monkeypatch.setattr(mod, "PLUGIN_ROOT", tmp_path)
-        (tmp_path / "boot.dat").write_bytes(base64.b64encode(b"boot data"))
+        (tmp_path / "pulse.dat").write_bytes(base64.b64encode(b"pulse data"))
         decode()
-        assert (tmp_path / "BOOT.md").exists()
+        assert (tmp_path / "PULSE.md").exists()
         assert not (tmp_path / "ENGRAM.md").exists()
 
     def test_prints_mapping_on_decode(self, tmp_path, monkeypatch, capsys):
@@ -96,7 +96,6 @@ class TestDecode:
 class TestFlatline:
     def _setup(self, tmp_path: Path, monkeypatch) -> None:
         monkeypatch.setattr(mod, "PLUGIN_ROOT", tmp_path)
-        monkeypatch.setattr(mod, "SENTINEL", tmp_path / ".ghost")
         stock_dir = tmp_path / "stock"
         stock_dir.mkdir()
         for md_name, _ in mod.MAPPINGS:
@@ -109,34 +108,19 @@ class TestFlatline:
         for _, dat_name in mod.MAPPINGS:
             assert (tmp_path / dat_name).exists()
 
-    def test_clears_sentinel(self, tmp_path, monkeypatch, capsys):
-        self._setup(tmp_path, monkeypatch)
-        sentinel = tmp_path / ".ghost"
-        sentinel.touch()
-        flatline()
-        assert not sentinel.exists()
-
     def test_prints_persona_wiped(self, tmp_path, monkeypatch, capsys):
         self._setup(tmp_path, monkeypatch)
         flatline()
         out = capsys.readouterr().out
         assert "persona wiped to stock" in out
 
-    def test_flatline_without_sentinel_is_fine(self, tmp_path, monkeypatch, capsys):
-        self._setup(tmp_path, monkeypatch)
-        # sentinel not created — flatline should not raise
-        flatline()
-        out = capsys.readouterr().out
-        assert "persona wiped to stock" in out
-
     def test_skips_stock_md_not_present(self, tmp_path, monkeypatch, capsys):
         monkeypatch.setattr(mod, "PLUGIN_ROOT", tmp_path)
-        monkeypatch.setattr(mod, "SENTINEL", tmp_path / ".ghost")
         (tmp_path / "stock").mkdir()
-        # Only BOOT.md in stock
-        (tmp_path / "stock" / "BOOT.md").write_text("stock boot")
+        # Only PULSE.md in stock
+        (tmp_path / "stock" / "PULSE.md").write_text("stock pulse")
         flatline()
-        assert (tmp_path / "boot.dat").exists()
+        assert (tmp_path / "pulse.dat").exists()
         assert not (tmp_path / "engram.dat").exists()
 
 
@@ -147,18 +131,18 @@ class TestMain:
     def test_encode_command(self, tmp_path, monkeypatch, capsys):
         monkeypatch.setattr(mod, "PLUGIN_ROOT", tmp_path)
         monkeypatch.setattr(sys, "argv", ["ghost.py", "encode"])
-        (tmp_path / "BOOT.md").write_text("boot")
+        (tmp_path / "PULSE.md").write_text("pulse")
         ret = main()
         assert ret == 0
-        assert (tmp_path / "boot.dat").exists()
+        assert (tmp_path / "pulse.dat").exists()
 
     def test_decode_command(self, tmp_path, monkeypatch, capsys):
         monkeypatch.setattr(mod, "PLUGIN_ROOT", tmp_path)
         monkeypatch.setattr(sys, "argv", ["ghost.py", "decode"])
-        (tmp_path / "boot.dat").write_bytes(base64.b64encode(b"boot data"))
+        (tmp_path / "pulse.dat").write_bytes(base64.b64encode(b"pulse data"))
         ret = main()
         assert ret == 0
-        assert (tmp_path / "BOOT.md").exists()
+        assert (tmp_path / "PULSE.md").exists()
 
     def test_unknown_command_returns_one(self, monkeypatch, capsys):
         monkeypatch.setattr(sys, "argv", ["ghost.py", "bogus"])
@@ -178,7 +162,6 @@ class TestMain:
 
     def test_flatline_command(self, tmp_path, monkeypatch, capsys):
         monkeypatch.setattr(mod, "PLUGIN_ROOT", tmp_path)
-        monkeypatch.setattr(mod, "SENTINEL", tmp_path / ".ghost")
         (tmp_path / "stock").mkdir()
         monkeypatch.setattr(sys, "argv", ["ghost.py", "flatline"])
         ret = main()

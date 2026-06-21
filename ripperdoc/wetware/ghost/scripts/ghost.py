@@ -12,7 +12,6 @@ PLUGIN_ROOT = Path(
 MAPPINGS: list[tuple[str, str]] = [
     ("ENGRAM.md", "engram.dat"),
     ("FIRMWARE.md", "firmware.dat"),
-    ("BOOT.md", "boot.dat"),
     ("PULSE.md", "pulse.dat"),
 ]
 
@@ -38,9 +37,6 @@ def decode() -> None:
         print(f"{dat_name} -> {md_name}")
 
 
-SENTINEL = Path.home() / ".claude" / ".cache" / ".ghost"
-
-
 def flatline() -> None:
     stock_dir = PLUGIN_ROOT / "stock"
     for md_name, _ in MAPPINGS:
@@ -50,9 +46,6 @@ def flatline() -> None:
         dst = PLUGIN_ROOT / md_name
         dst.write_bytes(src.read_bytes())
     encode()
-    if SENTINEL.exists():
-        SENTINEL.unlink()
-        print("sentinel cleared")
     print("persona wiped to stock")
 
 
