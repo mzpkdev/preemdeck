@@ -245,11 +245,11 @@ async def test_event_id_climbs_across_different_senders():
     room = make_room()
     ta, _ = await room.jackin()
     tb, _ = await room.jackin()
-    id1, seq1 = await room.send(ta, "hi from a")
-    id2, seq2 = await room.send(tb, "hi from b")
-    id3, seq3 = await room.send(ta, "again from a")
-    assert [id1, id2, id3] == [3, 4, 5]
-    assert [seq1, seq2, seq3] == [1, 2, 3]
+    r1 = await room.send(ta, "hi from a")
+    r2 = await room.send(tb, "hi from b")
+    r3 = await room.send(ta, "again from a")
+    assert [r1["id"], r2["id"], r3["id"]] == [3, 4, 5]
+    assert [r1["seq"], r2["seq"], r3["seq"]] == [1, 2, 3]
 
 
 async def test_message_seq_is_contiguous_despite_interleaved_presence():
@@ -260,13 +260,13 @@ async def test_message_seq_is_contiguous_despite_interleaved_presence():
     # not 2 and 3) — id is the stream position, seq is the message-only counter.
     room = make_room()
     ta, _ = await room.jackin()  # join -> event id 1
-    id1, seq1 = await room.send(ta, "first")  # message -> id 2, seq 1
+    r1 = await room.send(ta, "first")  # message -> id 2, seq 1
     await room.jackin()  # B joins -> presence event id 3, burns NO seq
-    id2, seq2 = await room.send(ta, "second")  # message -> id 4, seq 2
+    r2 = await room.send(ta, "second")  # message -> id 4, seq 2
 
     # message seq is contiguous; event id is not (B's join wedged in at id 3)
-    assert (seq1, seq2) == (1, 2)
-    assert (id1, id2) == (2, 4)
+    assert (r1["seq"], r2["seq"]) == (1, 2)
+    assert (r1["id"], r2["id"]) == (2, 4)
 
     # confirmed on the log entries themselves, not just the return values
     messages = [e for e in room._messages if e.type == "message"]
@@ -380,9 +380,9 @@ async def test_own_message_interleaved_below_others_not_skipped():
     t1, _ = await room.jackin()
     t2, _ = await room.jackin()
     t3, _ = await room.jackin()
-    id1, _ = await room.send(t2, "from peer-2")
-    id2, _ = await room.send(t1, "from peer-1")  # peer-1's own
-    id3, _ = await room.send(t3, "from peer-3")
+    id1 = (await room.send(t2, "from peer-2"))["id"]
+    id2 = (await room.send(t1, "from peer-1"))["id"]  # peer-1's own
+    id3 = (await room.send(t3, "from peer-3"))["id"]
     assert [id1, id2, id3] == [4, 5, 6]
 
     out = await room.recv(t1, wait=0)
@@ -464,6 +464,73 @@ async def test_read_your_last_message_tracks_latest_only():
     await room.recv(tb, wait=0)
     out = await room.recv(ta, wait=0.05)
     assert out["read_your_last_message"] == ["peer-2"]
+
+
+# -- send's behind_by / present_peers signal -----------------------------
+
+
+async def test_send_behind_by_counts_unseen_others_messages():
+    # The signal a sender gets for free: how many unread chat messages from
+    # OTHERS sit past its cursor. peer-1 hasn't recv'd, so peer-2's two messages
+    # are still unread — peer-1's own send reports behind_by 2.
+    room = make_room()
+    ta, _ = await room.jackin()
+    tb, _ = await room.jackin()
+    await room.send(tb, "from b one")
+    await room.send(tb, "from b two")
+    out = await room.send(ta, "from a")
+    assert out["behind_by"] == 2
+
+
+async def test_send_behind_by_excludes_own_messages():
+    # A peer's own messages never count — including the one just sent. peer-1
+    # talks to an otherwise-silent room, so its own sends never bump behind_by.
+    room = make_room()
+    ta, _ = await room.jackin()
+    await room.jackin()  # peer-2 present but silent
+    assert (await room.send(ta, "mine one"))["behind_by"] == 0
+    assert (await room.send(ta, "mine two"))["behind_by"] == 0
+
+
+async def test_send_behind_by_excludes_presence():
+    # behind_by counts CHAT only — a join/leave is not a message and never bumps
+    # it. peer-2 joins (presence) and leaves (presence) before peer-1 sends; with
+    # no OTHERS' chat outstanding, peer-1's send reports behind_by 0.
+    room = make_room()
+    ta, _ = await room.jackin()
+    tb, _ = await room.jackin()  # presence: join
+    await room.jackout(tb)  # presence: leave
+    out = await room.send(ta, "anyone?")
+    assert out["behind_by"] == 0
+
+
+async def test_send_does_not_advance_cursor():
+    # CRITICAL: send is not a consumer. peer-2's message is unread when peer-1
+    # sends (behind_by 1), and because send NEVER touches the cursor, peer-1's
+    # very next recv still delivers that message.
+    room = make_room()
+    ta, _ = await room.jackin()
+    tb, _ = await room.jackin()
+    await room.send(tb, "unread by a")  # id 3
+    out = await room.send(ta, "from a")  # id 4
+    assert out["behind_by"] == 1
+    # the cursor never moved: the recv right after still returns peer-2's message
+    after = await room.recv(ta, wait=0)
+    msgs = [(e.id, e.sender) for e in after["events"] if e.type == "message"]
+    assert msgs == [(3, "peer-2")]
+
+
+async def test_send_present_peers_reflects_roster():
+    # present_peers on a send is the live roster in join order — the same set
+    # peers() reports. A jacked-out peer drops out of it.
+    room = make_room()
+    ta, _ = await room.jackin()
+    tb, _ = await room.jackin()
+    out = await room.send(ta, "hello")
+    assert out["present_peers"] == ["peer-1", "peer-2"] == room.peers()
+    await room.jackout(tb)
+    out = await room.send(ta, "just me now")
+    assert out["present_peers"] == ["peer-1"]
 
 
 # -- long-poll ------------------------------------------------------------
@@ -640,7 +707,7 @@ async def test_presence_rides_the_same_event_id_counter():
     room = make_room()
     ta, _ = await room.jackin(requested="alice")  # id1
     tb, _ = await room.jackin(requested="bob")  # id2
-    msg_id, _ = await room.send(ta, "hi")  # id3
+    msg_id = (await room.send(ta, "hi"))["id"]  # id3
     tc, _ = await room.jackin(requested="carol")  # id4
     assert msg_id == 3
     # carol (fresh) backfills id1..3 (her own id4 join is filtered)

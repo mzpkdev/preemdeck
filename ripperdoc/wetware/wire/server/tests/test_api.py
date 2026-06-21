@@ -250,7 +250,9 @@ def test_send_recv_loop(client: TestClient):
     # message seq is 1. /send returns BOTH numbers.
     r = client.post("/send", params={"token": t1}, content=b"hello peer-2")
     assert r.status_code == 200
-    assert r.json() == {"id": 3, "seq": 1}
+    # behind_by is 0 (the only chat message is peer-1's own, which never counts)
+    # and present_peers is the live roster at send time, in join order.
+    assert r.json() == {"id": 3, "seq": 1, "behind_by": 0, "present_peers": ["peer-1", "peer-2"]}
 
     # peer-2 reads it (non-blocking wait=0). Its stream also carries peer-1's
     # earlier join (id 1); peer-2's own join (id 2) is filtered. Pick the message.
@@ -289,6 +291,22 @@ def test_send_recv_loop(client: TestClient):
     assert [e for e in body["events"] if e["type"] == "message"] == []
     assert [(e["type"], e["peer"]) for e in body["events"]] == [("action(join)", "peer-2")]
     assert body["read_your_last_message"] == ["peer-2"]
+
+
+def test_send_reports_behind_by_over_the_wire(client: TestClient):
+    # /send hands a sender the unread signal without a separate poll: behind_by
+    # counts unread chat from OTHERS, and sending does NOT consume it.
+    t1 = client.post("/jackin", params={"secret": SECRET}).json()["token"]
+    t2 = client.post("/jackin", params={"secret": SECRET}).json()["token"]
+    # peer-2 speaks twice; peer-1 has not recv'd, so both are unread to peer-1.
+    client.post("/send", params={"token": t2}, content=b"one")
+    client.post("/send", params={"token": t2}, content=b"two")
+    body = client.post("/send", params={"token": t1}, content=b"caught up?").json()
+    assert body["behind_by"] == 2  # peer-2's two messages; peer-1's own excluded
+    assert set(body["present_peers"]) == {"peer-1", "peer-2"}
+    # send didn't advance peer-1's cursor — its next /recv still delivers both.
+    recv = client.get("/recv", params={"token": t1, "wait": 0}).json()
+    assert [m["message"]["body"] for m in recv["events"] if m["type"] == "message"] == ["one", "two"]
 
 
 # -- sent_at on a delivered message ---------------------------------------
@@ -442,7 +460,9 @@ def test_message_seq_is_contiguous_while_event_id_straddles_a_join(client: TestC
     tb = _jackin(client)  # peer-2 (B) -> join id 2
 
     first = client.post("/send", params={"token": ta}, content=b"ping")  # id 3, seq 1
-    assert first.json() == {"id": 3, "seq": 1}
+    # This test is about the id-vs-seq contract; assert just those keys (the
+    # behind_by / present_peers signal has its own coverage).
+    assert {k: first.json()[k] for k in ("id", "seq")} == {"id": 3, "seq": 1}
 
     # B leaves, then a token-bearing /recv rejoins B — wedging leave(id 4) +
     # join(id 5) into the stream between A's two messages, with NO chat message
@@ -453,7 +473,7 @@ def test_message_seq_is_contiguous_while_event_id_straddles_a_join(client: TestC
     second = client.post("/send", params={"token": ta}, content=b"pong")  # id 6, seq 2
     # event id jumped 3 -> 6 (presence churn burned ids 4 & 5), but the chat-only
     # seq only climbed 1 -> 2: gap-free regardless of the joins/leaves between.
-    assert second.json() == {"id": 6, "seq": 2}
+    assert {k: second.json()[k] for k in ("id", "seq")} == {"id": 6, "seq": 2}
 
     # A fresh third peer backfills the whole stream and sees A's two messages with
     # message.seq == 1 then 2 (CONTIGUOUS) while their event ids are 3 and 6

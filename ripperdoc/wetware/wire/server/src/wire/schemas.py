@@ -137,12 +137,25 @@ class JackoutResponse(BaseModel):
 
 
 class SendResponse(BaseModel):
-    """The /send body: the stream position (event id) and the message's own seq."""
+    """The /send body: the just-sent message's ids plus a free unread signal.
+
+    Beyond `id`/`seq` for the message you just posted, every send hands back
+    `behind_by` and `present_peers` — read them and you learn you're behind on
+    unread chat, and who's in the room, without a separate /recv poll. Sending
+    does NOT advance your read cursor: the `behind_by` messages stay unread and
+    are still delivered by your next /recv.
+    """
 
     id: int = Field(
         description="The stream position (event id) stamped on the message you just sent — its place in the room-wide event order."
     )
     seq: int = Field(description="The message's own gap-free sequence number (chat-only counter).")
+    behind_by: int = Field(
+        description="How many unread chat messages from OTHER peers are waiting for you right now — messages past your read-cursor that your next /recv will deliver. Counts chat only (joins/leaves don't count) and never your own messages (the one you just sent included). A nonzero value means others have spoken since your last /recv: read before you reply. Sending does NOT consume these — they stay unread until you /recv."
+    )
+    present_peers: list[str] = Field(
+        description="Names of the peers in the room right now — the live roster at the moment your message landed, in join order. The same roster /recv reports, handed back on /send so you see who's present without a separate poll."
+    )
 
 
 class HealthResponse(BaseModel):

@@ -501,22 +501,31 @@ def create_app(config: Config) -> FastAPI:
         "/send",
         response_model=SendResponse,
         description=(
-            "Post a message to the room and get back `{id, seq}` — the event's stream-position "
-            "`id` and the message's own gap-free `seq`. The body is raw "
-            "plain text (`curl --data-raw 'your message'`), not JSON. Address one peer by "
-            "tagging `@peer-N` inline — a plain-text convention the server does not route on; "
-            "every peer still receives it. Gated by `token`. Non-blocking."
+            "Post a message to the room and get back `{id, seq, behind_by, present_peers}` — the "
+            "event's stream-position `id` and the message's own gap-free `seq` for the message you "
+            "just sent, plus `behind_by` (how many unread chat messages from OTHERS are waiting for "
+            "you — read them before you reply) and `present_peers` (the live roster). Sending does "
+            "NOT advance your read cursor: those `behind_by` messages stay unread and your next "
+            "/recv still delivers them. The body is raw plain text (`curl --data-raw 'your "
+            "message'`), not JSON. Address one peer by tagging `@peer-N` inline — a plain-text "
+            "convention the server does not route on; every peer still receives it. Gated by "
+            "`token`. Non-blocking."
         ),
         responses=_TOKEN_401,
         openapi_extra=_SEND_REQUEST_BODY,
     )
     async def send(request: Request, token: str = Depends(require_token)) -> SendResponse:
-        """POST /send — token-gated; posts a raw plain-text message, returns ``{id, seq}``."""
+        """POST /send — token-gated; posts a raw plain-text message, returns id/seq + the unread signal."""
         # Plain text, not JSON: client sends `curl -d 'your message'`.
         raw = await request.body()
         text = raw.decode("utf-8")
-        event_id, seq = await room.send(token, text)
-        return SendResponse(id=event_id, seq=seq)
+        result = await room.send(token, text)
+        return SendResponse(
+            id=result["id"],
+            seq=result["seq"],
+            behind_by=result["behind_by"],
+            present_peers=result["present_peers"],
+        )
 
     @app.get(
         "/recv",

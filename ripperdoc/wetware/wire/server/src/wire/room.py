@@ -450,11 +450,31 @@ class Room:
         }
         return [name for name in self._join_order if name in readers]
 
-    async def send(self, token: str, text: str) -> tuple[int, int]:
+    def _behind_by(self, peer: _Peer) -> int:
+        """How many unread CHAT messages from OTHERS sit past ``peer``'s cursor.
+
+        Counts log entries that are messages (NOT presence) with ``id >
+        peer.cursor`` whose ``sender`` is someone else — exactly the chat
+        ``peer`` would receive on its next /recv, so a send can report "you're
+        N messages behind" without a separate poll. Presence join/leave never
+        counts (it's not chat), and the peer's own messages never count (the
+        sender-name filter excludes them, the just-sent one included). A PURE
+        read off the current cursor — it neither peeks nor advances it; those
+        messages stay unread and /recv remains their only consumer."""
+        return sum(1 for e in self._messages if isinstance(e, Message) and e.id > peer.cursor and e.sender != peer.name)
+
+    async def send(self, token: str, text: str) -> dict:
         """Append a message from ``token``'s peer, stamped with the next event
         ``id`` (stream position), its own gap-free message ``seq``, and the
         authoritative send time (``sent_at``, ISO-8601 UTC). Wakes parked recv
-        waiters. Returns ``(id, seq)``: the event id and the message-only seq.
+        waiters.
+
+        Returns a dict ``{"id", "seq", "behind_by", "present_peers"}``: the event
+        id and the message-only seq of the just-sent message, plus a free unread
+        signal computed from the same consistent snapshot — ``behind_by`` (unread
+        chat from OTHERS still past this peer's cursor; see :meth:`_behind_by`)
+        and ``present_peers`` (the live roster). Does NOT touch the read cursor —
+        the counted messages stay unread and /recv remains their only consumer.
 
         Caller is expected to have validated the token; raises ``KeyError`` for
         an unknown token.
@@ -477,7 +497,16 @@ class Room:
             # read-receipts compare against other peers' id-based cursors.
             peer.last_sent = event_id
             self._cond.notify_all()
-        return event_id, msg_seq
+            # Snapshot the unread signal under the SAME lock, after the append,
+            # for a consistent view. behind_by is a pure count off the current
+            # cursor (the just-sent message is excluded by the sender filter),
+            # NOT a peek or advance — /recv stays the only consumer.
+            return {
+                "id": event_id,
+                "seq": msg_seq,
+                "behind_by": self._behind_by(peer),
+                "present_peers": self.peers(),
+            }
 
     def _quiet_for(self) -> int | None:
         """Whole seconds since the most recent CHAT message, or ``None`` if no
