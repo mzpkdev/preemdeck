@@ -26,6 +26,10 @@ STAGING_ROOT = "root"
 
 CLEANUP_MANIFEST = ".trash"
 
+DISABLED_PLUGINS: frozenset[str] = frozenset(
+    {"ghost"}
+)  # hardcoded skip — never install these, regardless of marketplace.json
+
 CHECK = "✓"
 CROSS = "✗"
 
@@ -55,7 +59,9 @@ def read_plugin_specs(rack_path: Path) -> list[PluginSpec]:
     return [
         PluginSpec(name=entry["name"], source_path=(rack_path / entry["source"]).resolve())
         for entry in data.get("plugins", [])
-        if isinstance(entry.get("name"), str) and isinstance(entry.get("source"), str)
+        if isinstance(entry.get("name"), str)
+        and isinstance(entry.get("source"), str)
+        and entry["name"] not in DISABLED_PLUGINS
     ]
 
 
