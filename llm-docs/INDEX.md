@@ -9,6 +9,11 @@ Cross-host cheat sheet. What ports unchanged, what diverges, and the gotchas tha
 Named orchestration patterns that survive on all three hosts. Direct, Trampoline, Parent Fan-Out, Stamped Results,
 Action Dispatch, Prompt Intercept, Adapter Hook.
 
+## [Prompting Best Practices](PROMPTING_BEST_PRACTICES.md)
+
+Cross-lab rules for system prompts and agent harnesses — structure, context budgeting, eagerness, orchestration
+patterns.
+
 ## [Python Coding Standards](CODING_STANDARDS.md)
 
 Repo conventions for Python. Naming, function shape, type hints, idioms, SOLID, and pytest patterns.
