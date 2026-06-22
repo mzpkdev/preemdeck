@@ -17,8 +17,8 @@
       "category": "wetware"
     },
     {
-      "name": "mode-example",
-      "source": "./mode-example",
+      "name": "directive",
+      "source": "./directive",
       "policy": "allow",
       "category": "wetware"
     }

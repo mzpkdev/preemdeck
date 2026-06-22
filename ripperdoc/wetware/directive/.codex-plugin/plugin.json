@@ -1,17 +1,7 @@
 {
-  "name": "mode-example",
-  "description": "Persisted mode toggle (scaffold). A /mode skill flips a mode flag that a hook routes to injected context.",
+  "name": "directive",
   "version": "0.1.0",
-  "author": {
-    "name": "preemdeck"
-  },
-  "keywords": [
-    "wetware",
-    "mode",
-    "toggle",
-    "example",
-    "scaffold"
-  ],
+  "description": "Swappable behavioral directive. A /directive command picks which directive a per-prompt hook injects as context.",
   "hooks": {
     "UserPromptSubmit": [
       {

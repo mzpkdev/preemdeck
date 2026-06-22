@@ -1,7 +1,17 @@
 {
-  "name": "mode-example",
+  "name": "directive",
+  "description": "Swappable behavioral directive. A /directive command picks which directive a per-prompt hook injects as context.",
   "version": "0.1.0",
-  "description": "Persisted mode toggle (scaffold). A /mode skill flips a mode flag that a hook routes to injected context.",
+  "author": {
+    "name": "preemdeck"
+  },
+  "keywords": [
+    "wetware",
+    "directive",
+    "mode",
+    "toggle",
+    "behavior"
+  ],
   "hooks": {
     "UserPromptSubmit": [
       {

@@ -1,4 +1,0 @@
-description = "Set the active mode-example mode (mode-a, mode-b, mode-c) by writing preemdeck.json."
-prompt = """
-Run the plugin's scripts/set_mode.py with the mode the user passed to /mode as the single positional argument (e.g. mode-b). The script self-locates preemdeck.json and the modes dir and is the only thing that should touch preemdeck.json. Relay its output verbatim; on a non-zero exit, pass through the list of valid modes it prints.
-"""
