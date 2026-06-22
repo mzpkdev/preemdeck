@@ -15,6 +15,12 @@
       "source": "./ghost",
       "policy": "allow",
       "category": "wetware"
+    },
+    {
+      "name": "mode-example",
+      "source": "./mode-example",
+      "policy": "allow",
+      "category": "wetware"
     }
   ]
 }

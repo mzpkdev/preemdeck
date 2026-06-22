@@ -1,0 +1,19 @@
+{
+  "name": "mode-example",
+  "version": "0.1.0",
+  "description": "Persisted mode toggle (scaffold). A /mode skill flips a mode flag that a hook routes to injected context.",
+  "hooks": {
+    "BeforeAgent": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "${extensionPath}/scripts/inject_mode.py --event BeforeAgent",
+            "timeout": 5
+          }
+        ]
+      }
+    ]
+  }
+}

@@ -26,6 +26,13 @@
       "source": "./wire",
       "version": "0.1.0",
       "category": "wetware"
+    },
+    {
+      "name": "mode-example",
+      "description": "Persisted mode toggle (scaffold). A /mode skill flips a mode flag that a hook routes to injected context.",
+      "source": "./mode-example",
+      "version": "0.1.0",
+      "category": "wetware"
     }
   ]
 }

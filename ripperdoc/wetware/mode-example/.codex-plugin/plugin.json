@@ -1,0 +1,19 @@
+{
+  "name": "mode-example",
+  "version": "0.1.0",
+  "description": "Persisted mode toggle (scaffold). A /mode skill flips a mode flag that a hook routes to injected context.",
+  "hooks": {
+    "UserPromptSubmit": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/inject_mode.py --event UserPromptSubmit",
+            "timeout": 5
+          }
+        ]
+      }
+    ]
+  }
+}

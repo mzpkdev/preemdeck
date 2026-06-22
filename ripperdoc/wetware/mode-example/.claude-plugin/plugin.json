@@ -1,0 +1,29 @@
+{
+  "name": "mode-example",
+  "description": "Persisted mode toggle (scaffold). A /mode skill flips a mode flag that a hook routes to injected context.",
+  "version": "0.1.0",
+  "author": {
+    "name": "preemdeck"
+  },
+  "keywords": [
+    "wetware",
+    "mode",
+    "toggle",
+    "example",
+    "scaffold"
+  ],
+  "hooks": {
+    "UserPromptSubmit": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/inject_mode.py --event UserPromptSubmit",
+            "timeout": 5
+          }
+        ]
+      }
+    ]
+  }
+}

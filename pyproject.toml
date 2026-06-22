@@ -73,8 +73,12 @@ typecheck = "mypy"
 test = "pytest"
 
 [tool.pytest.ini_options]
-testpaths = ["tests"]
+testpaths = ["tests", "ripperdoc"]
 pythonpath = ["."]
+# Plugin script tests live beside their scripts under ripperdoc/. wire ships its
+# own suite (own pyproject + deps, run from ripperdoc/wetware/wire/server) — keep
+# it out of the root run; its own config governs when invoked there.
+addopts = "--ignore=ripperdoc/wetware/wire"
 
 [tool.pyright]
 extraPaths = ["."]
