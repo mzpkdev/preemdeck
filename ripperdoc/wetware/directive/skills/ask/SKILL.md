@@ -1,18 +1,16 @@
 ---
-description: Set the ask discretion directive — writes discretion=ask to preemdeck.json. Trigger ONLY when the user types /ask. NEVER auto-invoke; never edit preemdeck.json by hand.
+description: Show the ask discretion directive — prints skills/ask/directive.md. Trigger ONLY when the user types /ask. NEVER auto-invoke.
 user-invocable: true
 disable-model-invocation: true
 ---
 
-# Set discretion = ask
+# Show the ask discretion directive
 
-Run the bundled writer — nothing else:
+Run the bundled reader — nothing else:
 
 ```bash
-python3 "${CLAUDE_PLUGIN_ROOT}/scripts/set_mode.py" discretion ask
+python3 "${CLAUDE_PLUGIN_ROOT}/scripts/show_mode.py" ask
 ```
 
-`${CLAUDE_PLUGIN_ROOT}` resolves on Claude and Codex (aliased to `PLUGIN_ROOT`). Relay the script's output verbatim; on
-a non-zero exit it lists the valid values — pass that through, don't retry with a guess. `set_mode.py` is the only
-writer of `preemdeck.json`. The directive takes effect on the next prompt, when the inject hook reads this skill's
-`directive.md`.
+`${CLAUDE_PLUGIN_ROOT}` resolves on Claude and Codex (aliased to `PLUGIN_ROOT`). Relay the script's output verbatim.
+This only displays the directive; to **set** a directive, use `/directive:default`.

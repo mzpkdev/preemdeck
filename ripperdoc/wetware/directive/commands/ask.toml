@@ -1,4 +1,4 @@
-description = "Set the ask discretion directive (discretion=ask) by writing preemdeck.json."
+description = "Show the ask discretion directive — prints skills/ask/directive.md."
 prompt = """
-Run the plugin's scripts/set_mode.py with `discretion ask` as the two positional arguments. The script self-locates preemdeck.json and is the only thing that should touch it. Relay its output verbatim; on a non-zero exit, pass through the valid values it prints. The directive takes effect on the next prompt, when the inject hook reads it.
+Run the plugin's scripts/show_mode.py with `ask` as the positional argument and print its output verbatim. This only displays the directive — it writes nothing. To set a directive, use /directive:default.
 """
