@@ -359,7 +359,7 @@ def _cmd_start(args: argparse.Namespace) -> int:
         args.secret = secrets.token_hex(4)
 
     log = lifecycle.log_path()
-    with open(log, "wb") as logfile:
+    with log.open("wb") as logfile:
         child = subprocess.Popen(
             _serve_argv(args),
             stdout=logfile,
@@ -501,7 +501,10 @@ def _build_parser() -> argparse.ArgumentParser:
             "--idle-timeout",
             type=int,
             default=None,
-            help="seconds of silence before a peer is dropped; 0 disables (env WIRE_IDLE_TIMEOUT, default: 300). Must exceed --wait-max when > 0.",
+            help=(
+                "seconds of silence before a peer is dropped; 0 disables (env WIRE_IDLE_TIMEOUT, default: 300). "
+                "Must exceed --wait-max when > 0."
+            ),
         )
         p.add_argument(
             "--sweep-interval",
@@ -513,20 +516,29 @@ def _build_parser() -> argparse.ArgumentParser:
             "--empty-grace",
             type=int,
             default=None,
-            help="seconds an empty roster is tolerated before the server self-closes; 0 disables (env WIRE_EMPTY_GRACE, default: 900 = 15 min).",
+            help=(
+                "seconds an empty roster is tolerated before the server self-closes; 0 disables "
+                "(env WIRE_EMPTY_GRACE, default: 900 = 15 min)."
+            ),
         )
         p.add_argument(
             "--max-connections",
             type=int,
             default=None,
-            help="max concurrent connections before returning 503; 0 = unlimited (env WIRE_MAX_CONNECTIONS, default: 64).",
+            help=(
+                "max concurrent connections before returning 503; 0 = unlimited "
+                "(env WIRE_MAX_CONNECTIONS, default: 64)."
+            ),
         )
         # Default None so the resolver can tell "unset" from a value and apply
         # flag>env>None; `start` forwards it to the child only when explicitly set.
         p.add_argument(
             "--public-url",
             default=None,
-            help="public base URL peers read (e.g. behind a tunnel: https://x.ngrok.io); must start with http:// or https:// (env WIRE_PUBLIC_URL). Unset = use the request/LAN base.",
+            help=(
+                "public base URL peers read (e.g. behind a tunnel: https://x.ngrok.io); must start with "
+                "http:// or https:// (env WIRE_PUBLIC_URL). Unset = use the request/LAN base."
+            ),
         )
 
     p_serve = sub.add_parser(

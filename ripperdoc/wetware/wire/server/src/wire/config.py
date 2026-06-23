@@ -57,8 +57,10 @@ class Config:
     secret: str
     topic: str
     public_url: str | None = None
-    wait_default: int = 30
-    wait_max: int = 60
+    # Second-durations used as asyncio.wait_for timeouts, so float-typed; the CLI
+    # still feeds ints (valid floats) and the tests drive sub-second values.
+    wait_default: float = 30
+    wait_max: float = 60
     idle_timeout: int = 300
     sweep_interval: int = 15
     empty_grace: int = 900

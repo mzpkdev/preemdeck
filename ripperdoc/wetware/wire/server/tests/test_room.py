@@ -11,9 +11,8 @@ import asyncio
 import re
 
 import pytest
-
 from wire.config import Config
-from wire.room import Room, TokenStatus
+from wire.room import Message, Presence, Room, TokenStatus
 
 # ISO-8601 UTC, second precision, Z-suffixed: e.g. 2026-06-18T13:57:02Z.
 _ISO_UTC_Z_RE = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$")
@@ -197,7 +196,7 @@ async def test_no_duplicate_names_across_mixed_jackins():
 
 async def test_token_binds_to_one_peer_for_life():
     room = make_room()
-    t1, n1 = await room.jackin()
+    t1, _n1 = await room.jackin()
     assert room.peer_name_for(t1) == "peer-1"
     # name survives jackout
     await room.jackout(t1)
@@ -207,7 +206,7 @@ async def test_token_binds_to_one_peer_for_life():
 async def test_jackout_removes_from_roster():
     room = make_room()
     t1, _ = await room.jackin()
-    t2, _ = await room.jackin()
+    _t2, _ = await room.jackin()
     left = await room.jackout(t1)
     assert left == "peer-1"
     assert room.peers() == ["peer-2"]
@@ -269,7 +268,7 @@ async def test_message_seq_is_contiguous_despite_interleaved_presence():
     assert (r1["id"], r2["id"]) == (2, 4)
 
     # confirmed on the log entries themselves, not just the return values
-    messages = [e for e in room._messages if e.type == "message"]
+    messages = [e for e in room._messages if isinstance(e, Message)]
     assert [(m.id, m.seq, m.message) for m in messages] == [(2, 1, "first"), (4, 2, "second")]
 
 
@@ -601,7 +600,7 @@ async def test_quiet_for_is_none_before_any_message():
 
 async def test_quiet_for_is_zero_right_after_a_message():
     # Right after a message lands, the lull is ~0 (same clock instant).
-    room, clock = _idle_room(idle_timeout=10)
+    room, _clock = _idle_room(idle_timeout=10)
     ta, _ = await room.jackin()
     tb, _ = await room.jackin()
     await room.send(ta, "hi")  # stamps _last_msg_at at clock.now
@@ -647,7 +646,7 @@ async def test_jackin_appends_join_other_peers_receive():
     room = make_room()
     ta, _ = await room.jackin(requested="alice")
     await room.recv(ta, wait=0)  # drain alice's own-join-is-filtered backlog (empty)
-    tb, nb = await room.jackin(requested="bob")  # nb == "bob-1"
+    _tb, nb = await room.jackin(requested="bob")  # nb == "bob-1"
     out = await room.recv(ta, wait=0)
     joins = [e for e in out["events"] if e.type == "action(join)"]
     assert len(joins) == 1
@@ -706,7 +705,7 @@ async def test_presence_rides_the_same_event_id_counter():
     # joins and a message share one climbing event-id counter, in order.
     room = make_room()
     ta, _ = await room.jackin(requested="alice")  # id1
-    tb, _ = await room.jackin(requested="bob")  # id2
+    _tb, _ = await room.jackin(requested="bob")  # id2
     msg_id = (await room.send(ta, "hi"))["id"]  # id3
     tc, _ = await room.jackin(requested="carol")  # id4
     assert msg_id == 3
@@ -747,17 +746,17 @@ def _idle_room(idle_timeout: int = 10) -> tuple[Room, _FakeClock]:
 
 
 def _leaves_about(room: Room, name: str) -> list:
-    return [e for e in room._messages if e.type == "action(leave)" and e.peer == name]
+    return [e for e in room._messages if isinstance(e, Presence) and e.type == "action(leave)" and e.peer == name]
 
 
 def _joins_about(room: Room, name: str) -> list:
-    return [e for e in room._messages if e.type == "action(join)" and e.peer == name]
+    return [e for e in room._messages if isinstance(e, Presence) and e.type == "action(join)" and e.peer == name]
 
 
 async def test_reap_idle_drops_peer_past_timeout_one_leave():
     # (a) A peer silent past idle_timeout is dropped, emitting exactly ONE leave.
     room, clock = _idle_room(idle_timeout=10)
-    t1, n1 = await room.jackin()  # last_active stamped at clock.now (1000)
+    _t1, n1 = await room.jackin()  # last_active stamped at clock.now (1000)
     await room.jackin()  # a second peer so the roster isn't emptied
     clock.now += 11  # 11 > 10 -> peer-1 is idle
     await room.reap_idle()
@@ -768,7 +767,7 @@ async def test_reap_idle_drops_peer_past_timeout_one_leave():
 async def test_reap_idle_keeps_peer_under_timeout():
     # (b) A peer still within idle_timeout is NOT dropped and emits no leave.
     room, clock = _idle_room(idle_timeout=10)
-    t1, n1 = await room.jackin()
+    _t1, n1 = await room.jackin()
     clock.now += 9  # 9 < 10 -> still active (boundary is strict >)
     await room.reap_idle()
     assert n1 in room.peers()
@@ -875,7 +874,7 @@ async def test_parked_recv_is_not_reaped_when_sweep_runs_mid_park():
     # must survive purely on that fresh entry stamp, then heartbeat normally.
     room, clock = _idle_room(idle_timeout=10)
     t1, n1 = await room.jackin()  # last_active = 1000
-    t2, n2 = await room.jackin()  # peer-2, roster anchor
+    t2, _n2 = await room.jackin()  # peer-2, roster anchor
     await room.recv(t1, wait=0)  # drain peer-1's backlog (peer-2's join)
 
     # Advance PAST the threshold first: the jackin stamps (1000) are now stale.
@@ -998,7 +997,7 @@ async def test_reap_drops_only_idle_peers_active_ones_survive():
     # other two are refreshed (a token call) within the window and survive, and
     # the surviving roster keeps join order.
     room, clock = _idle_room(idle_timeout=10)
-    t1, n1 = await room.jackin()  # peer-1 — will go idle
+    _t1, n1 = await room.jackin()  # peer-1 — will go idle
     t2, n2 = await room.jackin()  # peer-2 — stays active
     t3, n3 = await room.jackin()  # peer-3 — stays active
 
@@ -1243,7 +1242,7 @@ async def test_self_close_additive_cascade_after_idle_drop():
     # then does the empty-room clock start — so self-close is ~0 elapsed right
     # after the reap, and fires another empty_grace later.
     room, clock = _grace_room(empty_grace=100, idle_timeout=10)
-    t1, n1 = await room.jackin()  # last_active = 1000; room occupied
+    _t1, n1 = await room.jackin()  # last_active = 1000; room occupied
     assert await room.should_self_close() is False
 
     clock.now += 11  # 11 > idle_timeout 10 -> the lone peer is now idle

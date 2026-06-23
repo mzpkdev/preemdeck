@@ -15,7 +15,7 @@ import secrets
 import time
 from collections.abc import Callable
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from enum import Enum
 
 from .config import Config
@@ -105,7 +105,7 @@ def _subject(entry: LogEntry) -> str:
 
 def _now_iso() -> str:
     """Authoritative wall-clock stamp: ISO-8601 UTC, second precision, Z-form."""
-    return datetime.now(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z")
+    return datetime.now(UTC).isoformat(timespec="seconds").replace("+00:00", "Z")
 
 
 @dataclass
@@ -561,7 +561,7 @@ class Room:
                         self._cond.wait_for(lambda: self._has_unread(peer)),
                         timeout=wait,
                     )
-                except (asyncio.TimeoutError, TimeoutError):
+                except TimeoutError:
                     # Heartbeat: nothing new, cursor untouched. Still reports the
                     # roster and the lull so an empty heartbeat reads as alive.
                     return {
