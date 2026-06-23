@@ -1,8 +1,8 @@
 """Tests for the cross-platform core surface (not mac-specific).
 
-Two guarantees: the Linux/Windows stubs raise NotImplementedError for every
-entry point, and the public API re-exported from `core` is wired to the running
-platform's impl (this host is darwin, so the idea_mac functions).
+Two guarantees: the Linux stub raises NotImplementedError for every entry point,
+and the public API re-exported from `core` is wired to the running platform's
+impl (this host is darwin, so the idea_mac functions).
 """
 
 import sys
@@ -10,22 +10,22 @@ import sys
 import pytest
 
 import core
-from core import idea_linux, idea_mac, idea_windows
+from core import idea_linux, idea_mac
 
 
-@pytest.mark.parametrize("stub", [idea_linux, idea_windows], ids=["linux", "windows"])
+@pytest.mark.parametrize("stub", [idea_linux], ids=["linux"])
 def test_stub_in_idea_raises_not_implemented(stub: object) -> None:
     with pytest.raises(NotImplementedError):
         stub.in_idea()  # type: ignore[attr-defined]
 
 
-@pytest.mark.parametrize("stub", [idea_linux, idea_windows], ids=["linux", "windows"])
+@pytest.mark.parametrize("stub", [idea_linux], ids=["linux"])
 def test_stub_resolve_exec_path_raises_not_implemented(stub: object) -> None:
     with pytest.raises(NotImplementedError):
         stub.resolve_exec_path()  # type: ignore[attr-defined]
 
 
-@pytest.mark.parametrize("stub", [idea_linux, idea_windows], ids=["linux", "windows"])
+@pytest.mark.parametrize("stub", [idea_linux], ids=["linux"])
 def test_stub_resolve_log_dir_raises_not_implemented(stub: object) -> None:
     with pytest.raises(NotImplementedError):
         stub.resolve_log_dir()  # type: ignore[attr-defined]

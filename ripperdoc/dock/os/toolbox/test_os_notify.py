@@ -1,16 +1,15 @@
-"""Tests for notify — hermetic: no real banners, no notify subprocess, no spawn.
+"""Tests for notify — hermetic: no real banners, no notify subprocess.
 
 notify raises an OS-wide desktop notification. The side-effecting seams are
 monkeypatched so the suite is silent and identical on every OS:
 
 - _run(cmd, env) -> bool: the wait-for-exit subprocess seam (macOS/Linux).
-- _spawn(cmd, env) -> bool: the detached fire-and-forget seam (Windows balloon).
 - _platform_worker(): the sys.platform dispatch, so notify()'s glue is testable
   on any host without touching sys.platform.
 
 Layers exercised: each per-OS worker's command/env construction, the
 no-injection contract (user text rides env/argv, never the script source),
-notify()'s mechanism-or-None contract, the thin _run/_spawn seams against real
+notify()'s mechanism-or-None contract, the thin _run seam against real
 (silent) subprocess behavior, and the CLI (defaults, --verbose, the
 no-mechanism exit-1 echo).
 """
@@ -21,8 +20,8 @@ import os_notify as notify
 import pytest
 
 
-def _fake_run(monkeypatch: pytest.MonkeyPatch, ok: bool, attr: str = "_run") -> list[dict[str, object]]:
-    """Install a fake `_run`/`_spawn` that records (cmd, env) and returns `ok`.
+def _fake_run(monkeypatch: pytest.MonkeyPatch, ok: bool) -> list[dict[str, object]]:
+    """Install a fake `_run` that records (cmd, env) and returns `ok`.
 
     Returns the recording list so a test can assert the exact argv and env handed
     to the seam — nothing is spawned."""
@@ -32,7 +31,7 @@ def _fake_run(monkeypatch: pytest.MonkeyPatch, ok: bool, attr: str = "_run") -> 
         calls.append({"cmd": cmd, "env": env})
         return ok
 
-    monkeypatch.setattr(notify, attr, fake)
+    monkeypatch.setattr(notify, "_run", fake)
     return calls
 
 
@@ -41,7 +40,7 @@ def _fake_which(monkeypatch: pytest.MonkeyPatch, *, found: bool) -> None:
     monkeypatch.setattr(notify.shutil, "which", lambda name: "/opt/bin/terminal-notifier" if found else None)
 
 
-# --- _run / _spawn: the subprocess seams (real, silent commands) -------------
+# --- _run: the subprocess seam (real, silent commands) -----------------------
 
 
 def test_run_false_for_missing_binary() -> None:
@@ -66,14 +65,6 @@ def test_run_child_keeps_inherited_env() -> None:
     # env is merged over os.environ, not a replacement: PATH (inherited) survives.
     code = "import os, sys; sys.exit(0 if os.environ.get('PATH') else 7)"
     assert notify._run([sys.executable, "-c", code], env={"PD_NOTIFY_TITLE": "X"}) is True
-
-
-def test_spawn_true_for_real_command() -> None:
-    assert notify._spawn([sys.executable, "-c", "pass"]) is True
-
-
-def test_spawn_false_for_missing_binary() -> None:
-    assert notify._spawn(["preemdeck-no-such-binary-zzz"]) is False
 
 
 # --- macOS worker: osascript, env-fed, static script -------------------------
@@ -144,21 +135,6 @@ def test_linux_returns_none_on_failure(monkeypatch: pytest.MonkeyPatch) -> None:
     assert notify._notify_linux("body", "title") is None
 
 
-# --- Windows worker: detached PowerShell balloon, env-fed --------------------
-
-
-def test_windows_spawns_powershell_with_static_script(monkeypatch: pytest.MonkeyPatch) -> None:
-    calls = _fake_run(monkeypatch, ok=True, attr="_spawn")
-    assert notify._notify_windows("hello", "CI") == "powershell"
-    assert calls[0]["cmd"] == ["powershell", "-NoProfile", "-NonInteractive", "-Command", notify._WINDOWS_POWERSHELL]
-    assert calls[0]["env"] == {notify._ENV_TITLE: "CI", notify._ENV_MESSAGE: "hello"}
-
-
-def test_windows_returns_none_on_spawn_failure(monkeypatch: pytest.MonkeyPatch) -> None:
-    _fake_run(monkeypatch, ok=False, attr="_spawn")
-    assert notify._notify_windows("hello", "CI") is None
-
-
 # --- the no-injection contract -----------------------------------------------
 
 
@@ -168,11 +144,6 @@ def test_macos_script_is_static_and_reads_env() -> None:
     assert "system attribute" in notify._MACOS_APPLESCRIPT
     assert notify._ENV_MESSAGE in notify._MACOS_APPLESCRIPT
     assert notify._ENV_TITLE in notify._MACOS_APPLESCRIPT
-
-
-def test_windows_script_is_static_and_reads_env() -> None:
-    assert f"$env:{notify._ENV_TITLE}" in notify._WINDOWS_POWERSHELL
-    assert f"$env:{notify._ENV_MESSAGE}" in notify._WINDOWS_POWERSHELL
 
 
 def test_macos_hostile_text_never_enters_the_script(monkeypatch: pytest.MonkeyPatch) -> None:

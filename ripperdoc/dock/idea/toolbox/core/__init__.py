@@ -15,10 +15,8 @@ if sys.platform == "darwin":
     from .idea_mac import in_idea, resolve_exec_path, resolve_log_dir
 elif sys.platform.startswith("linux"):
     from .idea_linux import in_idea, resolve_exec_path, resolve_log_dir
-elif sys.platform == "win32":
-    from .idea_windows import in_idea, resolve_exec_path, resolve_log_dir
 else:
-    raise ImportError(f"Only macOS, Linux, and Windows are supported (got {sys.platform!r})")
+    raise ImportError(f"Only macOS and Linux are supported (got {sys.platform!r})")
 
 # Cross-platform (no per-OS split). _launch imports resolve_exec_path lazily,
 # inside launch(), to avoid a cycle with this module, so it's import-safe here.

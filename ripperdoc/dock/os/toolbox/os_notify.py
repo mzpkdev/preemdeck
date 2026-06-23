@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Raise an OS-wide desktop notification — cross-platform (macOS, Linux, Windows).
+"""Raise an OS-wide desktop notification — cross-platform (macOS, Linux).
 
 Sibling to `ding` (which makes a sound): `notify` pops a banner/toast in the OS's
 notification center. Each platform drives a built-in, with one optional upgrade:
@@ -11,25 +11,18 @@ notification center. Each platform drives a built-in, with one optional upgrade:
            fallback keeps macOS working with zero deps.
 - Linux:   `notify-send` (libnotify) — the freedesktop standard, present on most
            GNOME/KDE desktops.
-- Windows: PowerShell + a System.Windows.Forms NotifyIcon balloon (.NET ships
-           with Windows; no module to install).
 
-User text is NEVER spliced into a script: the osascript and PowerShell paths read
-the title/body from environment variables (AppleScript `system attribute` /
-PowerShell `$env:`), while notify-send and terminal-notifier take them as argv. So
-a title or body containing quotes, backslashes, or newlines can't break out into
-code — there is no script string for it to break out of.
+User text is NEVER spliced into a script: the osascript path reads the title/body
+from environment variables (AppleScript `system attribute`), while notify-send and
+terminal-notifier take them as argv. So a title or body containing quotes,
+backslashes, or newlines can't break out into code — there is no script string for
+it to break out of.
 
 Best-effort: a missing mechanism (no notify-send, an exotic platform) returns
 None rather than raising. Unlike `ding`, there is NO universal floor — a desktop
 with no notifier simply can't show a banner — so `notify()` returns the mechanism
 that fired or None, and the CLI surfaces None as exit 1 (echoing the text to
 stderr so it isn't lost).
-
-The Windows balloon is fire-and-forget: its owning process must outlive the call
-(a NotifyIcon vanishes when its process dies), so the PowerShell script shows the
-balloon, sleeps briefly, then disposes — spawned detached so `notify()` returns
-at once. "Success" there means "launched", not "displayed".
 """
 
 import argparse
@@ -42,7 +35,7 @@ from collections.abc import Callable
 _DEFAULT_TITLE = "PreemDeck"
 
 # User text is handed to the platform mechanism out-of-band — via these env vars
-# on macOS/Windows, via argv on Linux — never interpolated into a script, so
+# on macOS, via argv on Linux — never interpolated into a script, so
 # quotes/backslashes/newlines in the title or body can't break out into code.
 _ENV_TITLE = "PD_NOTIFY_TITLE"
 _ENV_MESSAGE = "PD_NOTIFY_MESSAGE"
@@ -52,21 +45,6 @@ _ENV_MESSAGE = "PD_NOTIFY_MESSAGE"
 # embedded in the script source. Only our own constant env-var NAMES are spliced.
 _MACOS_APPLESCRIPT = (
     f'display notification (system attribute "{_ENV_MESSAGE}") with title (system attribute "{_ENV_TITLE}")'
-)
-
-# Windows: a static PowerShell one-liner that reads the title/body from $env: and
-# raises a tray balloon via .NET WinForms (no extra module). It must outlive the
-# Python call — a NotifyIcon disappears when its process exits — so it shows the
-# balloon, sleeps, then disposes; we spawn it detached and don't wait. Only our
-# own constant env-var names are spliced; the user text stays in the environment.
-_WINDOWS_POWERSHELL = (
-    "Add-Type -AssemblyName System.Windows.Forms,System.Drawing; "
-    "$n = New-Object System.Windows.Forms.NotifyIcon; "
-    "$n.Icon = [System.Drawing.SystemIcons]::Information; "
-    "$n.Visible = $true; "
-    f"$n.ShowBalloonTip(5000, $env:{_ENV_TITLE}, $env:{_ENV_MESSAGE}, "
-    "[System.Windows.Forms.ToolTipIcon]::Info); "
-    "Start-Sleep -Seconds 5; $n.Dispose()"
 )
 
 
@@ -82,22 +60,6 @@ def _run(cmd: list[str], env: dict[str, str] | None = None) -> bool:
         merged = {**os.environ, **env} if env else None
         return subprocess.run(cmd, capture_output=True, timeout=20, env=merged).returncode == 0
     except (OSError, subprocess.SubprocessError):
-        return False
-
-
-def _spawn(cmd: list[str], env: dict[str, str] | None = None) -> bool:
-    """Spawn `cmd` detached (fire-and-forget); return True iff it launched.
-
-    For the Windows balloon, whose process must outlive this call — so we DON'T
-    wait on it. Success means "launched", not "displayed". `env` is merged over
-    the current environment as in `_run`. A spawn failure returns False. Never
-    raises.
-    """
-    try:
-        merged = {**os.environ, **env} if env else None
-        subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, env=merged)
-        return True
-    except OSError:
         return False
 
 
@@ -129,14 +91,6 @@ def _notify_linux(message: str, title: str) -> str | None:
     return None
 
 
-def _notify_windows(message: str, title: str) -> str | None:
-    """Windows: a detached PowerShell NotifyIcon balloon. "powershell" or None."""
-    env = {_ENV_TITLE: title, _ENV_MESSAGE: message}
-    if _spawn(["powershell", "-NoProfile", "-NonInteractive", "-Command", _WINDOWS_POWERSHELL], env=env):
-        return "powershell"
-    return None
-
-
 def _platform_worker() -> Callable[[str, str], str | None]:
     """The per-OS notifier for the current platform.
 
@@ -148,8 +102,6 @@ def _platform_worker() -> Callable[[str, str], str | None]:
         return _notify_macos
     elif sys.platform.startswith("linux"):
         return _notify_linux
-    elif sys.platform == "win32":
-        return _notify_windows
     else:  # exotic platform: no desktop notifier available
         return lambda message, title: None
 
@@ -158,8 +110,8 @@ def notify(message: str, title: str = _DEFAULT_TITLE) -> str | None:
     """Raise an OS-wide desktop notification; return the mechanism, or None.
 
     Dispatches to the platform-native notifier (osascript on macOS, notify-send on
-    Linux, a PowerShell balloon on Windows). Returns the mechanism's name on
-    success, or None when none is available / it failed. Best-effort: never raises.
+    Linux). Returns the mechanism's name on success, or None when none is available
+    / it failed. Best-effort: never raises.
     """
     return _platform_worker()(message, title)
 
@@ -167,7 +119,7 @@ def notify(message: str, title: str = _DEFAULT_TITLE) -> str | None:
 def main(argv: list[str]) -> int:
     parser = argparse.ArgumentParser(
         prog="os_notify.py",
-        description="Raise an OS-wide desktop notification (macOS, Linux, Windows).",
+        description="Raise an OS-wide desktop notification (macOS, Linux).",
         epilog=(
             "Examples:\n"
             '  os_notify.py "build finished"                 # banner, default title\n'
@@ -182,7 +134,7 @@ def main(argv: list[str]) -> int:
         "-v",
         "--verbose",
         action="store_true",
-        help="print which mechanism produced the notification (terminal-notifier/osascript/notify-send/powershell)",
+        help="print which mechanism produced the notification (terminal-notifier/osascript/notify-send)",
     )
     ns = parser.parse_args(argv)
     mechanism = notify(ns.message, ns.title)

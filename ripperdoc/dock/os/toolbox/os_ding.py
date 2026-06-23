@@ -1,21 +1,19 @@
 #!/usr/bin/env python3
-"""Play a short "ding" notification sound — cross-platform (macOS, Linux, Windows).
+"""Play a short "ding" notification sound — cross-platform (macOS, Linux).
 
 One job: make an audible "ding" using whatever the host OS already provides, with
 no third-party deps. Each platform has its own mechanism, selected by sys.platform:
 
 - macOS:   `afplay` a built-in system sound (/System/Library/Sounds/*.aiff);
            falls back to `osascript -e beep`.
-- Windows: the stdlib `winsound` module (MessageBeep) — the system default
-           notification sound. No subprocess; always present on Windows.
 - Linux:   no universal player, so try a chain (canberra-gtk-play -> paplay ->
            aplay) and use the first that's installed and exits cleanly.
 
 If every OS mechanism is missing or fails, fall back to the ASCII terminal bell
 (BEL, "\\a") so *something* fires. Best-effort throughout: a missing player or a
 spawn error is swallowed, never raised. `ding()` returns the name of the
-mechanism that fired ("afplay"/"winsound"/.../"bell"), so a caller can tell a real
-sound from the bell fallback without catching exceptions.
+mechanism that fired ("afplay"/"osascript"/.../"bell"), so a caller can tell a
+real sound from the bell fallback without catching exceptions.
 """
 
 import argparse
@@ -54,26 +52,6 @@ def _run(cmd: list[str]) -> bool:
         return False
 
 
-def _winsound_beep() -> bool:
-    """Play the Windows default notification beep via the stdlib `winsound`.
-
-    Guarded on win32 (and imported lazily) because `winsound` is a Windows-only
-    stdlib module — absent everywhere else, and typeshed hides its members off
-    win32, so the guard is also what keeps this type-clean cross-platform. Returns
-    False when not on Windows, or if the import or the call fails, so the caller
-    can fall back to the bell. Never raises.
-    """
-    if sys.platform == "win32":
-        try:
-            import winsound
-
-            winsound.MessageBeep(winsound.MB_OK)
-        except (ImportError, RuntimeError):
-            return False
-        return True
-    return False
-
-
 def _terminal_bell() -> None:
     """Write the ASCII BEL ("\\a") to stderr — the universal last-resort "ding".
 
@@ -110,13 +88,6 @@ def _ding_linux() -> str | None:
     return None
 
 
-def _ding_windows() -> str | None:
-    """Windows: the stdlib winsound default beep. Returns "winsound" or None."""
-    if _winsound_beep():
-        return "winsound"
-    return None
-
-
 def _platform_worker() -> Callable[[], str | None]:
     """The per-OS mechanism for the current platform.
 
@@ -128,8 +99,6 @@ def _platform_worker() -> Callable[[], str | None]:
         return _ding_macos
     elif sys.platform.startswith("linux"):
         return _ding_linux
-    elif sys.platform == "win32":
-        return _ding_windows
     else:  # exotic platform: no native mechanism, fall through to the bell
         return lambda: None
 
@@ -137,10 +106,10 @@ def _platform_worker() -> Callable[[], str | None]:
 def ding() -> str:
     """Play the host OS's notification "ding"; return the mechanism that fired.
 
-    Tries the platform-native mechanism first (afplay/osascript on macOS, winsound
-    on Windows, a player chain on Linux). If none is available or all fail, writes
-    the ASCII terminal bell and returns "bell" — so a caller always gets *some*
-    audible cue and `ding()` never raises.
+    Tries the platform-native mechanism first (afplay/osascript on macOS, a player
+    chain on Linux). If none is available or all fail, writes the ASCII terminal
+    bell and returns "bell" — so a caller always gets *some* audible cue and
+    `ding()` never raises.
     """
     mechanism = _platform_worker()()
     if mechanism is None:
@@ -164,7 +133,7 @@ def main(argv: list[str]) -> int:
         "-v",
         "--verbose",
         action="store_true",
-        help="print which mechanism produced the sound (afplay/winsound/.../bell)",
+        help="print which mechanism produced the sound (afplay/osascript/.../bell)",
     )
     ns = parser.parse_args(argv)
     # ding() is best-effort and never raises: the bell is the floor, so there's

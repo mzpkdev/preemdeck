@@ -1,22 +1,19 @@
-"""Tests for ding — hermetic: no real audio, no sound subprocess, no winsound.
+"""Tests for ding — hermetic: no real audio, no sound subprocess.
 
 ding plays the host OS's notification "ding". The side-effecting seams are
 monkeypatched so the suite is silent and identical on every OS:
 
 - _run(cmd) -> bool: the subprocess seam every macOS/Linux mechanism rides.
-- _winsound_beep() -> bool: the Windows stdlib seam.
 - _terminal_bell(): the universal ASCII-bell fallback.
 - _platform_worker(): the sys.platform dispatch, so ding()'s glue is testable on
   any host without touching sys.platform.
 
 Layers exercised: each per-OS worker's selection logic, ding()'s
-mechanism-or-bell contract, the thin _run/_winsound_beep/_terminal_bell seams
-against real (silent) subprocess/import/stream behavior, and the CLI (defaults,
---verbose, exit 0).
+mechanism-or-bell contract, the thin _run/_terminal_bell seams against real
+(silent) subprocess/stream behavior, and the CLI (defaults, --verbose, exit 0).
 """
 
 import sys
-import types
 from collections.abc import Callable
 
 import os_ding as ding
@@ -98,56 +95,6 @@ def test_linux_none_when_no_player(monkeypatch: pytest.MonkeyPatch) -> None:
     assert len(calls) == len(ding._LINUX_CANDIDATES)
 
 
-# --- Windows worker + the winsound seam --------------------------------------
-
-
-def test_windows_uses_winsound(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(ding, "_winsound_beep", lambda: True)
-    assert ding._ding_windows() == "winsound"
-
-
-def test_windows_none_when_winsound_unavailable(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(ding, "_winsound_beep", lambda: False)
-    assert ding._ding_windows() is None
-
-
-def test_winsound_beep_true_when_module_present(monkeypatch: pytest.MonkeyPatch) -> None:
-    # Simulate a Windows host (the worker early-returns off win32), inject a fake
-    # winsound, and assert MessageBeep is called with MB_OK.
-    monkeypatch.setattr(ding.sys, "platform", "win32")
-    played: list[int] = []
-    fake = types.SimpleNamespace(MB_OK=0, MessageBeep=lambda flag: played.append(flag))
-    monkeypatch.setitem(sys.modules, "winsound", fake)
-    assert ding._winsound_beep() is True
-    assert played == [0]
-
-
-def test_winsound_beep_false_off_windows(monkeypatch: pytest.MonkeyPatch) -> None:
-    # Off win32 the worker bails before importing — even with a working fake present.
-    monkeypatch.setattr(ding.sys, "platform", "linux")
-    monkeypatch.setitem(sys.modules, "winsound", types.SimpleNamespace(MB_OK=0, MessageBeep=lambda flag: None))
-    assert ding._winsound_beep() is False
-
-
-def test_winsound_beep_false_when_module_absent(monkeypatch: pytest.MonkeyPatch) -> None:
-    # On Windows but with no winsound: a None entry in sys.modules makes `import
-    # winsound` raise ImportError (Python's documented sentinel) -> False.
-    monkeypatch.setattr(ding.sys, "platform", "win32")
-    monkeypatch.setitem(sys.modules, "winsound", None)
-    assert ding._winsound_beep() is False
-
-
-def test_winsound_beep_false_on_runtime_error(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(ding.sys, "platform", "win32")
-
-    def boom(flag: int) -> None:
-        raise RuntimeError("no audio device")
-
-    fake = types.SimpleNamespace(MB_OK=0, MessageBeep=boom)
-    monkeypatch.setitem(sys.modules, "winsound", fake)
-    assert ding._winsound_beep() is False
-
-
 # --- ding(): mechanism-or-bell glue (platform-independent) -------------------
 
 
@@ -190,9 +137,9 @@ def test_main_quiet_by_default(monkeypatch: pytest.MonkeyPatch, capsys: pytest.C
 def test_main_verbose_prints_mechanism(
     monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], flag: str
 ) -> None:
-    monkeypatch.setattr(ding, "ding", lambda: "winsound")
+    monkeypatch.setattr(ding, "ding", lambda: "afplay")
     assert ding.main([flag]) == 0
-    assert "ding: winsound" in capsys.readouterr().err
+    assert "ding: afplay" in capsys.readouterr().err
 
 
 def test_main_returns_int(monkeypatch: pytest.MonkeyPatch) -> None:

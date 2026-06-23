@@ -57,13 +57,6 @@ dist/
 .fseventsd
 .TemporaryItems
 
-# OS — Windows
-Thumbs.db
-ehthumbs.db
-[Dd]esktop.ini
-$RECYCLE.BIN/
-*.stackdump
-
 # OS — Linux
 .directory
 .Trash-*
