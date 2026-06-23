@@ -1,6 +1,6 @@
 {
   "directive": {
-    "strategy": "",
-    "discretion": ""
+    "strategy": "swarm",
+    "discretion": "ask"
   }
 }
