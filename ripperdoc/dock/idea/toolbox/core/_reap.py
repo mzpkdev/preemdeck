@@ -7,14 +7,16 @@ working (it shows a dismissible "deleted from disk" marker). So instead of
 leaking the temp, schedule an unlink a short delay after launch.
 """
 
+import contextlib
 import threading
 import time
+from collections.abc import Iterable
 from pathlib import Path
 
 REAP_DELAY = 3.0
 
 
-def reap_later(paths, *, delay: float = REAP_DELAY) -> None:
+def reap_later(paths: Iterable[str | Path], *, delay: float = REAP_DELAY) -> None:
     """Schedule `paths` to be unlinked `delay` seconds from now; return at once.
 
     Spawns a NON-DAEMON thread that sleeps `delay`, then unlinks each path with
@@ -32,9 +34,7 @@ def reap_later(paths, *, delay: float = REAP_DELAY) -> None:
     def _reap() -> None:
         time.sleep(delay)
         for path in targets:
-            try:
+            with contextlib.suppress(OSError):  # never raise from the reaper
                 Path(path).unlink(missing_ok=True)
-            except OSError:
-                pass  # never raise from the reaper
 
     threading.Thread(target=_reap, daemon=False).start()
