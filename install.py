@@ -6,11 +6,18 @@ import json
 import shutil
 import subprocess
 import sys
+import time
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import NamedTuple
 
+# Where preemdeck's source lives. Under the decoupled layout boot.sh clones to
+# ~/.preemdeck, so __file__ resolves there — distinct from any host config dir.
 REPO_ROOT = Path(__file__).resolve().parent
 
+# Rack paths are absolute and rooted at REPO_ROOT (~/.preemdeck/ripperdoc/<rack>).
+# Plugins register/install by this absolute path, so the host's plugin cache points
+# back into ~/.preemdeck — intentional: the source stays put, nothing is squatted.
 MARKETPLACES: list[tuple[str, Path]] = [
     ("chrome", REPO_ROOT / "ripperdoc" / "chrome"),
     ("dock", REPO_ROOT / "ripperdoc" / "dock"),
@@ -19,12 +26,23 @@ MARKETPLACES: list[tuple[str, Path]] = [
     ("firmware", REPO_ROOT / "ripperdoc" / "firmware"),
 ]
 
+# Host config dirs, relative to the user's home. config_dir() resolves these
+# cross-platform via Path.home() — these are the overlay copy destinations.
+CONFIG_DIRNAMES = {"claude": ".claude", "codex": ".codex", "gemini": ".gemini"}
+
 HOSTS = ["claude", "codex", "gemini"]
 MARKETPLACE_HOSTS = {"claude", "codex"}
 
+# Overlay source: `root/<harness>/` is COPIED into config_dir by copy_overlay().
+# This tree is part of preemdeck's PERSISTENT source — it is read on every
+# install/update and must survive (never cleaned up). See copy_overlay().
 STAGING_ROOT = "root"
 
-CLEANUP_MANIFEST = ".trash"
+# Install manifest: records what each install wrote (overlay files + their
+# backups, registered marketplaces, installed plugins) so update.py / uninstall.py
+# can read it back. Lives at REPO_ROOT and is keyed + MERGED per harness.
+MANIFEST_FILE = ".install-manifest.json"
+MANIFEST_SCHEMA = 1
 
 DISABLED_PLUGINS: frozenset[str] = frozenset(
     {"ghost"}
@@ -41,6 +59,15 @@ class PluginSpec(NamedTuple):
 
 def manifest_dir(host: str) -> str:
     return {"claude": ".claude-plugin", "codex": ".agents/plugins"}[host]
+
+
+def config_dir(harness: str) -> Path:
+    """Resolve the host's config dir (~/.claude, ~/.codex, ~/.gemini).
+
+    Cross-platform: joins the dirname onto Path.home() via pathlib, no hardcoded
+    separators. This is the overlay copy destination — never preemdeck's source.
+    """
+    return Path.home() / CONFIG_DIRNAMES[harness]
 
 
 def read_plugin_specs(rack_path: Path) -> list[PluginSpec]:
@@ -97,101 +124,118 @@ def install_plugin(host: str, spec: PluginSpec, marketplace: str, dry_run: bool)
     return run_cli(cmd, dry_run)
 
 
-def _read_cleanup_patterns(manifest: Path) -> list[str]:
-    patterns: list[str] = []
-    for raw in manifest.read_text().splitlines():
-        line = raw.split("#", 1)[0].strip()
-        if line:
-            patterns.append(line)
-    return patterns
+def _load_manifest(repo_root: Path) -> dict:
+    """Read the install manifest, returning an empty skeleton if absent/corrupt."""
+    path = repo_root / MANIFEST_FILE
+    if path.exists():
+        try:
+            data = json.loads(path.read_text())
+            if isinstance(data, dict) and isinstance(data.get("harnesses"), dict):
+                return data
+        except json.JSONDecodeError:
+            pass
+    return {"schema": MANIFEST_SCHEMA, "harnesses": {}}
 
 
-def _remove_path(path: Path, dry_run: bool) -> bool:
-    if path.is_symlink() or not path.exists():
-        return False
-    if dry_run:
-        return True
-    if path.is_dir():
-        shutil.rmtree(path)
-    else:
-        path.unlink()
-    return True
+def _backup_path(dst: Path) -> Path:
+    """Pick a backup path for dst, mirroring boot.sh's `.bak` → `.bak.<ts>` scheme.
 
-
-def cleanup_after_install(repo_root: Path, dry_run: bool) -> int:
-    """Remove paths listed in .trash. Returns count of items removed.
-
-    Patterns are globs relative to repo_root (one per line, `#` comments). Patterns
-    containing `..` or starting with `/` are rejected. Matches that resolve outside
-    repo_root or that are symlinks are skipped. Missing entries are not an error.
+    First clobber of a pre-existing file lands at `<dst>.bak`; if that already
+    exists, fall back to `<dst>.bak.<unix_ts>` so an earlier backup is never lost.
     """
-    manifest = repo_root / CLEANUP_MANIFEST
-    if not manifest.exists():
-        return 0
-
-    repo_root_resolved = repo_root.resolve()
-    removed = 0
-    for pattern in _read_cleanup_patterns(manifest):
-        if pattern.startswith("/") or ".." in Path(pattern).parts:
-            print(f"  {CROSS} cleanup: refusing unsafe pattern {pattern!r}", file=sys.stderr)
-            continue
-        for match in sorted(repo_root.glob(pattern), reverse=True):
-            try:
-                resolved = match.resolve()
-            except OSError:
-                continue
-            if not resolved.is_relative_to(repo_root_resolved) or resolved == repo_root_resolved:
-                continue
-            if _remove_path(match, dry_run):
-                removed += 1
-    if not dry_run:
-        manifest.unlink()
-    return removed
+    primary = dst.with_name(dst.name + ".bak")
+    if not primary.exists():
+        return primary
+    return dst.with_name(f"{dst.name}.bak.{int(time.time())}")
 
 
-def unpack_harness(harness: str, repo_root: Path, dry_run: bool) -> tuple[bool, str]:
-    """Unpack the per-harness staging tree into the repo root.
+def copy_overlay(harness: str, repo_root: Path, config_dir: Path, dry_run: bool) -> tuple[bool, str, list[dict]]:
+    """Copy the per-harness overlay `root/<harness>/*` into the host config dir.
 
-    `root/<harness>/` mirrors what should sit at repo root for the chosen harness
-    (e.g. `root/claude/settings.json`, `root/claude/agents/*.md`). Walk it, move
-    every file up to its corresponding path under repo_root, then drop all
-    `root/<host>/` directories.
+    Under the decoupled layout the overlay is COPIED out of preemdeck's source
+    (`root/<harness>/`) into the host's config dir — it never mutates repo_root.
 
-    Idempotent: if `root/<harness>/` is missing, treat as already done. If only
-    another harness's staging dir is present, that's a misconfiguration. Existing
-    destinations (left from a prior unpack, e.g. after `update.py` re-runs) are
-    overwritten.
+    Policy:
+      * Hard-overwrite (no merging).
+      * Backup-once before clobbering: the first time we overwrite a genuinely
+        pre-existing user file (one with no prior manifest record) we copy it to
+        `<dst>.bak` (or `<dst>.bak.<ts>` if `.bak` is taken). Files we wrote on a
+        prior run — i.e. files already recorded in this harness's overlay manifest
+        — are NOT re-backed-up; they are just re-overwritten.
+      * Cross-platform: pathlib + shutil.copy2, mkdir(parents=True), no symlinks.
+
+    Returns (ok, err, records) where each record is
+    `{"dst": <abs str>, "src": <repo-rel str>, "backup": <abs str|null>,
+      "action": "create"|"overwrite"}` — the overlay slice of the manifest.
     """
-    src_dir = repo_root / STAGING_ROOT / harness
-    if not src_dir.exists():
-        others = [h for h in HOSTS if h != harness and (repo_root / STAGING_ROOT / h).exists()]
-        if others:
-            other_paths = ", ".join(f"{STAGING_ROOT}/{h}/" for h in others)
-            return False, f"missing {STAGING_ROOT}/{harness}/ (found {other_paths} — wrong harness?)"
-        return True, ""
+    src_root = repo_root / STAGING_ROOT / harness
+    if not src_root.is_dir():
+        # No overlay for this harness is fine — nothing to copy.
+        return True, "", []
 
+    # Files we previously wrote for this harness must not be treated as
+    # pre-existing user files, so we never back up our own output.
+    prior = _load_manifest(repo_root)["harnesses"].get(harness, {})
+    own_writes = {rec["dst"] for rec in prior.get("overlay", []) if rec.get("dst")}
+
+    records: list[dict] = []
+    try:
+        for src in sorted(p for p in src_root.rglob("*") if p.is_file()):
+            rel = src.relative_to(src_root)
+            dst = config_dir / rel
+            dst_abs = str(dst)
+            existed = dst.exists()
+            backup: str | None = None
+
+            if existed and dst_abs not in own_writes:
+                bak = _backup_path(dst)
+                backup = str(bak)
+                if not dry_run:
+                    shutil.copy2(dst, bak)
+
+            if not dry_run:
+                dst.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(src, dst)
+
+            records.append(
+                {
+                    "dst": dst_abs,
+                    "src": str(src.relative_to(repo_root)),
+                    "backup": backup,
+                    "action": "overwrite" if existed else "create",
+                }
+            )
+    except OSError as exc:
+        return False, f"overlay copy failed: {exc}", records
+
+    return True, "", records
+
+
+def write_manifest(
+    repo_root: Path,
+    harness: str,
+    overlay: list[dict],
+    marketplaces: list[str],
+    plugins: list[dict],
+    dry_run: bool,
+) -> None:
+    """Merge this install's record into the per-harness manifest at REPO_ROOT.
+
+    Keyed by harness and MERGED: re-installing one harness leaves every other
+    harness's record intact. Skips the write on a dry run (prints intent).
+    """
     if dry_run:
-        return True, ""
-
-    for src_file in sorted(src_dir.rglob("*")):
-        if src_file.is_dir():
-            continue
-        rel = src_file.relative_to(src_dir)
-        dst = repo_root / rel
-        dst.parent.mkdir(parents=True, exist_ok=True)
-        if dst.is_symlink() or dst.exists():
-            if dst.is_dir() and not dst.is_symlink():
-                shutil.rmtree(dst)
-            else:
-                dst.unlink()
-        shutil.move(str(src_file), str(dst))
-
-    for host in HOSTS:
-        host_dir = repo_root / STAGING_ROOT / host
-        if host_dir.exists():
-            shutil.rmtree(host_dir)
-
-    return True, ""
+        print(f"  (dry-run) would record manifest for {harness}: {len(overlay)} overlay file(s)")
+        return
+    manifest = _load_manifest(repo_root)
+    manifest["schema"] = MANIFEST_SCHEMA
+    manifest["harnesses"][harness] = {
+        "installed_at": datetime.now(UTC).isoformat(),
+        "overlay": overlay,
+        "marketplaces": marketplaces,
+        "plugins": plugins,
+    }
+    (repo_root / MANIFEST_FILE).write_text(json.dumps(manifest, indent=2) + "\n")
 
 
 def bootstrap_workspace(repo_root: Path, dry_run: bool) -> None:
@@ -276,32 +320,34 @@ def install_for(harness: str, dry_run: bool) -> int:
 
     bootstrap_workspace(REPO_ROOT, dry_run)
 
-    ok, err = unpack_harness(harness, REPO_ROOT, dry_run)
+    ok, err, overlay = copy_overlay(harness, REPO_ROOT, config_dir(harness), dry_run)
     if not ok:
-        print(f"  {CROSS} unpack: {err}", file=sys.stderr)
+        print(f"  {CROSS} overlay: {err}", file=sys.stderr)
         return 1
 
     results: dict[str, str] = {}
     any_success = False
+    registered_marketplaces: list[str] = []
+    installed_plugins: list[dict] = []
 
     for name, path in MARKETPLACES:
         ok, err = register_marketplace(harness, path, dry_run)
         if ok:
             results[name] = "ok"
             any_success = True
+            if harness in MARKETPLACE_HOSTS:
+                registered_marketplaces.append(name)
             for spec in read_plugin_specs(path):
                 p_ok, p_err = install_plugin(harness, spec, name, dry_run)
-                if not p_ok and "already" not in p_err.lower() and "exists" not in p_err.lower():
+                if p_ok or "already" in p_err.lower() or "exists" in p_err.lower():
+                    installed_plugins.append({"host": harness, "rack": name, "name": spec.name})
+                else:
                     results[name] = f"{spec.name}: {p_err}"[:60]
         else:
             results[name] = err[:60]
 
     print_summary(harness, results)
-    removed = cleanup_after_install(REPO_ROOT, dry_run)
-    if removed:
-        verb = "would remove" if dry_run else "removed"
-        print(f"  {CHECK} cleanup: {verb} {removed} item{'s' if removed != 1 else ''}")
-        print()
+    write_manifest(REPO_ROOT, harness, overlay, registered_marketplaces, installed_plugins, dry_run)
     return 0 if any_success else 1
 
 

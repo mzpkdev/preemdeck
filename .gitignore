@@ -37,6 +37,9 @@ dist/
 # Host CLIs (local-only overrides)
 .claude/settings.local.json
 
+# preemdeck install manifest (generated per-install local state)
+.install-manifest.json
+
 # Editors
 .idea/
 .vscode/

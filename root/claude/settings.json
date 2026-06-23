@@ -70,10 +70,6 @@
     ],
     "defaultMode": "acceptEdits"
   },
-  "statusLine": {
-    "type": "command",
-    "command": "python3 ~/.claude/ripperdoc/cortex/sys/scripts/statusline.py"
-  },
   "model": "opus",
   "effortLevel": "xhigh",
   "voiceEnabled": true,

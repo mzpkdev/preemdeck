@@ -19,6 +19,21 @@ def test_manifest_dir_codex() -> None:
     assert install.manifest_dir("codex") == ".agents/plugins"
 
 
+# config_dir
+
+
+def test_config_dir_returns_home_relative_dirs(monkeypatch: pytest.MonkeyPatch) -> None:
+    home = Path("/home/somebody")
+    monkeypatch.setattr(install.Path, "home", classmethod(lambda cls: home))
+    assert install.config_dir("claude") == home / ".claude"
+    assert install.config_dir("codex") == home / ".codex"
+    assert install.config_dir("gemini") == home / ".gemini"
+
+
+def test_config_dirnames_constant() -> None:
+    assert install.CONFIG_DIRNAMES == {"claude": ".claude", "codex": ".codex", "gemini": ".gemini"}
+
+
 # read_plugin_specs
 
 
@@ -82,6 +97,24 @@ def test_read_plugin_specs_skips_entries_missing_name_or_source(tmp_path: Path) 
     assert [s.name for s in specs] == ["git"]
 
 
+def test_read_plugin_specs_skips_disabled_plugins(tmp_path: Path) -> None:
+    manifest_dir = tmp_path / ".claude-plugin"
+    manifest_dir.mkdir()
+    (manifest_dir / "marketplace.json").write_text(
+        json.dumps(
+            {
+                "name": "test",
+                "plugins": [
+                    {"name": "git", "source": "./git"},
+                    {"name": "ghost", "source": "./ghost"},
+                ],
+            }
+        )
+    )
+    specs = install.read_plugin_specs(tmp_path)
+    assert [s.name for s in specs] == ["git"]
+
+
 # register_marketplace
 
 
@@ -105,6 +138,12 @@ def test_register_marketplace_gemini_is_noop() -> None:
     assert ok is True
     assert msg == ""
     mock_run.assert_not_called()
+
+
+def test_register_marketplace_already_added_is_success() -> None:
+    with patch("install.run_cli", return_value=(False, "marketplace already exists")):
+        ok, _ = install.register_marketplace("claude", Path("/some/rack"), dry_run=False)
+    assert ok is True
 
 
 # install_plugin
@@ -157,6 +196,191 @@ def test_run_cli_command_not_found() -> None:
     assert msg
 
 
+# copy_overlay
+
+
+def _seed_overlay(repo_root: Path, harness: str = "claude") -> None:
+    """Stage a `root/<harness>/` overlay tree under repo_root."""
+    src = repo_root / install.STAGING_ROOT / harness
+    (src / "agents").mkdir(parents=True)
+    (src / "settings.json").write_text('{"_": "overlay"}')
+    (src / "agents" / "fixer.md").write_text("# fixer overlay")
+
+
+def test_copy_overlay_create_no_backup(tmp_path: Path) -> None:
+    repo_root = tmp_path / "repo"
+    config = tmp_path / "config"
+    _seed_overlay(repo_root)
+
+    ok, err, records = install.copy_overlay("claude", repo_root, config, dry_run=False)
+
+    assert (ok, err) == (True, "")
+    assert (config / "settings.json").read_text() == '{"_": "overlay"}'
+    assert (config / "agents" / "fixer.md").read_text() == "# fixer overlay"
+    assert {r["action"] for r in records} == {"create"}
+    assert all(r["backup"] is None for r in records)
+    # No backups written on a fresh create.
+    assert list(config.rglob("*.bak")) == []
+    # src is recorded repo-relative; dst absolute.
+    for r in records:
+        assert not Path(r["src"]).is_absolute()
+        assert Path(r["dst"]).is_absolute()
+
+
+def test_copy_overlay_missing_root_returns_empty(tmp_path: Path) -> None:
+    repo_root = tmp_path / "repo"
+    repo_root.mkdir()
+    config = tmp_path / "config"
+    ok, err, records = install.copy_overlay("claude", repo_root, config, dry_run=False)
+    assert (ok, err, records) == (True, "", [])
+
+
+def test_copy_overlay_overwrite_backs_up_original(tmp_path: Path) -> None:
+    repo_root = tmp_path / "repo"
+    config = tmp_path / "config"
+    _seed_overlay(repo_root)
+    config.mkdir()
+    (config / "settings.json").write_text('{"_": "user-original"}')
+
+    ok, err, records = install.copy_overlay("claude", repo_root, config, dry_run=False)
+
+    assert (ok, err) == (True, "")
+    # The user's original landed at .bak; the overlay clobbered the live file.
+    assert (config / "settings.json.bak").read_text() == '{"_": "user-original"}'
+    assert (config / "settings.json").read_text() == '{"_": "overlay"}'
+    settings_rec = next(r for r in records if r["dst"].endswith("settings.json"))
+    assert settings_rec["action"] == "overwrite"
+    assert settings_rec["backup"] == str(config / "settings.json.bak")
+
+
+def test_copy_overlay_repeat_skips_rebackup_for_recorded_file(tmp_path: Path) -> None:
+    """A file already recorded in the manifest is re-overwritten, not re-backed-up."""
+    repo_root = tmp_path / "repo"
+    config = tmp_path / "config"
+    _seed_overlay(repo_root)
+    config.mkdir()
+    (config / "settings.json").write_text('{"_": "user-original"}')
+
+    # First install: backs up the user's original and records the write.
+    _, _, records1 = install.copy_overlay("claude", repo_root, config, dry_run=False)
+    install.write_manifest(repo_root, "claude", records1, [], [], dry_run=False)
+    assert (config / "settings.json.bak").read_text() == '{"_": "user-original"}'
+
+    # Mutate the source so the second copy is observable, then re-run.
+    (repo_root / install.STAGING_ROOT / "claude" / "settings.json").write_text('{"_": "overlay-v2"}')
+    _, _, records2 = install.copy_overlay("claude", repo_root, config, dry_run=False)
+
+    assert (config / "settings.json").read_text() == '{"_": "overlay-v2"}'
+    # The .bak still holds the ORIGINAL user file — not the overlay-v1 we wrote.
+    assert (config / "settings.json.bak").read_text() == '{"_": "user-original"}'
+    # No `.bak.<ts>` rebackup was made.
+    assert list(config.glob("settings.json.bak.*")) == []
+    settings_rec = next(r for r in records2 if r["dst"].endswith("settings.json"))
+    assert settings_rec["backup"] is None
+    assert settings_rec["action"] == "overwrite"
+
+
+def test_copy_overlay_second_backup_uses_timestamp_suffix(tmp_path: Path) -> None:
+    """An unrecorded pre-existing file with a `.bak` already present falls back to `.bak.<ts>`."""
+    repo_root = tmp_path / "repo"
+    config = tmp_path / "config"
+    _seed_overlay(repo_root)
+    config.mkdir()
+    (config / "settings.json").write_text('{"_": "user-original"}')
+    # A stale .bak already squats the primary backup slot (no manifest record).
+    (config / "settings.json.bak").write_text('{"_": "stale-bak"}')
+
+    _, _, records = install.copy_overlay("claude", repo_root, config, dry_run=False)
+
+    # Primary .bak is preserved; the original spills into a timestamped backup.
+    assert (config / "settings.json.bak").read_text() == '{"_": "stale-bak"}'
+    ts_backups = list(config.glob("settings.json.bak.*"))
+    assert len(ts_backups) == 1
+    assert ts_backups[0].read_text() == '{"_": "user-original"}'
+    settings_rec = next(r for r in records if r["dst"].endswith("settings.json"))
+    assert settings_rec["backup"] == str(ts_backups[0])
+
+
+def test_copy_overlay_dry_run_writes_nothing_but_records(tmp_path: Path) -> None:
+    repo_root = tmp_path / "repo"
+    config = tmp_path / "config"
+    _seed_overlay(repo_root)
+    config.mkdir()
+    (config / "settings.json").write_text('{"_": "user-original"}')
+
+    ok, err, records = install.copy_overlay("claude", repo_root, config, dry_run=True)
+
+    assert (ok, err) == (True, "")
+    # Nothing copied, nothing backed up.
+    assert (config / "settings.json").read_text() == '{"_": "user-original"}'
+    assert not (config / "settings.json.bak").exists()
+    assert not (config / "agents").exists()
+    # Records are still produced (so the manifest dry-run can report intent).
+    assert len(records) == 2
+    settings_rec = next(r for r in records if r["dst"].endswith("settings.json"))
+    assert settings_rec["action"] == "overwrite"
+    assert settings_rec["backup"] == str(config / "settings.json.bak")
+
+
+# write_manifest
+
+
+def test_write_manifest_writes_schema_and_harness(tmp_path: Path) -> None:
+    overlay = [{"dst": "/c/settings.json", "src": "root/claude/settings.json", "backup": None, "action": "create"}]
+    install.write_manifest(tmp_path, "claude", overlay, ["dock"], [{"name": "fixer"}], dry_run=False)
+
+    data = json.loads((tmp_path / install.MANIFEST_FILE).read_text())
+    assert data["schema"] == install.MANIFEST_SCHEMA
+    assert set(data["harnesses"]) == {"claude"}
+    claude = data["harnesses"]["claude"]
+    assert claude["overlay"] == overlay
+    assert claude["marketplaces"] == ["dock"]
+    assert claude["plugins"] == [{"name": "fixer"}]
+    assert "installed_at" in claude
+
+
+def test_write_manifest_merges_across_harnesses(tmp_path: Path) -> None:
+    install.write_manifest(tmp_path, "claude", [], ["dock"], [], dry_run=False)
+    install.write_manifest(tmp_path, "gemini", [], [], [], dry_run=False)
+
+    data = json.loads((tmp_path / install.MANIFEST_FILE).read_text())
+    # Both keys survive the second write — cross-harness merge.
+    assert set(data["harnesses"]) == {"claude", "gemini"}
+
+
+def test_write_manifest_replaces_same_harness(tmp_path: Path) -> None:
+    install.write_manifest(tmp_path, "claude", [], ["dock"], [], dry_run=False)
+    install.write_manifest(tmp_path, "claude", [], ["chrome", "dock"], [], dry_run=False)
+
+    data = json.loads((tmp_path / install.MANIFEST_FILE).read_text())
+    assert data["harnesses"]["claude"]["marketplaces"] == ["chrome", "dock"]
+
+
+def test_write_manifest_dry_run_writes_nothing(tmp_path: Path) -> None:
+    install.write_manifest(tmp_path, "claude", [], [], [], dry_run=True)
+    assert not (tmp_path / install.MANIFEST_FILE).exists()
+
+
+# _load_manifest
+
+
+def test_load_manifest_skeleton_when_missing(tmp_path: Path) -> None:
+    manifest = install._load_manifest(tmp_path)
+    assert manifest == {"schema": install.MANIFEST_SCHEMA, "harnesses": {}}
+
+
+def test_load_manifest_skeleton_when_corrupt(tmp_path: Path) -> None:
+    (tmp_path / install.MANIFEST_FILE).write_text("not json{")
+    manifest = install._load_manifest(tmp_path)
+    assert manifest == {"schema": install.MANIFEST_SCHEMA, "harnesses": {}}
+
+
+def test_load_manifest_reads_valid(tmp_path: Path) -> None:
+    payload = {"schema": 1, "harnesses": {"claude": {"overlay": []}}}
+    (tmp_path / install.MANIFEST_FILE).write_text(json.dumps(payload))
+    assert install._load_manifest(tmp_path) == payload
+
+
 # install_for
 
 
@@ -178,8 +402,9 @@ def test_install_for_dry_run_returns_0() -> None:
 def test_install_for_returns_1_when_all_marketplaces_fail() -> None:
     with (
         patch("install.shutil.which", return_value="/usr/bin/claude"),
-        patch("install.unpack_harness", return_value=(True, "")),
-        patch("install.cleanup_after_install", return_value=0),
+        patch("install.bootstrap_workspace"),
+        patch("install.copy_overlay", return_value=(True, "", [])),
+        patch("install.write_manifest"),
         patch("install.register_marketplace", return_value=(False, "boom")),
     ):
         rc = install.install_for("claude", dry_run=False)
@@ -193,8 +418,9 @@ def test_install_for_invokes_install_plugin_per_spec() -> None:
     ]
     with (
         patch("install.shutil.which", return_value="/usr/bin/claude"),
-        patch("install.unpack_harness", return_value=(True, "")),
-        patch("install.cleanup_after_install", return_value=0),
+        patch("install.bootstrap_workspace"),
+        patch("install.copy_overlay", return_value=(True, "", [])),
+        patch("install.write_manifest"),
         patch("install.register_marketplace", return_value=(True, "")),
         patch("install.read_plugin_specs", return_value=fake_specs),
         patch("install.install_plugin", return_value=(True, "")) as mock_install,
@@ -205,211 +431,29 @@ def test_install_for_invokes_install_plugin_per_spec() -> None:
     assert mock_install.call_count == 10
 
 
-def test_install_for_returns_1_when_unpack_fails() -> None:
+def test_install_for_returns_1_when_overlay_fails() -> None:
     with (
         patch("install.shutil.which", return_value="/usr/bin/claude"),
-        patch("install.unpack_harness", return_value=(False, "missing root/claude/")),
+        patch("install.bootstrap_workspace"),
+        patch("install.copy_overlay", return_value=(False, "overlay copy failed: boom", [])),
     ):
         rc = install.install_for("claude", dry_run=False)
     assert rc == 1
 
 
-# unpack_harness
-
-
-def _seed_all_sources(repo_root: Path) -> None:
-    root = repo_root / "root"
-    (root / "claude" / "agents").mkdir(parents=True)
-    (root / "claude" / "settings.json").write_text('{"_": "claude"}')
-    (root / "claude" / "agents" / "fixer.md").write_text("# fixer-md")
-    (root / "codex" / "agents").mkdir(parents=True)
-    (root / "codex" / "config.toml").write_text('_ = "codex"\n')
-    (root / "codex" / "agents" / "fixer.toml").write_text('description = "fixer-toml"\n')
-    (root / "gemini" / "agents").mkdir(parents=True)
-    (root / "gemini" / "settings.json").write_text('{"_": "gemini"}')
-    (root / "gemini" / "agents" / "fixer.md").write_text("# fixer-md-gemini")
-
-
-def test_unpack_claude_moves_tree_to_repo_root(tmp_path: Path) -> None:
-    _seed_all_sources(tmp_path)
-    ok, msg = install.unpack_harness("claude", tmp_path, dry_run=False)
-    assert (ok, msg) == (True, "")
-    assert (tmp_path / "settings.json").read_text() == '{"_": "claude"}'
-    assert (tmp_path / "agents" / "fixer.md").read_text() == "# fixer-md"
-    for host in install.HOSTS:
-        assert not (tmp_path / "root" / host).exists()
-
-
-def test_unpack_gemini_moves_tree_to_repo_root(tmp_path: Path) -> None:
-    _seed_all_sources(tmp_path)
-    ok, msg = install.unpack_harness("gemini", tmp_path, dry_run=False)
-    assert (ok, msg) == (True, "")
-    assert (tmp_path / "settings.json").read_text() == '{"_": "gemini"}'
-    assert (tmp_path / "agents" / "fixer.md").read_text() == "# fixer-md-gemini"
-    for host in install.HOSTS:
-        assert not (tmp_path / "root" / host).exists()
-
-
-def test_unpack_codex_moves_tree_to_repo_root(tmp_path: Path) -> None:
-    _seed_all_sources(tmp_path)
-    ok, msg = install.unpack_harness("codex", tmp_path, dry_run=False)
-    assert (ok, msg) == (True, "")
-    assert (tmp_path / "config.toml").read_text() == '_ = "codex"\n'
-    assert (tmp_path / "agents" / "fixer.toml").read_text() == 'description = "fixer-toml"\n'
-    assert not (tmp_path / "settings.json").exists()
-    for host in install.HOSTS:
-        assert not (tmp_path / "root" / host).exists()
-
-
-def test_unpack_dry_run_is_noop(tmp_path: Path) -> None:
-    _seed_all_sources(tmp_path)
-    ok, msg = install.unpack_harness("claude", tmp_path, dry_run=True)
-    assert (ok, msg) == (True, "")
-    assert (tmp_path / "root" / "claude" / "settings.json").exists()
-    assert (tmp_path / "root" / "codex" / "config.toml").exists()
-    assert (tmp_path / "root" / "gemini" / "settings.json").exists()
-    assert not (tmp_path / "settings.json").exists()
-
-
-def test_unpack_idempotent_when_already_done(tmp_path: Path) -> None:
-    (tmp_path / "settings.json").write_text('{"already": "done"}')
-    ok, msg = install.unpack_harness("claude", tmp_path, dry_run=False)
-    assert (ok, msg) == (True, "")
-    assert (tmp_path / "settings.json").read_text() == '{"already": "done"}'
-
-
-def test_unpack_noop_when_clean_dir(tmp_path: Path) -> None:
-    ok, msg = install.unpack_harness("claude", tmp_path, dry_run=False)
-    assert (ok, msg) == (True, "")
-    assert not (tmp_path / "settings.json").exists()
-
-
-def test_unpack_fails_when_wrong_harness_staging_present(tmp_path: Path) -> None:
-    (tmp_path / "root" / "gemini").mkdir(parents=True)
-    (tmp_path / "root" / "gemini" / "settings.json").write_text('{"_": "gemini"}')
-    ok, msg = install.unpack_harness("claude", tmp_path, dry_run=False)
-    assert ok is False
-    assert "root/claude/" in msg
-    assert "root/gemini/" in msg
-    assert (tmp_path / "root" / "gemini" / "settings.json").exists()
-
-
-def test_unpack_overwrites_existing_destination(tmp_path: Path) -> None:
-    _seed_all_sources(tmp_path)
-    (tmp_path / "agents").mkdir()
-    (tmp_path / "agents" / "fixer.md").write_text("# stale-fixer")
-    ok, msg = install.unpack_harness("claude", tmp_path, dry_run=False)
-    assert (ok, msg) == (True, "")
-    assert (tmp_path / "agents" / "fixer.md").read_text() == "# fixer-md"
-
-
-# cleanup_after_install
-
-
-def test_cleanup_no_manifest_returns_zero(tmp_path: Path) -> None:
-    assert install.cleanup_after_install(tmp_path, dry_run=False) == 0
-
-
-def test_cleanup_removes_files(tmp_path: Path) -> None:
-    (tmp_path / "pyproject.toml").write_text("[tool]")
-    (tmp_path / "uv.lock").write_text("locked")
-    (tmp_path / "keep.txt").write_text("keep")
-    (tmp_path / ".trash").write_text("pyproject.toml\nuv.lock\n")
-    removed = install.cleanup_after_install(tmp_path, dry_run=False)
-    assert removed == 2
-    assert not (tmp_path / "pyproject.toml").exists()
-    assert not (tmp_path / "uv.lock").exists()
-    assert (tmp_path / "keep.txt").exists()
-
-
-def test_cleanup_removes_directories(tmp_path: Path) -> None:
-    (tmp_path / "tests").mkdir()
-    (tmp_path / "tests" / "a.py").write_text("a")
-    (tmp_path / "tests" / "sub").mkdir()
-    (tmp_path / "tests" / "sub" / "b.py").write_text("b")
-    (tmp_path / ".trash").write_text("tests/\n")
-    removed = install.cleanup_after_install(tmp_path, dry_run=False)
-    assert removed == 1
-    assert not (tmp_path / "tests").exists()
-
-
-def test_cleanup_glob_pattern_matches_multiple(tmp_path: Path) -> None:
-    (tmp_path / "scripts").mkdir()
-    (tmp_path / "scripts" / "__pycache__").mkdir()
-    (tmp_path / "scripts" / "__pycache__" / "x.pyc").write_text("x")
-    (tmp_path / "tests").mkdir()
-    (tmp_path / "tests" / "__pycache__").mkdir()
-    (tmp_path / ".trash").write_text("**/__pycache__/\n")
-    removed = install.cleanup_after_install(tmp_path, dry_run=False)
-    assert removed == 2
-    assert not (tmp_path / "scripts" / "__pycache__").exists()
-    assert not (tmp_path / "tests" / "__pycache__").exists()
-
-
-def test_cleanup_skips_missing(tmp_path: Path) -> None:
-    (tmp_path / ".trash").write_text("does-not-exist.txt\nalso-missing/\n")
-    assert install.cleanup_after_install(tmp_path, dry_run=False) == 0
-
-
-def test_cleanup_refuses_absolute_path(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
-    sentinel = tmp_path / "sentinel.txt"
-    sentinel.write_text("safe")
-    (tmp_path / ".trash").write_text(f"/{sentinel}\n")
-    removed = install.cleanup_after_install(tmp_path, dry_run=False)
-    assert removed == 0
-    assert sentinel.exists()
-    assert "refusing unsafe pattern" in capsys.readouterr().err
-
-
-def test_cleanup_refuses_dotdot(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
-    (tmp_path / ".trash").write_text("../escape\n")
-    removed = install.cleanup_after_install(tmp_path, dry_run=False)
-    assert removed == 0
-    assert "refusing unsafe pattern" in capsys.readouterr().err
-
-
-def test_cleanup_dry_run_counts_but_no_delete(tmp_path: Path) -> None:
-    (tmp_path / "pyproject.toml").write_text("[tool]")
-    (tmp_path / "tests").mkdir()
-    (tmp_path / ".trash").write_text("pyproject.toml\ntests/\n")
-    removed = install.cleanup_after_install(tmp_path, dry_run=True)
-    assert removed == 2
-    assert (tmp_path / "pyproject.toml").exists()
-    assert (tmp_path / "tests").exists()
-
-
-def test_cleanup_ignores_comments_and_blank_lines(tmp_path: Path) -> None:
-    (tmp_path / "kill.txt").write_text("x")
-    (tmp_path / "keep.txt").write_text("y")
-    (tmp_path / ".trash").write_text("# this is a comment\n\nkill.txt  # trailing comment\n# keep.txt\n")
-    removed = install.cleanup_after_install(tmp_path, dry_run=False)
-    assert removed == 1
-    assert not (tmp_path / "kill.txt").exists()
-    assert (tmp_path / "keep.txt").exists()
-
-
-def test_cleanup_skips_symlinks(tmp_path: Path) -> None:
-    target = tmp_path / "real.txt"
-    target.write_text("real")
-    link = tmp_path / "linked.txt"
-    link.symlink_to(target)
-    (tmp_path / ".trash").write_text("linked.txt\n")
-    removed = install.cleanup_after_install(tmp_path, dry_run=False)
-    assert removed == 0
-    assert link.exists()
-    assert target.exists()
-
-
-def test_cleanup_removes_manifest_implicitly(tmp_path: Path) -> None:
-    (tmp_path / "kill.txt").write_text("x")
-    (tmp_path / ".trash").write_text("kill.txt\n")
-    removed = install.cleanup_after_install(tmp_path, dry_run=False)
-    assert removed == 1
-    assert not (tmp_path / "kill.txt").exists()
-    assert not (tmp_path / ".trash").exists()
-
-
-def test_cleanup_dry_run_preserves_manifest(tmp_path: Path) -> None:
-    (tmp_path / ".trash").write_text("\n")
-    install.cleanup_after_install(tmp_path, dry_run=True)
-    assert (tmp_path / ".trash").exists()
+def test_install_for_records_overlay_in_manifest() -> None:
+    overlay = [{"dst": "/c/x", "src": "root/claude/x", "backup": None, "action": "create"}]
+    with (
+        patch("install.shutil.which", return_value="/usr/bin/claude"),
+        patch("install.bootstrap_workspace"),
+        patch("install.copy_overlay", return_value=(True, "", overlay)),
+        patch("install.register_marketplace", return_value=(True, "")),
+        patch("install.read_plugin_specs", return_value=[]),
+        patch("install.write_manifest") as mock_write,
+    ):
+        install.install_for("claude", dry_run=False)
+    # The overlay records returned by copy_overlay are threaded into write_manifest.
+    args, _ = mock_write.call_args
+    assert args[0] == install.REPO_ROOT
+    assert args[1] == "claude"
+    assert args[2] == overlay
