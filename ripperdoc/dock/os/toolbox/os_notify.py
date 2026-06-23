@@ -2,19 +2,23 @@
 """Raise an OS-wide desktop notification — cross-platform (macOS, Linux, Windows).
 
 Sibling to `ding` (which makes a sound): `notify` pops a banner/toast in the OS's
-notification center. No third-party deps — each platform drives a built-in:
+notification center. Each platform drives a built-in, with one optional upgrade:
 
-- macOS:   osascript `display notification` -> a Notification Center banner.
+- macOS:   `terminal-notifier` if installed (its own bundle = delivery that does
+           not hinge on the launching app's notification permissions), otherwise
+           osascript `display notification` -> a Notification Center banner.
+           terminal-notifier is the sole optional third-party dep; the osascript
+           fallback keeps macOS working with zero deps.
 - Linux:   `notify-send` (libnotify) — the freedesktop standard, present on most
            GNOME/KDE desktops.
 - Windows: PowerShell + a System.Windows.Forms NotifyIcon balloon (.NET ships
            with Windows; no module to install).
 
-User text is NEVER spliced into a script: macOS and Windows read the title/body
-from environment variables (AppleScript `system attribute` / PowerShell `$env:`),
-Linux passes them as argv to notify-send. So a title or body containing quotes,
-backslashes, or newlines can't break out into code — there is no script string
-for it to break out of.
+User text is NEVER spliced into a script: the osascript and PowerShell paths read
+the title/body from environment variables (AppleScript `system attribute` /
+PowerShell `$env:`), while notify-send and terminal-notifier take them as argv. So
+a title or body containing quotes, backslashes, or newlines can't break out into
+code — there is no script string for it to break out of.
 
 Best-effort: a missing mechanism (no notify-send, an exotic platform) returns
 None rather than raising. Unlike `ding`, there is NO universal floor — a desktop
@@ -30,6 +34,7 @@ at once. "Success" there means "launched", not "displayed".
 
 import argparse
 import os
+import shutil
 import subprocess
 import sys
 from collections.abc import Callable
@@ -97,11 +102,20 @@ def _spawn(cmd: list[str], env: dict[str, str] | None = None) -> bool:
 
 
 def _notify_macos(message: str, title: str) -> str | None:
-    """macOS: post a Notification Center banner via osascript. "osascript" or None.
+    """macOS: terminal-notifier if installed, else osascript. The mechanism or None.
 
-    Exits 0 once the banner is posted; whether it's actually shown depends on the
-    user's Notification Center settings for the controlling app (out of our hands).
+    Prefer `terminal-notifier` when present: it ships its own app bundle, so the
+    banner carries its own notification permission and fires regardless of which
+    app launched us (a terminal/IDE whose own notifications are off, cron, a
+    detached process). It's the sole optional third-party dep — and a true
+    failsafe, not just a presence check: installed-but-errors still falls through.
+
+    The fallback, osascript `display notification`, is a macOS built-in (zero dep).
+    It exits 0 once posted, but whether it's shown — and under whose name — depends
+    on the controlling app's Notification Center settings (out of our hands).
     """
+    if shutil.which("terminal-notifier") and _run(["terminal-notifier", "-title", title, "-message", message]):
+        return "terminal-notifier"
     env = {_ENV_TITLE: title, _ENV_MESSAGE: message}
     if _run(["osascript", "-e", _MACOS_APPLESCRIPT], env=env):
         return "osascript"
@@ -168,7 +182,7 @@ def main(argv: list[str]) -> int:
         "-v",
         "--verbose",
         action="store_true",
-        help="print which mechanism produced the notification (osascript/notify-send/powershell)",
+        help="print which mechanism produced the notification (terminal-notifier/osascript/notify-send/powershell)",
     )
     ns = parser.parse_args(argv)
     mechanism = notify(ns.message, ns.title)

@@ -36,6 +36,11 @@ def _fake_run(monkeypatch: pytest.MonkeyPatch, ok: bool, attr: str = "_run") -> 
     return calls
 
 
+def _fake_which(monkeypatch: pytest.MonkeyPatch, *, found: bool) -> None:
+    """Stub shutil.which so terminal-notifier presence is deterministic per test."""
+    monkeypatch.setattr(notify.shutil, "which", lambda name: "/opt/bin/terminal-notifier" if found else None)
+
+
 # --- _run / _spawn: the subprocess seams (real, silent commands) -------------
 
 
@@ -75,6 +80,7 @@ def test_spawn_false_for_missing_binary() -> None:
 
 
 def test_macos_runs_osascript_with_static_script(monkeypatch: pytest.MonkeyPatch) -> None:
+    _fake_which(monkeypatch, found=False)  # terminal-notifier absent -> osascript fallback
     calls = _fake_run(monkeypatch, ok=True)
     assert notify._notify_macos("hello", "CI") == "osascript"
     cmd = calls[0]["cmd"]
@@ -84,8 +90,42 @@ def test_macos_runs_osascript_with_static_script(monkeypatch: pytest.MonkeyPatch
 
 
 def test_macos_returns_none_on_failure(monkeypatch: pytest.MonkeyPatch) -> None:
+    _fake_which(monkeypatch, found=False)
     _fake_run(monkeypatch, ok=False)
     assert notify._notify_macos("hello", "CI") is None
+
+
+def test_macos_prefers_terminal_notifier_when_present(monkeypatch: pytest.MonkeyPatch) -> None:
+    _fake_which(monkeypatch, found=True)
+    calls = _fake_run(monkeypatch, ok=True)
+    assert notify._notify_macos("hello", "CI") == "terminal-notifier"
+    # title/body ride argv (like notify-send), so no env is needed.
+    assert calls[0]["cmd"] == ["terminal-notifier", "-title", "CI", "-message", "hello"]
+    assert calls[0]["env"] is None
+
+
+def test_macos_terminal_notifier_failure_falls_back_to_osascript(monkeypatch: pytest.MonkeyPatch) -> None:
+    # A true failsafe: terminal-notifier is installed but errors -> osascript still fires.
+    _fake_which(monkeypatch, found=True)
+    calls: list[dict[str, object]] = []
+
+    def fake(cmd: list[str], env: dict[str, str] | None = None) -> bool:
+        calls.append({"cmd": cmd, "env": env})
+        return cmd[0] != "terminal-notifier"  # tn fails, osascript succeeds
+
+    monkeypatch.setattr(notify, "_run", fake)
+    assert notify._notify_macos("hello", "CI") == "osascript"
+    assert [c["cmd"][0] for c in calls] == ["terminal-notifier", "osascript"]
+
+
+def test_macos_terminal_notifier_hostile_text_stays_argv(monkeypatch: pytest.MonkeyPatch) -> None:
+    _fake_which(monkeypatch, found=True)
+    calls = _fake_run(monkeypatch, ok=True)
+    nasty = '"; rm -rf / #'
+    notify._notify_macos(nasty, 'ti"tle')
+    # The whole hostile string rides argv as discrete elements — never a script.
+    assert calls[0]["cmd"] == ["terminal-notifier", "-title", 'ti"tle', "-message", nasty]
+    assert calls[0]["env"] is None
 
 
 # --- Linux worker: notify-send, title/body as argv ---------------------------
@@ -136,6 +176,7 @@ def test_windows_script_is_static_and_reads_env() -> None:
 
 
 def test_macos_hostile_text_never_enters_the_script(monkeypatch: pytest.MonkeyPatch) -> None:
+    _fake_which(monkeypatch, found=False)
     calls = _fake_run(monkeypatch, ok=True)
     nasty = '"; do shell script "rm -rf /"\n'
     notify._notify_macos(nasty, 'ti"tle')
