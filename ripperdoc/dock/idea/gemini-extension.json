@@ -9,7 +9,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "${extensionPath}/toolbox/notify.py \"Gemini finished responding\"",
+            "command": "${extensionPath}/toolbox/turn_notify.py Gemini",
             "timeout": 5
           }
         ]

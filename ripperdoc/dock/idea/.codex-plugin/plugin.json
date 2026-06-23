@@ -19,7 +19,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "${CLAUDE_PLUGIN_ROOT}/toolbox/notify.py \"Codex finished responding\"",
+            "command": "${CLAUDE_PLUGIN_ROOT}/toolbox/turn_notify.py Codex",
             "timeout": 5
           }
         ]
