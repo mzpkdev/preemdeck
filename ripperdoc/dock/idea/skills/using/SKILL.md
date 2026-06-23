@@ -13,7 +13,7 @@ user-invocable: true
 allowed-tools: [Bash]
 ---
 
-# idea:integration
+# idea:using
 
 A manual for the **idea toolbox** — a set of small Python CLIs that drive the *currently running* JetBrains IDE from the
 terminal: open files/URLs, show diffs, present code suggestions, run 3-way merges, tail the IDE log, and pop
