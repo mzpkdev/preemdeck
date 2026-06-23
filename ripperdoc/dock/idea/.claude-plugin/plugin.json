@@ -24,6 +24,18 @@
           }
         ]
       }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "ExitPlanMode",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "${CLAUDE_PLUGIN_ROOT}/toolbox/plan_preview.py",
+            "timeout": 5
+          }
+        ]
+      }
     ]
   }
 }

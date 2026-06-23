@@ -14,6 +14,18 @@
           }
         ]
       }
+    ],
+    "BeforeTool": [
+      {
+        "matcher": "exit_plan_mode",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "${extensionPath}/toolbox/plan_preview.py",
+            "timeout": 5
+          }
+        ]
+      }
     ]
   }
 }
