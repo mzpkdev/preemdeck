@@ -12,6 +12,13 @@
       "source": "./idea",
       "version": "0.1.0",
       "category": "dock"
+    },
+    {
+      "name": "os",
+      "description": "TODO — describe the os plugin",
+      "source": "./os",
+      "version": "0.1.0",
+      "category": "dock"
     }
   ]
 }

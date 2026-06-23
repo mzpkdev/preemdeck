@@ -9,6 +9,12 @@
       "source": "./idea",
       "policy": "allow",
       "category": "dock"
+    },
+    {
+      "name": "os",
+      "source": "./os",
+      "policy": "allow",
+      "category": "dock"
     }
   ]
 }
