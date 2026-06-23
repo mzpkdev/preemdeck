@@ -10,16 +10,16 @@ skills/swarm/
   agents/openai.yaml
 scripts/modes.json  # central value→slot manifest (swarm→strategy, ask/auto→discretion)
 skills/default/
-  SKILL.md       # invoke /directive:default <value> → runs set_mode.py <value> (the sole writer)
+  SKILL.md       # invoke /directive:default <value> → runs set_mode.ts <value> (the sole writer)
   agents/openai.yaml
 ```
 
-- **Set a directive** — `/directive:default <value>` (`ask`|`swarm`|`auto`) runs `set_mode.py <value>`, the only thing
-  that writes `preemdeck.json`. The value alone decides the slot: `set_mode.py` looks it up in `scripts/modes.json` (the
+- **Set a directive** — `/directive:default <value>` (`ask`|`swarm`|`auto`) runs `set_mode.ts <value>`, the only thing
+  that writes `preemdeck.json`. The value alone decides the slot: `set_mode.ts` looks it up in `scripts/modes.json` (the
   central value→slot manifest) to derive it. (On Gemini, `commands/default.toml` does the same.)
-- **Show a directive** — `/swarm`, `/ask`, `/auto` each run `show_mode.py <mode>`, printing that mode's `directive.md`
+- **Show a directive** — `/swarm`, `/ask`, `/auto` each run `show_mode.ts <mode>`, printing that mode's `directive.md`
   verbatim. They write nothing. (On Gemini, the equivalent `commands/<mode>.toml` does the same.)
-- **Hook (apply it)** — every prompt, `inject_mode.py` reads the `directive` object from the root `preemdeck.json` and
+- **Hook (apply it)** — every prompt, `inject_mode.ts` reads the `directive` object from the root `preemdeck.json` and
   injects each active slot's `directive.md` body, concatenated in slot order. Wired on all three hosts
   (`UserPromptSubmit` on Claude/Codex, `BeforeAgent` on Gemini).
 
@@ -44,7 +44,7 @@ until you set a mode. The slots compose: `strategy=swarm` + `discretion=auto` = 
 checking in.
 
 The mode skills are **user-invocable and never model-invoked** (`disable-model-invocation`, mirrored on Codex via
-`agents/openai.yaml`) — a directive is set by you, never auto-selected. `set_mode.py` is the only writer of
+`agents/openai.yaml`) — a directive is set by you, never auto-selected. `set_mode.ts` is the only writer of
 `preemdeck.json`.
 
 Lookups are pure `pathlib` (OS-agnostic): `preemdeck.json` is found by walking up from the hook to the clone root
@@ -58,12 +58,12 @@ ______________________________________________________________________
 
 | File                         | Role                                                             |
 | ---------------------------- | ---------------------------------------------------------------- |
-| `scripts/inject_mode.py`     | Hook — injects each active slot's `skills/<value>/directive.md`  |
-| `scripts/set_mode.py`        | Writer — validates `<value>`, derives its slot, sets `directive` |
-| `scripts/show_mode.py`       | Reader — prints `skills/<value>/directive.md` verbatim           |
-| `scripts/modes.json`         | Central value→slot manifest (`set_mode.py` reads it)             |
-| `skills/default/SKILL.md`    | Setter — `/directive:default <value>` runs `set_mode.py`         |
-| `skills/<mode>/SKILL.md`     | Echo — invoking it runs `show_mode.py` for that mode             |
+| `scripts/inject_mode.ts`     | Hook — injects each active slot's `skills/<value>/directive.md`  |
+| `scripts/set_mode.ts`        | Writer — validates `<value>`, derives its slot, sets `directive` |
+| `scripts/show_mode.ts`       | Reader — prints `skills/<value>/directive.md` verbatim           |
+| `scripts/modes.json`         | Central value→slot manifest (`set_mode.ts` reads it)             |
+| `skills/default/SKILL.md`    | Setter — `/directive:default <value>` runs `set_mode.ts`         |
+| `skills/<mode>/SKILL.md`     | Echo — invoking it runs `show_mode.ts` for that mode             |
 | `skills/<mode>/directive.md` | The prose the hook injects for that mode                         |
 | `commands/default.toml`      | Gemini setter command                                            |
 | `commands/<mode>.toml`       | Gemini echo command per mode                                     |
@@ -77,8 +77,8 @@ ______________________________________________________________________
 
 ## Notes
 
-- **Value determines slot.** `set_mode.py <value>` derives the slot from `scripts/modes.json`, so a mode can only ever
+- **Value determines slot.** `set_mode.ts <value>` derives the slot from `scripts/modes.json`, so a mode can only ever
   write its own slot — there's no slot argument to get wrong. `skills/default/` ships no `directive.md`, so it is not
   itself a settable mode (and the echo skills never write).
-- `preemdeck.json` is committed at the repo root, so `update.py`'s `git reset --hard` reverts runtime edits to it. A
+- `preemdeck.json` is committed at the repo root, so `update.ts`'s `git reset --hard` reverts runtime edits to it. A
   user-set directive will need an untracked state path.
