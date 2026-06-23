@@ -6,7 +6,17 @@
     "useIgnoreFile": true
   },
   "files": {
-    "includes": ["lib/**/*.ts", "scripts/**/*.ts", "ripperdoc/**/*.ts", "*.json", "!**/node_modules", "!**/.runtime", "!**/experiments", "!uv.lock", "!bun.lock"]
+    "includes": [
+      "lib/**/*.ts",
+      "scripts/**/*.ts",
+      "ripperdoc/**/*.ts",
+      "*.json",
+      "!**/node_modules",
+      "!**/.runtime",
+      "!**/experiments",
+      "!uv.lock",
+      "!bun.lock"
+    ]
   },
   "formatter": {
     "enabled": true,

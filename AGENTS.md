@@ -1,21 +1,24 @@
 ## Prerequisites
 
-- Python 3.12+
-- pip3
-- uv
+- Bun — preemdeck's `.ts` source runs on a **pinned** Bun (`1.3.14`), vendored by `boot.sh` into
+  `~/.preemdeck/.runtime/bin/bun` and invoked through the `scripts/preemdeck-bun` shim. No host Bun needed; the fetch is
+  best-effort and falls back to a host `bun` on `PATH` if it can't vendor.
+- Python 3.12+, pip3, uv — needed only for the **wire server** (still Python) and its `uv` dependency bootstrap.
+  `boot.sh` installs `uv` if missing.
 
 Bootstrap:
 
-- `uv sync`
+- `uv sync` — sets up the wire server's Python env.
 
 ## Format on edit
 
 A project-local hook runs `ruff format` (`.py`) and `mdformat` (`.md`) after every agent edit on Claude Code, Codex, and
-Gemini CLI. It never blocks the edit — failures warn on stderr.
+Gemini CLI. The hook script is run on the vendored Bun via the `scripts/preemdeck-bun` shim; the formatters it shells
+out to (`ruff`, `mdformat`) are unchanged. It never blocks the edit — failures warn on stderr.
 
 | File                        | Role                                    |
 | --------------------------- | --------------------------------------- |
-| `scripts/format_on_edit.py` | Shared script — single source of truth  |
+| `scripts/format_on_edit.ts` | Shared script — single source of truth  |
 | `.claude/settings.json`     | Claude: `PostToolUse` → script          |
 | `.codex/config.toml`        | Codex: `[[hooks.PostToolUse]]` → script |
 | `.gemini/settings.json`     | Gemini: `AfterTool` → script            |
@@ -41,22 +44,23 @@ overlay (`root/<harness>/` — settings + the `fixer` agent) into the host confi
 to `<file>.bak`. So editing this repo does **not** update a running harness: overlay edits need a re-install to copy out
 again, and any edit only takes effect after the host CLI restarts.
 
-**Apply on explicit request only. When the user asks to update their local copy / apply the changes, run `update.py`
+**Apply on explicit request only. When the user asks to update their local copy / apply the changes, run `update.ts`
 yourself — you know the command, don't bounce it back. But only when asked: never apply unprompted after an edit, and
-never run `install.py` yourself — that one stays the user's call.** `update.py` is manifest-driven: it does
+never run `install.ts` yourself — that one stays the user's call.** `update.ts` is manifest-driven: it does
 `git pull --ff-only` on `~/.preemdeck`, then re-installs every harness recorded in
 `~/.preemdeck/.install-manifest.json`.
 
-Canonical flow — run on request (step 2 is yours now; `install.py` never is):
+Canonical flow — run on request (step 2 is yours now; `install.ts` never is):
 
 ```bash
 git -C <dev-repo> add -A && git commit -m "…" && git push   # 1. dev repo: commit + push
-python3 ~/.preemdeck/update.py                              # 2. deployed source: pull --ff-only + re-install
+~/.preemdeck/scripts/preemdeck-bun ~/.preemdeck/update.ts   # 2. deployed source: pull --ff-only + re-install
 ```
 
 Then restart the host CLI — plugins load at startup. To reverse an install,
-`python3 ~/.preemdeck/uninstall.py [harness]` restores the `.bak` backups, unregisters the plugins, and drops the
-harness from the manifest (`--dry-run` to preview, `--purge` to print the manual `rm -rf ~/.preemdeck`).
+`~/.preemdeck/scripts/preemdeck-bun ~/.preemdeck/uninstall.ts [harness]` restores the `.bak` backups, unregisters the
+plugins, and drops the harness from the manifest (`--dry-run` to preview, `--purge` to print the manual
+`rm -rf ~/.preemdeck`).
 
 ## Agents
 

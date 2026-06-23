@@ -9,7 +9,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "${extensionPath}/toolbox/os_ding.py",
+            "command": "$HOME/.preemdeck/scripts/preemdeck-bun \"${extensionPath}/toolbox/os_ding.ts\"",
             "timeout": 5
           }
         ]

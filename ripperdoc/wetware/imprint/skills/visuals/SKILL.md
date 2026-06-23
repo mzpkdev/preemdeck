@@ -88,7 +88,7 @@ imprint/
 │   ├── host_codex.md
 │   └── host_gemini.md
 └── scripts/
-    └── inject_hook.py  # substitutor + emitter
+    └── inject_hook.ts  # substitutor + emitter
 ```
 
 ## Graph

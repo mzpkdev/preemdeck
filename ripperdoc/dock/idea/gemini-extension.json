@@ -9,7 +9,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "${extensionPath}/toolbox/turn_notify.py Gemini",
+            "command": "$HOME/.preemdeck/scripts/preemdeck-bun \"${extensionPath}/toolbox/turn_notify.ts\" Gemini",
             "timeout": 5
           }
         ]
@@ -21,7 +21,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "${extensionPath}/toolbox/plan_preview.py",
+            "command": "$HOME/.preemdeck/scripts/preemdeck-bun \"${extensionPath}/toolbox/plan_preview.ts\"",
             "timeout": 5
           }
         ]

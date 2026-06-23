@@ -5,7 +5,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python3 ${PLUGIN_ROOT}/scripts/boot.py",
+            "command": "$HOME/.preemdeck/scripts/preemdeck-bun \"${PLUGIN_ROOT}/scripts/boot.ts\"",
             "timeout": 5
           }
         ]
@@ -16,7 +16,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python3 ${PLUGIN_ROOT}/scripts/pulse.py",
+            "command": "$HOME/.preemdeck/scripts/preemdeck-bun \"${PLUGIN_ROOT}/scripts/pulse.ts\"",
             "timeout": 5
           }
         ]

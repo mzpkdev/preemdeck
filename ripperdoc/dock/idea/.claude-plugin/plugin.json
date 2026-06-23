@@ -19,7 +19,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "${CLAUDE_PLUGIN_ROOT}/toolbox/turn_notify.py Claude",
+            "command": "$HOME/.preemdeck/scripts/preemdeck-bun \"${CLAUDE_PLUGIN_ROOT}/toolbox/turn_notify.ts\" Claude",
             "timeout": 5
           }
         ]
@@ -31,7 +31,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "${CLAUDE_PLUGIN_ROOT}/toolbox/plan_preview.py",
+            "command": "$HOME/.preemdeck/scripts/preemdeck-bun \"${CLAUDE_PLUGIN_ROOT}/toolbox/plan_preview.ts\"",
             "timeout": 5
           }
         ]

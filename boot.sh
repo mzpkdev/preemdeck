@@ -107,4 +107,4 @@ fetch_bun() {
 }
 fetch_bun || true
 
-python3 "$SOURCE_DIRECTORY/install.py" "$HARNESS" "$@"
+"$SOURCE_DIRECTORY/scripts/preemdeck-bun" "$SOURCE_DIRECTORY/install.ts" "$HARNESS" "$@"

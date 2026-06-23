@@ -15,7 +15,7 @@ allowed-tools: [Bash]
 
 # idea:using
 
-A manual for the **idea toolbox** — a set of small Python CLIs that drive the *currently running* JetBrains IDE from the
+A manual for the **idea toolbox** — a set of small CLIs that drive the *currently running* JetBrains IDE from the
 terminal: open files/URLs, show diffs, present code suggestions, run 3-way merges, tail the IDE log, and pop
 notification balloons.
 
@@ -25,7 +25,7 @@ Every tool drives the JetBrains IDE that **launched this terminal** — it walks
 (WebStorm, PyCharm, IntelliJ IDEA, GoLand, PhpStorm, RubyMine, CLion, Rider, DataGrip, RustRover). There is **no
 browser/editor fallback**: if the terminal is not running inside a JetBrains IDE, every tool fails clean.
 
-- Each tool first checks it's inside a live JetBrains terminal — run `in_idea.py` to make that check yourself (see
+- Each tool first checks it's inside a live JetBrains terminal — run `in_idea.ts` to make that check yourself (see
   below). When the check fails, the tool prints `<tool>: no JetBrains IDE in the process ancestry` to stderr and **exits
   1**.
 - **Exit-code semantics:** `0` = the action was dispatched to the IDE; `1` = no live IDE (or, for the path-taking tools,
@@ -33,21 +33,22 @@ browser/editor fallback**: if the terminal is not running inside a JetBrains IDE
 - The IDE is the one that *launched* the process, not whichever is focused. Switching focus does not retarget it;
   quitting the launching IDE makes the tools fail rather than hit a different IDE.
 
-So before relying on these, confirm you're in a JetBrains terminal with `in_idea.py` (exit `0` inside, `1` outside):
+So before relying on these, confirm you're in a JetBrains terminal with `in_idea.ts` (exit `0` inside, `1` outside):
 
 ```bash
-python3 "${CLAUDE_PLUGIN_ROOT}/toolbox/in_idea.py"        # prints "in a JetBrains IDE terminal" / "not …"
-python3 "${CLAUDE_PLUGIN_ROOT}/toolbox/in_idea.py" -q && echo "good to go"   # quiet: gate on the exit code
+"$HOME/.preemdeck/scripts/preemdeck-bun" "${CLAUDE_PLUGIN_ROOT}/toolbox/in_idea.ts"        # prints "in a JetBrains IDE terminal" / "not …"
+"$HOME/.preemdeck/scripts/preemdeck-bun" "${CLAUDE_PLUGIN_ROOT}/toolbox/in_idea.ts" -q && echo "good to go"   # quiet: gate on the exit code
 ```
 
 ## Canonical invocation
 
-The tools live in the plugin's `toolbox/` dir and are run with `python3` by **absolute path**. Anchor on
-`${CLAUDE_PLUGIN_ROOT}` (this plugin's root) so it works from any working directory — each script puts its own dir on
-`sys.path`, so the run is **cwd-independent** (you do *not* need to `cd` into the toolbox):
+The tools live in the plugin's `toolbox/` dir and are run through the **preemdeck-bun shim** by **absolute path**. The
+shim (`$HOME/.preemdeck/scripts/preemdeck-bun`) runs the bundled Bun runtime against the `.ts` tool. Anchor on
+`${CLAUDE_PLUGIN_ROOT}` (this plugin's root) so it works from any working directory — the run is **cwd-independent**
+(you do *not* need to `cd` into the toolbox):
 
 ```bash
-python3 "${CLAUDE_PLUGIN_ROOT}/toolbox/<tool>.py" [args…]
+"$HOME/.preemdeck/scripts/preemdeck-bun" "${CLAUDE_PLUGIN_ROOT}/toolbox/<tool>.ts" [args…]
 ```
 
 For brevity below, assume:
@@ -56,7 +57,7 @@ For brevity below, assume:
 TB="${CLAUDE_PLUGIN_ROOT}/toolbox"
 ```
 
-Requires only a stock `python3` (standard library only — `argparse`, `pathlib`, `tempfile`).
+Requires only the preemdeck-bun shim and the bundled Bun runtime (fetched by `boot.sh`) — no other toolchain.
 
 ## Fire-and-forget vs `--wait`
 
@@ -74,15 +75,15 @@ Pick the tool from what the user asked for:
 
 | The user says…                                                             | Tool              |
 | -------------------------------------------------------------------------- | ----------------- |
-| "open `<file>` in the IDE", "jump to line N", "pull up `app.py`"           | `open_file.py`    |
-| "open `<url>`", "preview localhost:3000", "show that page in the IDE"      | `open_url.py`     |
-| "show me this snippet/string", "open this text", "render this markdown"    | `open_inline.py`  |
-| "diff these two files", "show the diff", "review this change side by side" | `diff_file.py`    |
-| "diff this old vs new text", "compare these two snippets"                  | `diff_inline.py`  |
-| "merge these files", "3-way merge", "reconcile with a base"                | `merge_file.py`   |
-| "merge this suggestion in", "drop this proposed code into the file"        | `merge_inline.py` |
-| "what's in the IDE log", "tail the IDE's log", "show recent IDE log lines" | `read_logs.py`    |
-| "notify me", "pop a balloon", "let me know when X finishes", "toast me"    | `notify.py`       |
+| "open `<file>` in the IDE", "jump to line N", "pull up `app.py`"           | `open_file.ts`    |
+| "open `<url>`", "preview localhost:3000", "show that page in the IDE"      | `open_url.ts`     |
+| "show me this snippet/string", "open this text", "render this markdown"    | `open_inline.ts`  |
+| "diff these two files", "show the diff", "review this change side by side" | `diff_file.ts`    |
+| "diff this old vs new text", "compare these two snippets"                  | `diff_inline.ts`  |
+| "merge these files", "3-way merge", "reconcile with a base"                | `merge_file.ts`   |
+| "merge this suggestion in", "drop this proposed code into the file"        | `merge_inline.ts` |
+| "what's in the IDE log", "tail the IDE's log", "show recent IDE log lines" | `read_logs.ts`    |
+| "notify me", "pop a balloon", "let me know when X finishes", "toast me"    | `notify.ts`       |
 
 Rules of thumb:
 
@@ -94,10 +95,10 @@ Rules of thumb:
 
 ______________________________________________________________________
 
-## open_file.py — open a file in the IDE
+## open_file.ts — open a file in the IDE
 
 ```
-open_file.py [-h] [--line LINE] [--column COLUMN] [--wait] [--preview] path
+open_file.ts [-h] [--line LINE] [--column COLUMN] [--wait] [--preview] path
 ```
 
 Open `path` at an optional caret position. Fire-and-forget by default; `--wait` blocks until the tab closes and then
@@ -113,15 +114,15 @@ prints the file's full text (whether or not it was edited).
 **When to use:** the user wants a real file opened, or wants to land on a specific line.
 
 ```bash
-python3 "$TB/open_file.py" src/app.py --line 42      # jump to line 42, fire-and-forget
-python3 "$TB/open_file.py" notes.md --wait           # block until closed, then print the file
-python3 "$TB/open_file.py" README.md --preview       # open, then flip to rendered preview
+"$HOME/.preemdeck/scripts/preemdeck-bun" "$TB/open_file.ts" src/app.py --line 42      # jump to line 42, fire-and-forget
+"$HOME/.preemdeck/scripts/preemdeck-bun" "$TB/open_file.ts" notes.md --wait           # block until closed, then print the file
+"$HOME/.preemdeck/scripts/preemdeck-bun" "$TB/open_file.ts" README.md --preview       # open, then flip to rendered preview
 ```
 
-## open_url.py — open an http(s) URL in the IDE's preview
+## open_url.ts — open an http(s) URL in the IDE's preview
 
 ```
-open_url.py [-h] [--title TITLE] url
+open_url.ts [-h] [--title TITLE] url
 ```
 
 Open `url` in the IDE's embedded JCEF web-preview tab. Fire-and-forget (there's no editor to block on — **no
@@ -133,18 +134,18 @@ Open `url` in the IDE's embedded JCEF web-preview tab. Fire-and-forget (there's 
 **When to use:** the user wants to view a page/dev-server *inside* the IDE.
 
 ```bash
-python3 "$TB/open_url.py" http://localhost:3000              # preview a local dev server
-python3 "$TB/open_url.py" https://example.com --title docs   # custom tab label
+"$HOME/.preemdeck/scripts/preemdeck-bun" "$TB/open_url.ts" http://localhost:3000              # preview a local dev server
+"$HOME/.preemdeck/scripts/preemdeck-bun" "$TB/open_url.ts" https://example.com --title docs   # custom tab label
 ```
 
-## open_inline.py — open a string in the IDE
+## open_inline.ts — open a string in the IDE
 
 ```
-open_inline.py [-h] [--suffix SUFFIX] [--wait] [--preview] inline
+open_inline.ts [-h] [--suffix SUFFIX] [--wait] [--preview] inline
 ```
 
-String-native wrapper over `open_file`: spills `inline` to a temp file and opens it. Use this to show a snippet or any
-generated text you're holding as a string (no need to write a file first).
+String-native wrapper over `open_file.ts`: spills `inline` to a temp file and opens it. Use this to show a snippet or
+any generated text you're holding as a string (no need to write a file first).
 
 - `inline` — the literal string to open.
 - `--suffix SUFFIX` — temp-file suffix; the IDE uses it to pick syntax highlighting (default `.txt`). E.g.
@@ -156,15 +157,15 @@ generated text you're holding as a string (no need to write a file first).
 the user's edits.
 
 ```bash
-python3 "$TB/open_inline.py" "$snippet" --suffix .py        # open with .py highlighting
-python3 "$TB/open_inline.py" "$snippet" --wait              # block until closed, then print
-python3 "$TB/open_inline.py" "$md" --suffix .md --preview   # open, then flip to rendered preview
+"$HOME/.preemdeck/scripts/preemdeck-bun" "$TB/open_inline.ts" "$snippet" --suffix .py        # open with .py highlighting
+"$HOME/.preemdeck/scripts/preemdeck-bun" "$TB/open_inline.ts" "$snippet" --wait              # block until closed, then print
+"$HOME/.preemdeck/scripts/preemdeck-bun" "$TB/open_inline.ts" "$md" --suffix .md --preview   # open, then flip to rendered preview
 ```
 
-## diff_file.py — 2-way diff of two files
+## diff_file.ts — 2-way diff of two files
 
 ```
-diff_file.py [-h] [--wait] target suggestion
+diff_file.ts [-h] [--wait] target suggestion
 ```
 
 Open a 2-way diff. Panes map straight to `idea diff L R`: **`target` is LEFT, `suggestion` is RIGHT**. The LEFT pane is
@@ -180,18 +181,18 @@ path fails before launch (exit 1).
 user's/current file on the LEFT (`target`) so `--wait` reads back the reconciled result.
 
 ```bash
-python3 "$TB/diff_file.py" mine.py theirs.py          # open the diff, fire-and-forget
-python3 "$TB/diff_file.py" mine.py theirs.py --wait   # block until closed, then print LEFT
+"$HOME/.preemdeck/scripts/preemdeck-bun" "$TB/diff_file.ts" mine.py theirs.py          # open the diff, fire-and-forget
+"$HOME/.preemdeck/scripts/preemdeck-bun" "$TB/diff_file.ts" mine.py theirs.py --wait   # block until closed, then print LEFT
 ```
 
-## diff_inline.py — 2-way diff of two strings
+## diff_inline.ts — 2-way diff of two strings
 
 ```
-diff_inline.py [-h] [--suffix SUFFIX] [--wait] target suggestion
+diff_inline.ts [-h] [--suffix SUFFIX] [--wait] target suggestion
 ```
 
-Same as `diff_file` but each side is a string (spilled to a temp file). `target` → LEFT, `suggestion` → RIGHT; `--wait`
-prints the reconciled LEFT pane.
+Same as `diff_file.ts` but each side is a string (spilled to a temp file). `target` → LEFT, `suggestion` → RIGHT;
+`--wait` prints the reconciled LEFT pane.
 
 - `target` / `suggestion` — left / right strings.
 - `--suffix SUFFIX` — shared suffix for both temps, for syntax highlighting (default `.txt`).
@@ -201,14 +202,14 @@ prints the reconciled LEFT pane.
 vs a proposed rewrite.
 
 ```bash
-python3 "$TB/diff_inline.py" "$old" "$new" --suffix .py   # diff with .py highlighting
-python3 "$TB/diff_inline.py" "$old" "$new" --wait         # block until closed, then print LEFT
+"$HOME/.preemdeck/scripts/preemdeck-bun" "$TB/diff_inline.ts" "$old" "$new" --suffix .py   # diff with .py highlighting
+"$HOME/.preemdeck/scripts/preemdeck-bun" "$TB/diff_inline.ts" "$old" "$new" --wait         # block until closed, then print LEFT
 ```
 
-## merge_file.py — 3-way merge of two files (optional base)
+## merge_file.ts — 3-way merge of two files (optional base)
 
 ```
-merge_file.py [-h] [--wait] target suggestion [base]
+merge_file.ts [-h] [--wait] target suggestion [base]
 ```
 
 Open the IDE's native 3-way merge: `target` (local) vs `suggestion` (remote), with an optional `base` (common ancestor).
@@ -224,18 +225,18 @@ and then prints the merged result. Inputs are resolved strictly (missing path �
 **When to use:** the user wants to reconcile two file versions, optionally against a base.
 
 ```bash
-python3 "$TB/merge_file.py" mine.py theirs.py base.py   # 3-way merge with a base
-python3 "$TB/merge_file.py" mine.py theirs.py --wait    # block until applied, then print
+"$HOME/.preemdeck/scripts/preemdeck-bun" "$TB/merge_file.ts" mine.py theirs.py base.py   # 3-way merge with a base
+"$HOME/.preemdeck/scripts/preemdeck-bun" "$TB/merge_file.ts" mine.py theirs.py --wait    # block until applied, then print
 ```
 
-## merge_inline.py — 3-way merge of strings (optional base)
+## merge_inline.ts — 3-way merge of strings (optional base)
 
 ```
-merge_inline.py [-h] [--suffix SUFFIX] [--wait] target suggestion [base]
+merge_inline.ts [-h] [--suffix SUFFIX] [--wait] target suggestion [base]
 ```
 
-String-native `merge_file`: each version is a string spilled to a temp file. Use this to let the user **merge a proposed
-snippet into their version** without writing files first.
+String-native `merge_file.ts`: each version is a string spilled to a temp file. Use this to let the user **merge a
+proposed snippet into their version** without writing files first.
 
 - `target` / `suggestion` — local / remote strings.
 - `base` — optional common-ancestor string.
@@ -245,14 +246,14 @@ snippet into their version** without writing files first.
 **When to use:** "merge this suggestion into my code." Add `--wait` to capture the applied result.
 
 ```bash
-python3 "$TB/merge_inline.py" "$mine" "$theirs" "$base" --suffix .py   # merge with a base
-python3 "$TB/merge_inline.py" "$mine" "$theirs" --wait                 # block until applied, print
+"$HOME/.preemdeck/scripts/preemdeck-bun" "$TB/merge_inline.ts" "$mine" "$theirs" "$base" --suffix .py   # merge with a base
+"$HOME/.preemdeck/scripts/preemdeck-bun" "$TB/merge_inline.ts" "$mine" "$theirs" --wait                 # block until applied, print
 ```
 
-## read_logs.py — tail the IDE's log
+## read_logs.ts — tail the IDE's log
 
 ```
-read_logs.py [-h] [n]
+read_logs.ts [-h] [n]
 ```
 
 Print the last `n` lines of the active IDE's `idea.log` (from its resolved log dir).
@@ -262,14 +263,14 @@ Print the last `n` lines of the active IDE's `idea.log` (from its resolved log d
 **When to use:** diagnose IDE-side behavior — confirm an action reached the IDE, inspect an ideScript error, etc.
 
 ```bash
-python3 "$TB/read_logs.py"       # last 50 lines (default)
-python3 "$TB/read_logs.py" 200   # last 200 lines
+"$HOME/.preemdeck/scripts/preemdeck-bun" "$TB/read_logs.ts"       # last 50 lines (default)
+"$HOME/.preemdeck/scripts/preemdeck-bun" "$TB/read_logs.ts" 200   # last 200 lines
 ```
 
-## in_idea.py — check you're in a JetBrains terminal
+## in_idea.ts — check you're in a JetBrains terminal
 
 ```
-in_idea.py [-h] [-q]
+in_idea.ts [-h] [-q]
 ```
 
 Report whether this terminal is running inside a live JetBrains IDE — the same gate every other tool applies before it
@@ -282,14 +283,14 @@ acts. Prints `in a JetBrains IDE terminal` / `not in a JetBrains IDE terminal` t
 IDE.
 
 ```bash
-python3 "$TB/in_idea.py"                                        # print yes/no, set the exit code
-python3 "$TB/in_idea.py" -q && python3 "$TB/notify.py" "ready"  # only notify if inside
+"$HOME/.preemdeck/scripts/preemdeck-bun" "$TB/in_idea.ts"        # print yes/no, set the exit code
+"$HOME/.preemdeck/scripts/preemdeck-bun" "$TB/in_idea.ts" -q && "$HOME/.preemdeck/scripts/preemdeck-bun" "$TB/notify.ts" "ready"  # only notify if inside
 ```
 
-## notify.py — pop an in-IDE notification balloon
+## notify.ts — pop an in-IDE notification balloon
 
 ```
-notify.py [-h] [--title TITLE] [--type {info,warning,error}] [--action NAME[=ARG]] message
+notify.ts [-h] [--title TITLE] [--type {info,warning,error}] [--action NAME[=ARG]] message
 ```
 
 Raise a transient notification balloon in the live IDE (via the platform Notification API). Fire-and-forget — there's no
@@ -308,7 +309,7 @@ note, and the CLI treats dispatch as success (the only non-zero exits are `1` fo
 
   - `open-url=<url>` — open the URL in the **external browser**.
   - `open-file=<path>` — open the path **in the editor**.
-  - `open-preview=<url>` — open the URL in the IDE's **JCEF web-preview** tab (same mechanism as `open_url`).
+  - `open-preview=<url>` — open the URL in the IDE's **JCEF web-preview** tab (same mechanism as `open_url.ts`).
 
   Each of these three **requires** an arg (`--action open-url=https://…`); a bare or unknown name is a usage error (exit
   2).
@@ -317,14 +318,14 @@ note, and the CLI treats dispatch as success (the only non-zero exits are `1` fo
 optionally give them a one-click way to follow up.
 
 ```bash
-python3 "$TB/notify.py" "build finished"                              # info balloon, default title
-python3 "$TB/notify.py" --title Deploy "shipped to prod"              # custom title
-python3 "$TB/notify.py" --type error "tests failed"                   # error severity/icon
-python3 "$TB/notify.py" --action open-url=https://ci.example.com "build done"      # browser button
-python3 "$TB/notify.py" --action open-preview=http://localhost:3000 "dev up"       # JCEF preview
-python3 "$TB/notify.py" --action open-file=/tmp/build.log "see log"                # editor button
+"$HOME/.preemdeck/scripts/preemdeck-bun" "$TB/notify.ts" "build finished"                              # info balloon, default title
+"$HOME/.preemdeck/scripts/preemdeck-bun" "$TB/notify.ts" --title Deploy "shipped to prod"              # custom title
+"$HOME/.preemdeck/scripts/preemdeck-bun" "$TB/notify.ts" --type error "tests failed"                   # error severity/icon
+"$HOME/.preemdeck/scripts/preemdeck-bun" "$TB/notify.ts" --action open-url=https://ci.example.com "build done"      # browser button
+"$HOME/.preemdeck/scripts/preemdeck-bun" "$TB/notify.ts" --action open-preview=http://localhost:3000 "dev up"       # JCEF preview
+"$HOME/.preemdeck/scripts/preemdeck-bun" "$TB/notify.ts" --action open-file=/tmp/build.log "see log"                # editor button
 # two buttons + error severity:
-python3 "$TB/notify.py" --action open-file=/tmp/build.log --action open-url=https://ci.example.com \
+"$HOME/.preemdeck/scripts/preemdeck-bun" "$TB/notify.ts" --action open-file=/tmp/build.log --action open-url=https://ci.example.com \
         --type error "build failed"
 ```
 

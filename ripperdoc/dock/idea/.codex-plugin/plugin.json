@@ -19,7 +19,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "${CLAUDE_PLUGIN_ROOT}/toolbox/turn_notify.py Codex",
+            "command": "$HOME/.preemdeck/scripts/preemdeck-bun \"${CLAUDE_PLUGIN_ROOT}/toolbox/turn_notify.ts\" Codex",
             "timeout": 5
           }
         ]

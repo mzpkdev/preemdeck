@@ -9,7 +9,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "${extensionPath}/scripts/boot.py",
+            "command": "$HOME/.preemdeck/scripts/preemdeck-bun \"${extensionPath}/scripts/boot.ts\"",
             "timeout": 5
           }
         ]
@@ -21,7 +21,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "${extensionPath}/scripts/pulse.py",
+            "command": "$HOME/.preemdeck/scripts/preemdeck-bun \"${extensionPath}/scripts/pulse.ts\"",
             "timeout": 5
           }
         ]

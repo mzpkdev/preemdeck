@@ -9,5 +9,5 @@ matcher = "(apply_patch|Edit|Write)"
 
 [[hooks.PostToolUse.hooks]]
 type = "command"
-command = '"$(git rev-parse --show-toplevel)/scripts/format_on_edit.py"'
+command = '"$(git rev-parse --show-toplevel)/scripts/preemdeck-bun" "$(git rev-parse --show-toplevel)/scripts/format_on_edit.ts"'
 timeout = 30

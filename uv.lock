@@ -463,26 +463,32 @@ source = { virtual = "." }
 
 [package.dev-dependencies]
 dev = [
+    { name = "httpx" },
     { name = "mdformat" },
     { name = "mdformat-frontmatter" },
     { name = "mdformat-gfm" },
     { name = "mypy" },
     { name = "poethepoet" },
     { name = "pytest" },
+    { name = "pytest-asyncio" },
     { name = "ruff" },
+    { name = "wire" },
 ]
 
 [package.metadata]
 
 [package.metadata.requires-dev]
 dev = [
+    { name = "httpx" },
     { name = "mdformat", specifier = ">=0.7" },
     { name = "mdformat-frontmatter", specifier = ">=2.0" },
     { name = "mdformat-gfm", specifier = ">=0.4" },
     { name = "mypy", specifier = ">=1.13" },
     { name = "poethepoet", specifier = ">=0.30" },
     { name = "pytest", specifier = ">=8.0" },
+    { name = "pytest-asyncio" },
     { name = "ruff", specifier = ">=0.8" },
+    { name = "wire", editable = "ripperdoc/wetware/wire/server" },
 ]
 
 [[package]]

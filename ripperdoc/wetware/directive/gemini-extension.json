@@ -9,7 +9,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "${extensionPath}/scripts/inject_mode.py --event BeforeAgent",
+            "command": "$HOME/.preemdeck/scripts/preemdeck-bun \"${extensionPath}/scripts/inject_mode.ts\" --event BeforeAgent",
             "timeout": 5
           }
         ]

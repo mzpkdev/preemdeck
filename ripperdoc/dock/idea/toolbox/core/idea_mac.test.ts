@@ -51,30 +51,30 @@ function fakeProbe(ancestry: Record<number, [number, string]>): PsProbe {
 }
 
 describe("inIdea", () => {
-  const saved = { bundle: process.env["__CFBundleIdentifier"], term: process.env["TERMINAL_EMULATOR"] };
+  const saved = { bundle: process.env.__CFBundleIdentifier, term: process.env.TERMINAL_EMULATOR };
   afterEach(() => {
     // Restore the real env after each toggle.
-    if (saved.bundle === undefined) delete process.env["__CFBundleIdentifier"];
-    else process.env["__CFBundleIdentifier"] = saved.bundle;
-    if (saved.term === undefined) delete process.env["TERMINAL_EMULATOR"];
-    else process.env["TERMINAL_EMULATOR"] = saved.term;
+    if (saved.bundle === undefined) delete process.env.__CFBundleIdentifier;
+    else process.env.__CFBundleIdentifier = saved.bundle;
+    if (saved.term === undefined) delete process.env.TERMINAL_EMULATOR;
+    else process.env.TERMINAL_EMULATOR = saved.term;
   });
 
   test("true via the JetBrains bundle id", () => {
-    process.env["__CFBundleIdentifier"] = "com.jetbrains.WebStorm";
-    delete process.env["TERMINAL_EMULATOR"];
+    process.env.__CFBundleIdentifier = "com.jetbrains.WebStorm";
+    delete process.env.TERMINAL_EMULATOR;
     expect(inIdea()).toBe(true);
   });
 
   test("true via the JediTerm terminal emulator", () => {
-    delete process.env["__CFBundleIdentifier"];
-    process.env["TERMINAL_EMULATOR"] = "JetBrains-JediTerm";
+    delete process.env.__CFBundleIdentifier;
+    process.env.TERMINAL_EMULATOR = "JetBrains-JediTerm";
     expect(inIdea()).toBe(true);
   });
 
   test("false when neither is set", () => {
-    delete process.env["__CFBundleIdentifier"];
-    delete process.env["TERMINAL_EMULATOR"];
+    delete process.env.__CFBundleIdentifier;
+    delete process.env.TERMINAL_EMULATOR;
     expect(inIdea()).toBe(false);
   });
 });
@@ -100,16 +100,16 @@ describe("resolveExecPath", () => {
 
 describe("resolveLogDir", () => {
   let home = "";
-  const savedHome = process.env["HOME"];
+  const savedHome = process.env.HOME;
 
   beforeEach(async () => {
     home = await mkdtemp(join(tmpdir(), "preemdeck-logdir-"));
-    process.env["HOME"] = home;
+    process.env.HOME = home;
   });
 
   afterEach(async () => {
-    if (savedHome === undefined) delete process.env["HOME"];
-    else process.env["HOME"] = savedHome;
+    if (savedHome === undefined) delete process.env.HOME;
+    else process.env.HOME = savedHome;
     await rm(home, { recursive: true, force: true });
   });
 

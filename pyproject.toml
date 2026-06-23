@@ -13,6 +13,13 @@ dev = [
     "mdformat-gfm>=0.4",
     "mdformat-frontmatter>=2.0",
     "pytest>=8.0",
+    # wire (the lone remaining Python suite) + its async test deps, so a root
+    # `uv run pytest`/`mypy` resolves and runs it. CI runs the suite from the
+    # wire dir itself (.github/workflows/ci.yml); this just keeps the root entry
+    # working instead of exit-5ing on the now-deleted root `tests/`.
+    "pytest-asyncio",
+    "httpx",
+    "wire",
 ]
 
 [tool.uv]
@@ -21,24 +28,33 @@ package = false
 [tool.uv.workspace]
 members = ["ripperdoc/*/*/server"]
 
+[tool.uv.sources]
+wire = { workspace = true }
+
 [tool.ruff]
 line-length = 120
 target-version = "py312"
+# Untracked scratch dir; not part of the build. CI lints wire from its own dir.
+extend-exclude = ["experiments"]
 
 [tool.ruff.lint]
 select = ["E", "W", "F", "I", "B", "UP", "SIM", "RUF", "PTH"]
 
 [tool.ruff.lint.per-file-ignores]
 "__init__.py" = ["F401"]
-"tests/*" = ["B"]
+"**/tests/*" = ["B"]
 
 [tool.ruff.lint.isort]
 known-first-party = ["preemdeck"]
 
+# The wire server (ripperdoc/wetware/wire/server) is the only Python left; the
+# rest of the source is now TypeScript. Scope the static-analysis tooling to it
+# so a stray root `uv run mypy`/`pytest` neither scans deleted dirs nor exit-5s.
+# CI runs these from the wire dir itself (see .github/workflows/ci.yml).
 [tool.mypy]
 python_version = "3.12"
-files = ["."]
-exclude = '(^|/)(\.venv|\.git|\.mypy_cache|\.ruff_cache|__pycache__|build|dist|node_modules)(/|$)'
+files = ["ripperdoc/wetware/wire/server/src", "ripperdoc/wetware/wire/server/tests"]
+exclude = '(^|/)(\.venv|\.git|\.mypy_cache|\.ruff_cache|__pycache__|build|dist|node_modules|experiments)(/|$)'
 warn_return_any = true
 warn_unused_configs = true
 disallow_untyped_defs = true
@@ -52,33 +68,26 @@ strict_equality = true
 ignore_missing_imports = true
 
 [[tool.mypy.overrides]]
-module = [
-    "tests.*",
-    "test_boot",
-    "test_engrave",
-    "test_ghost",
-    "test_pulse",
-    "test_rapport",
-]
+module = ["tests.*"]
 disallow_untyped_defs = false
 disallow_incomplete_defs = false
 
 [tool.poe.tasks]
-format = ["format-py", "format-md", "format-json"]
+# JSON formatting moved to Biome on the TS side (see scripts/format_on_edit.ts);
+# the former `format-json` task and scripts/format_json.py are gone.
+format = ["format-py", "format-md"]
 format-py = "ruff format ."
-format-md = { shell = "find . -type f -name '*.md' -not -path './.venv/*' -not -path './.git/*' -print0 | xargs -0 mdformat" }
-format-json = "python scripts/format_json.py"
+format-md = { shell = "find . -type f -name '*.md' -not -path './.venv/*' -not -path './.git/*' -not -path './node_modules/*' -not -path './experiments/*' -print0 | xargs -0 mdformat" }
 lint = "ruff check --fix ."
 typecheck = "mypy"
 test = "pytest"
 
 [tool.pytest.ini_options]
-testpaths = ["tests", "ripperdoc"]
-pythonpath = ["."]
-# Plugin script tests live beside their scripts under ripperdoc/. wire ships its
-# own suite (own pyproject + deps, run from ripperdoc/wetware/wire/server) — keep
-# it out of the root run; its own config governs when invoked there.
-addopts = "--ignore=ripperdoc/wetware/wire"
+# wire is the only Python suite left. CI runs it from the wire dir (which also
+# resolves the member's async test deps); this root config makes a stray
+# `uv run pytest` from the repo root target the same suite instead of exit-5ing.
+testpaths = ["ripperdoc/wetware/wire/server/tests"]
+asyncio_mode = "auto"
 
 [tool.pyright]
 extraPaths = ["."]

@@ -9,5 +9,5 @@ disable-model-invocation: true
 Wipe the ghost persona back to stock:
 
 ```bash
-python3 "${CLAUDE_PLUGIN_ROOT}/scripts/ghost.py" flatline
+"$HOME/.preemdeck/scripts/preemdeck-bun" "${CLAUDE_PLUGIN_ROOT}/scripts/ghost.ts" flatline
 ```

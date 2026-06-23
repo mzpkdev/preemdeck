@@ -50,14 +50,14 @@ describe("public API", () => {
   test("detection is wired to the macOS impl on darwin", () => {
     expect(process.platform).toBe("darwin");
     // index.inIdea delegates to the mac impl: same answer for the same env.
-    const saved = process.env["__CFBundleIdentifier"];
+    const saved = process.env.__CFBundleIdentifier;
     try {
-      process.env["__CFBundleIdentifier"] = "com.jetbrains.WebStorm";
+      process.env.__CFBundleIdentifier = "com.jetbrains.WebStorm";
       expect(core.inIdea()).toBe(ideaMac.inIdea());
       expect(core.inIdea()).toBe(true);
     } finally {
-      if (saved === undefined) delete process.env["__CFBundleIdentifier"];
-      else process.env["__CFBundleIdentifier"] = saved;
+      if (saved === undefined) delete process.env.__CFBundleIdentifier;
+      else process.env.__CFBundleIdentifier = saved;
     }
   });
 });

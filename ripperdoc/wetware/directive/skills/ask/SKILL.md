@@ -9,7 +9,7 @@ disable-model-invocation: true
 Run the bundled reader — nothing else:
 
 ```bash
-python3 "${CLAUDE_PLUGIN_ROOT}/scripts/show_mode.py" ask
+"$HOME/.preemdeck/scripts/preemdeck-bun" "${CLAUDE_PLUGIN_ROOT}/scripts/show_mode.ts" ask
 ```
 
 `${CLAUDE_PLUGIN_ROOT}` resolves on Claude and Codex (aliased to `PLUGIN_ROOT`). Relay the script's output verbatim.
