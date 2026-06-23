@@ -15,7 +15,7 @@
     },
     {
       "name": "os",
-      "description": "TODO — describe the os plugin",
+      "description": "Cross-platform system sound and desktop notifications; dings on turn end",
       "source": "./os",
       "version": "0.1.0",
       "category": "dock"

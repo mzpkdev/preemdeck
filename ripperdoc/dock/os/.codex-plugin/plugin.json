@@ -1,6 +1,6 @@
 {
   "name": "os",
-  "description": "TODO — describe the os plugin",
+  "description": "Cross-platform system sound and desktop notifications; dings on turn end",
   "version": "0.1.0",
   "author": {
     "name": "preemdeck"
@@ -8,5 +8,19 @@
   "keywords": [
     "dock",
     "os"
-  ]
+  ],
+  "hooks": {
+    "Stop": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "${CLAUDE_PLUGIN_ROOT}/toolbox/os_ding.py",
+            "timeout": 5
+          }
+        ]
+      }
+    ]
+  }
 }
