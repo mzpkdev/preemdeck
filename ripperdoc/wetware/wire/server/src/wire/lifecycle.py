@@ -12,12 +12,14 @@ else ``~/.wire``). The ``wire serve`` process is the single writer of that file;
 
 from __future__ import annotations
 
+import contextlib
 import json
 import os
 import socket
 import urllib.error
 import urllib.request
 from pathlib import Path
+from typing import cast
 
 # The one state file, relative to the state dir. One room per host.
 _STATE_FILENAME = "wire.json"
@@ -65,7 +67,10 @@ def read_state() -> dict | None:
     """Return the parsed state file, or ``None`` if it's absent or unreadable."""
     path = state_path()
     try:
-        return json.loads(path.read_text(encoding="utf-8"))
+        # json.loads is typed Any; the writer (write_state) always emits a JSON
+        # object, so the parsed value is a dict. cast asserts that without
+        # changing what is returned.
+        return cast("dict | None", json.loads(path.read_text(encoding="utf-8")))
     except (FileNotFoundError, ValueError, OSError):
         return None
 
@@ -73,10 +78,8 @@ def read_state() -> dict | None:
 def clear_state() -> None:
     """Remove the state file (and the detached log). Idempotent."""
     for path in (state_path(), log_path()):
-        try:
+        with contextlib.suppress(FileNotFoundError):
             path.unlink()
-        except FileNotFoundError:
-            pass
 
 
 def detect_lan_ip() -> str:
@@ -90,7 +93,9 @@ def detect_lan_ip() -> str:
     sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     try:
         sock.connect(("8.8.8.8", 80))
-        return sock.getsockname()[0]
+        # getsockname() returns a tuple typed Any for AF_INET; element 0 is the
+        # host string. cast narrows it without touching the value.
+        return cast("str", sock.getsockname()[0])
     except OSError:
         return "127.0.0.1"
     finally:
@@ -127,6 +132,8 @@ def health_ok(host: str, port: int, timeout: float = _HEALTH_TIMEOUT) -> bool:
     except (urllib.error.URLError, OSError, ValueError):
         return False
     try:
-        return json.loads(body) == {"status": "ok"}
+        # `==` against Any is typed Any; the comparison is already a bool at
+        # runtime, so bool() is a typing no-op that yields the declared type.
+        return bool(json.loads(body) == {"status": "ok"})
     except ValueError:
         return False

@@ -33,7 +33,7 @@ import wire.app as appmod
 from fastapi.testclient import TestClient
 from wire.app import _event_to_model, _reaper_loop, create_app
 from wire.config import Config
-from wire.room import Room
+from wire.room import Message, Room
 
 SECRET = "s3cret"
 TOPIC = "test room"
@@ -147,7 +147,7 @@ async def _collect_frames(
         await recv_q.put({"type": "http.disconnect"})
         try:
             await asyncio.wait_for(task, timeout=2.0)
-        except (asyncio.TimeoutError, asyncio.CancelledError):
+        except (TimeoutError, asyncio.CancelledError):
             task.cancel()
             with pytest.raises(asyncio.CancelledError):
                 await task
@@ -325,7 +325,7 @@ async def test_spectate_heartbeat_reports_quiet_for_after_a_message(app, monkeyp
     await room.send(t1, "spoke just now")  # quiet_for now ticks from ~0
 
     _response, frames = await _collect_frames(app, 2)
-    snap, hb = (_parse_frame(f) for f in frames)
+    _snap, hb = (_parse_frame(f) for f in frames)
     assert hb["event"] == "heartbeat"
     assert set(hb["data"]["present_peers"]) == {"peer-1", "peer-2"}
     # someone HAS spoken -> quiet_for is an int (a small lull), never null here
@@ -499,7 +499,7 @@ async def test_parked_spectator_does_not_block_empty_room_self_close(monkeypatch
         await recv_q.put({"type": "http.disconnect"})
         try:
             await asyncio.wait_for(stream_task, timeout=2.0)
-        except (asyncio.TimeoutError, asyncio.CancelledError):
+        except (TimeoutError, asyncio.CancelledError):
             stream_task.cancel()
             with pytest.raises(asyncio.CancelledError):
                 await stream_task
@@ -538,7 +538,7 @@ async def test_events_since_returns_strictly_past_id_no_self_filter():
     types = [(e.id, e.type) for e in everything]
     assert types == [(1, "action(join)"), (2, "action(join)"), (3, "message"), (4, "message")]
     # both peers' OWN messages are present — no self-filter (recv would drop one)
-    senders = {e.sender for e in everything if e.type == "message"}
+    senders = {e.sender for e in everything if isinstance(e, Message)}
     assert senders == {"peer-1", "peer-2"}
 
     # strict >: events_since(2) drops ids 1 and 2, keeps 3 and 4

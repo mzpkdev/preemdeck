@@ -13,17 +13,17 @@ Two strata:
 from __future__ import annotations
 
 import argparse
+import contextlib
 import json
 import os
 import signal
 import subprocess
 import sys
 import time
+from pathlib import Path
 
 import pytest
-
 from wire import cli, lifecycle
-
 
 # -- state round-trip -----------------------------------------------------
 
@@ -459,7 +459,7 @@ def test_stop_clears_stale_state(state_dir, monkeypatch):
 
 # -- integration: start → status → stop -----------------------------------
 
-WIRE_PKG_DIR = os.path.dirname(os.path.dirname(os.path.abspath(lifecycle.__file__)))
+WIRE_PKG_DIR = str(Path(lifecycle.__file__).resolve().parent.parent)
 
 
 def _run_wire(args, state_dir, timeout=20):
@@ -600,7 +600,5 @@ def _pid_gone(pid: int) -> bool:
 
 def _force_kill(pid: int) -> None:
     """Last-ditch cleanup so a failed test can never leak a server."""
-    try:
+    with contextlib.suppress(ProcessLookupError, PermissionError):
         os.kill(pid, signal.SIGKILL)
-    except (ProcessLookupError, PermissionError):
-        pass

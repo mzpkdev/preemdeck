@@ -13,6 +13,7 @@ import contextlib
 import re
 import signal
 import time
+from typing import cast
 
 import pytest
 from fastapi.testclient import TestClient
@@ -233,7 +234,7 @@ def test_jackout_missing_token_401_not_422(client: TestClient):
 def _jackin(client: TestClient) -> str:
     r = client.post("/jackin", params={"secret": SECRET})
     assert r.status_code == 200
-    return r.json()["token"]
+    return cast("str", r.json()["token"])
 
 
 def test_send_recv_loop(client: TestClient):
@@ -537,7 +538,7 @@ def test_schema_marks_credentials_required(client: TestClient):
     def required(path: str, method: str, name: str) -> bool:
         for p in paths[path][method].get("parameters", []):
             if p["name"] == name and p["in"] == "query":
-                return p.get("required", False)
+                return cast("bool", p.get("required", False))
         raise AssertionError(f"{name} param missing on {method} {path}")
 
     assert required("/jackin", "post", "secret")
@@ -567,7 +568,7 @@ def test_schema_401_descriptions_name_the_codes(client: TestClient):
     paths = doc["paths"]
 
     def desc(path: str, method: str) -> str:
-        return paths[path][method]["responses"]["401"]["description"]
+        return cast("str", paths[path][method]["responses"]["401"]["description"])
 
     # secret gate -> invalid_secret (JSON on /jackin, header on /shard)
     assert "invalid_secret" in desc("/jackin", "post")

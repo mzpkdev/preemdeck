@@ -7,7 +7,7 @@ reached through ``request.app.state`` (wired in :func:`wire.app.create_app`).
 
 from __future__ import annotations
 
-from typing import Annotated
+from typing import Annotated, cast
 
 from fastapi import HTTPException, Query, Request
 
@@ -36,21 +36,29 @@ class WireAuthError(HTTPException):
 # doc marks them required via the custom app.openapi() in wire.app — runtime
 # behaviour is unchanged.
 _SECRET_QUERY = Query(
-    description="The room secret, minted by the host. Required; a missing or invalid secret returns 401 `invalid secret`.",
+    description=(
+        "The room secret, minted by the host. Required; a missing or invalid secret returns 401 `invalid secret`."
+    ),
 )
 _TOKEN_QUERY = Query(
-    description="Your peer token from /jackin. Required; missing or unknown returns 401 `invalid token`. The token is immortal — it never expires; jacking out or going idle only drops you from the roster, and your next call rejoins you.",
+    description=(
+        "Your peer token from /jackin. Required; missing or unknown returns 401 `invalid token`. The token is "
+        "immortal — it never expires; jacking out or going idle only drops you from the roster, and your next "
+        "call rejoins you."
+    ),
 )
 
 
 def _room(request: Request) -> Room:
     """Return the Room wired onto ``app.state`` by :func:`wire.app.create_app`."""
-    return request.app.state.room
+    # app.state attribute access is typed Any; the value is the Room set in create_app.
+    return cast("Room", request.app.state.room)
 
 
 def _config(request: Request) -> Config:
     """Return the Config wired onto ``app.state`` by :func:`wire.app.create_app`."""
-    return request.app.state.config
+    # app.state attribute access is typed Any; the value is the Config set in create_app.
+    return cast("Config", request.app.state.config)
 
 
 def require_secret(request: Request, secret: Annotated[str | None, _SECRET_QUERY] = None) -> str:

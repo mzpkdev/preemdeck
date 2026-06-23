@@ -20,7 +20,8 @@ import contextlib
 import json
 import signal
 from collections.abc import AsyncIterator, Callable
-from typing import Annotated, Any
+from contextlib import AbstractAsyncContextManager
+from typing import Annotated, Any, Literal, cast
 
 from fastapi import Depends, FastAPI, Query, Request
 from fastapi.openapi.utils import get_openapi
@@ -29,8 +30,9 @@ from fastapi.responses import JSONResponse, PlainTextResponse, StreamingResponse
 from .auth import WireAuthError, require_secret, require_token
 from .config import Config
 from .manual import render_shard
-from .room import Message, Room
+from .room import Message, Presence, Room
 from .schemas import (
+    Action,
     HealthResponse,
     JackinResponse,
     JackoutResponse,
@@ -58,13 +60,25 @@ def _event_to_model(entry: Message | Presence) -> MessageEvent | PresenceEvent:
     a presence event ``id``/``type``/``peer``/``sent_at``.
     """
     if isinstance(entry, Message):
-        return MessageEvent(
-            id=entry.id,
-            **{"from": entry.sender},
-            message={"seq": entry.seq, "body": entry.message},
-            sent_at=entry.sent_at,
+        # `sender` serializes under the alias "from" (a reserved word, so it
+        # can't be a keyword arg); validate from a dict by alias instead. Same
+        # model, same by-alias JSON as the previous **{"from": ...} construction.
+        return MessageEvent.model_validate(
+            {
+                "id": entry.id,
+                "from": entry.sender,
+                "message": {"seq": entry.seq, "body": entry.message},
+                "sent_at": entry.sent_at,
+            }
         )
-    return PresenceEvent(id=entry.id, type=entry.type, peer=entry.peer, sent_at=entry.sent_at)
+    # entry.type is the wire string "action(join)"|"action(leave)"; cast narrows
+    # the runtime str to the model's Literal without altering the value.
+    return PresenceEvent(
+        id=entry.id,
+        type=cast('Literal["action(join)", "action(leave)"]', entry.type),
+        peer=entry.peer,
+        sent_at=entry.sent_at,
+    )
 
 
 def _sse_frame(event: str, data: str, *, event_id: int | None = None) -> str:
@@ -167,12 +181,17 @@ async def _spectate_stream(room: Room, last_id: int) -> AsyncIterator[str]:
                 # yielded outside the lock) is picked up here rather than lost to
                 # a wait() that already missed its notify. Only when nothing is
                 # pending do we park; the predicate also absorbs spurious wakes.
+                # `cursor` is bound as a default arg so the predicate reads THIS
+                # iteration's last_id (it's reassigned below before the next loop).
+                def _has_new(cursor: int = last_id) -> bool:
+                    return bool(room.events_since(cursor))
+
                 try:
                     await asyncio.wait_for(
-                        room.cond.wait_for(lambda: bool(room.events_since(last_id))),
+                        room.cond.wait_for(_has_new),
                         timeout=_SPECTATE_HEARTBEAT_SECONDS,
                     )
-                except (asyncio.TimeoutError, TimeoutError):
+                except TimeoutError:
                     heartbeat = True
                     batch: list = []
                 else:
@@ -201,10 +220,10 @@ async def _spectate_stream(room: Room, last_id: int) -> AsyncIterator[str]:
 # contract in /schema, which otherwise shows only the default 422 model. Each
 # JSON 401 body is `{"detail": "<prose>", "code": "<code>"}`; the codes named
 # here let a peer branch on the failure without parsing the prose.
-_SECRET_401 = {
+_SECRET_401: dict[int | str, dict[str, Any]] = {
     401: {"description": 'Missing or wrong `secret` -> body `{"detail": "invalid secret", "code": "invalid_secret"}`.'}
 }
-_TOKEN_401 = {
+_TOKEN_401: dict[int | str, dict[str, Any]] = {
     401: {
         "description": (
             'Missing or unknown `token` -> body `{"detail": "invalid token", '
@@ -217,7 +236,7 @@ _TOKEN_401 = {
 }
 # /shard's 401 body is markdown, not JSON, so its code rides an
 # `X-Wire-Error: invalid_secret` response header instead of a body field.
-_SHARD_SECRET_401 = {
+_SHARD_SECRET_401: dict[int | str, dict[str, Any]] = {
     401: {
         "description": (
             "Missing or wrong `secret` -> markdown body, with the machine-readable code on "
@@ -327,7 +346,9 @@ async def _reaper_loop(room: Room, sweep_interval: int, shutdown: Callable[[], N
             return
 
 
-def _lifespan(room: Room, config: Config, shutdown: Callable[[], None] = _default_shutdown):
+def _lifespan(
+    room: Room, config: Config, shutdown: Callable[[], None] = _default_shutdown
+) -> Callable[[FastAPI], AbstractAsyncContextManager[None]]:
     """Build the app lifespan that runs the background reaper.
 
     On startup it launches :func:`_reaper_loop` as a background task whenever
@@ -468,17 +489,17 @@ def create_app(config: Config) -> FastAPI:
             conversation_topic=config.topic,
             peers=room.peers(),
             actions=[
-                {
-                    "description": "Send a message.",
-                    "method": "POST",
-                    "url": f"{base}/send?token={token}",
-                    "body": "<message>",
-                },
-                {
-                    "description": "Read unread messages.",
-                    "method": "GET",
-                    "url": f"{base}/recv?token={token}",
-                },
+                Action(
+                    description="Send a message.",
+                    method="POST",
+                    url=f"{base}/send?token={token}",
+                    body="<message>",
+                ),
+                Action(
+                    description="Read unread messages.",
+                    method="GET",
+                    url=f"{base}/recv?token={token}",
+                ),
             ],
         )
 

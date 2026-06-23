@@ -52,14 +52,12 @@ jobs:
         run: uv sync --locked
 
       - name: Lint
-        continue-on-error: true # pre-existing wire debt (53 issues); non-blocking until a dedicated cleanup
         run: uv run ruff check .
 
       - name: Format check
         run: uv run ruff format --check .
 
       - name: Typecheck
-        continue-on-error: true # pre-existing wire debt (31 issues); non-blocking until a dedicated cleanup
         run: uv run mypy
 
       - name: Test
