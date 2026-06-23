@@ -12,21 +12,21 @@ Persona engine. Injects engram, firmware, and pulse context into the session on 
 
 | Event            | Script           | Host                    |
 | ---------------- | ---------------- | ----------------------- |
-| SessionStart     | scripts/boot.py  | Claude                  |
-| UserPromptSubmit | scripts/pulse.py | Claude, Codex           |
-| UserPromptSubmit | scripts/boot.py  | Codex (no SessionStart) |
-| BeforeAgent      | scripts/pulse.py | Gemini                  |
+| SessionStart     | scripts/boot.ts  | Claude                  |
+| UserPromptSubmit | scripts/pulse.ts | Claude, Codex           |
+| UserPromptSubmit | scripts/boot.ts  | Codex (no SessionStart) |
+| BeforeAgent      | scripts/pulse.ts | Gemini                  |
 
-`boot.py` injects ENGRAM.md + FIRMWARE.md on session start. `pulse.py` injects PULSE.md every turn.
+`boot.ts` injects ENGRAM.md + FIRMWARE.md on session start. `pulse.ts` injects PULSE.md every turn.
 
 ## Editing
 
 ```bash
 # Decode .dat files back to editable .md
-python3 scripts/ghost.py decode
+"$HOME/.preemdeck/scripts/preemdeck-bun" "${CLAUDE_PLUGIN_ROOT}/scripts/ghost.ts" decode
 
 # Edit the .md files, then re-encode
-python3 scripts/ghost.py encode
+"$HOME/.preemdeck/scripts/preemdeck-bun" "${CLAUDE_PLUGIN_ROOT}/scripts/ghost.ts" encode
 ```
 
 `decode` keeps the `.dat` files in place so hooks continue to work during editing. `encode` writes `.dat` files and
@@ -36,7 +36,7 @@ removes the `.md` files.
 
 ```bash
 # Restore persona to stock templates
-python3 scripts/ghost.py flatline
+"$HOME/.preemdeck/scripts/preemdeck-bun" "${CLAUDE_PLUGIN_ROOT}/scripts/ghost.ts" flatline
 ```
 
 `flatline` copies `stock/*.md` over the persona and re-encodes to `.dat`.

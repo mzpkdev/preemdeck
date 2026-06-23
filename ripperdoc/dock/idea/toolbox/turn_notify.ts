@@ -116,7 +116,7 @@ export function cleanGist(text: string): string {
  * None for an absent/blank field or Gemini's "[no response text]" sentinel.
  */
 export function payloadGist(data: HookData): string | null {
-  const raw = data["last_assistant_message"] || data["prompt_response"];
+  const raw = data.last_assistant_message || data.prompt_response;
   if (typeof raw !== "string" || !raw.trim() || raw.trim() === "[no response text]") {
     return null;
   }
@@ -160,7 +160,7 @@ export async function main(argv: string[] = Bun.argv.slice(2)): Promise<number> 
       return 0; // not inside a JetBrains IDE: nothing to pop, and no error
     }
     const data = await _internals.readHookInput();
-    const cwd = (data["cwd"] as string | undefined) || process.env["PWD"];
+    const cwd = (data.cwd as string | undefined) || process.env.PWD;
     const gist = payloadGist(data);
     const branch = await _internals.gitBranch(cwd);
     const titleText = title(host, cwd, branch);

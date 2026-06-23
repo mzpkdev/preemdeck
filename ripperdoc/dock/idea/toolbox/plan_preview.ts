@@ -60,12 +60,12 @@ export async function readHookInput(): Promise<HookData> {
  * are host-exclusive, so the order is just defensive.
  */
 async function openPlan(toolInput: HookData): Promise<void> {
-  const planPath = toolInput["plan_path"];
+  const planPath = toolInput.plan_path;
   if (typeof planPath === "string" && planPath.trim()) {
     await _internals.openFile(planPath, { preview: true });
     return;
   }
-  const plan = toolInput["plan"];
+  const plan = toolInput.plan;
   if (typeof plan === "string" && plan.trim()) {
     await _internals.openInline(plan, { suffix: ".md", preview: true });
   }
@@ -77,7 +77,7 @@ export async function main(): Promise<number> {
       return 0; // not inside a JetBrains IDE: nothing to open, and no error
     }
     const data = await _internals.readHookInput();
-    const toolInput = data["tool_input"];
+    const toolInput = data.tool_input;
     if (toolInput !== null && typeof toolInput === "object" && !Array.isArray(toolInput)) {
       await openPlan(toolInput as HookData);
     }

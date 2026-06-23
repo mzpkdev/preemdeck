@@ -189,14 +189,14 @@ describe("main", () => {
     const calls = capture();
     _internals.gitBranch = async () => null;
     _internals.readHookInput = async () => ({});
-    const savedPwd = process.env["PWD"];
-    delete process.env["PWD"];
+    const savedPwd = process.env.PWD;
+    delete process.env.PWD;
     try {
       expect(await main(["Gemini"])).toBe(0);
       expect(calls).toEqual([{ title: "Gemini", body: "Gemini finished responding" }]);
     } finally {
-      if (savedPwd === undefined) delete process.env["PWD"];
-      else process.env["PWD"] = savedPwd;
+      if (savedPwd === undefined) delete process.env.PWD;
+      else process.env.PWD = savedPwd;
     }
   });
 
