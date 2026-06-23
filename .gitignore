@@ -40,6 +40,12 @@ dist/
 # preemdeck install manifest (generated per-install local state)
 .install-manifest.json
 
+# preemdeck shipped Bun runtime (fetched by boot.sh into ~/.preemdeck/.runtime)
+.runtime/
+
+# JS/TS tooling (Bun)
+node_modules/
+
 # Editors
 .idea/
 .vscode/

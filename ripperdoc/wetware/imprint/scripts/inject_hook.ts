@@ -1,0 +1,97 @@
+#!/usr/bin/env -S preemdeck-bun
+/**
+ * inject_hook.ts — imprint-template context injector (port of inject_hook.py).
+ *
+ * Resolves a template (positional path, or `--file <name>` -> <NAME>.md), reads it
+ * from the plugin root, substitutes the optional host-tools file's contents for
+ * `{{host_tools}}`, strips, and injects via lib/hook.ts. Missing/empty files are a
+ * silent `{}` no-op; a missing host-tools file substitutes empty. Default event
+ * UserPromptSubmit; `--event <name>` (first only) is the fallback; stdin wins.
+ *
+ * Path note: like the Python, args resolve as `PLUGIN_ROOT / arg` with pathlib's
+ * "absolute arg wins" rule — Node's `resolve()` matches it, so absolute temp
+ * paths are honored verbatim. PLUGIN_ROOT = <script-dir>/.. (scripts/ -> imprint/).
+ */
+
+import { existsSync, readFileSync, statSync } from "node:fs";
+import { dirname, resolve } from "node:path";
+import { runInjectionHook } from "../../../../lib/inject.ts";
+
+const PLUGIN_ROOT = dirname(import.meta.dir);
+// (The UserPromptSubmit default lives in lib/inject.ts; the --event flag overrides it.)
+
+/**
+ * Pull `--event <name>` out of argv; return [event_or_null, remaining_argv].
+ * Only the first `--event` is honored (matches inject_hook.py).
+ */
+export function extractEventArg(argv: string[]): [string | null, string[]] {
+  const out: string[] = [];
+  let event: string | null = null;
+  let i = 0;
+  while (i < argv.length) {
+    if (argv[i] === "--event" && event === null) {
+      if (i + 1 < argv.length) {
+        event = argv[i + 1] as string;
+        i += 2;
+        continue;
+      }
+      i += 1;
+      continue;
+    }
+    out.push(argv[i] as string);
+    i += 1;
+  }
+  return [event, out];
+}
+
+/**
+ * Resolve argv[0] into a template path; return [path_or_null, remaining_argv].
+ *   --file <name>  -> <NAME>.md (uppercased)
+ *   <path>         -> used verbatim
+ */
+export function resolveTemplateArg(argv: string[]): [string | null, string[]] {
+  if (argv.length === 0) return [null, []];
+  if (argv[0] === "--file") {
+    if (argv.length < 2) return [null, []];
+    return [`${(argv[1] as string).toUpperCase()}.md`, argv.slice(2)];
+  }
+  return [argv[0] as string, argv.slice(1)];
+}
+
+function isFile(path: string): boolean {
+  return existsSync(path) && statSync(path).isFile();
+}
+
+/**
+ * Build the injected text from argv (the script's tail). Returns the stripped
+ * text, or null for any no-op (no template arg, missing/empty template, empty
+ * after substitution+strip). `pluginRoot` defaults to the real plugin root.
+ */
+export function renderTemplate(argv: string[], pluginRoot: string = PLUGIN_ROOT): string | null {
+  const [templateRel, rest] = resolveTemplateArg(argv);
+  if (templateRel === null) return null;
+
+  const promptPath = resolve(pluginRoot, templateRel);
+  if (!isFile(promptPath)) return null;
+  const template = readFileSync(promptPath, "utf8");
+
+  let hostTools = "";
+  if (rest.length > 0) {
+    const hostPath = resolve(pluginRoot, rest[0] as string);
+    if (isFile(hostPath)) {
+      hostTools = readFileSync(hostPath, "utf8").trim();
+    }
+  }
+
+  const text = template.replaceAll("{{host_tools}}", hostTools).trim();
+  return text || null;
+}
+
+if (import.meta.main) {
+  const [cliEvent, argv] = extractEventArg(Bun.argv.slice(2));
+  await runInjectionHook({
+    event: cliEvent ?? undefined,
+    render: () => renderTemplate(argv),
+  });
+  process.exit(0);
+}
