@@ -9,29 +9,27 @@ just yielded:
     title:  <project> · <branch>
     body:   <one-line gist of the agent's last message>
 
-It reads the host's hook payload as JSON on stdin (Claude Code Stop carries `cwd`,
-`transcript_path`, `session_id`): `<project>` is the cwd basename, while `<branch>`
-and the gist come from the CURRENT turn's assistant reply — the last assistant
-text positioned after the last user prompt in the transcript. Anchoring to the
-prompt (and briefly polling for the reply to flush) avoids a one-turn lag: the
-Stop hook can fire before Claude appends the just-finished reply to the JSONL, so
-the newest assistant text on disk may still be the previous turn's. Claude's JSONL
-stamps `gitBranch` on every line, so there is no `git` subprocess. The host label
-(argv[0], e.g. "Claude") is the fallback title head and the fallback body when no
-turn gist is available (the reply never flushed, or a host whose stdin isn't parsed).
+All three hosts hand the just-finished reply text straight to the hook in its stdin
+payload, so there is no transcript to parse: Claude's Stop and Codex's Stop carry
+`last_assistant_message`, Gemini's AfterAgent carries `prompt_response`. `<project>`
+is the basename of the payload `cwd`; `<branch>` is read live with a short
+`git rev-parse` in that cwd, since no host hands a turn-end hook the current branch.
+The host label (argv[0], e.g. "Claude") heads the title when no cwd is known and is
+the fallback body ("<host> finished responding") when no gist is available — a
+tool-only final turn (the reply field is optional) or an empty/foreign payload.
 
-Best-effort and SILENT by contract: a missing IDE, absent/foreign stdin, or an
-unreadable transcript yields a graceful fallback (or no balloon) and ALWAYS exits 0
-— a turn-end hook must never surface an error or block the host. Dynamic text is
-HTML-escaped before it reaches the balloon, since IDE notifications render HTML.
+Best-effort and SILENT by contract: a missing IDE, absent/foreign stdin, or a git
+failure yields a graceful fallback (or no balloon) and ALWAYS exits 0 — a turn-end
+hook must never surface an error or block the host. Dynamic text is HTML-escaped
+before it reaches the balloon, since IDE notifications render HTML.
 """
 
 import html
 import json
 import os
 import re
+import subprocess
 import sys
-import time
 
 from core import in_idea
 from notify import notify
@@ -39,16 +37,6 @@ from notify import notify
 # Body cap: a couple of wrapped balloon lines. Longer gists truncate on a word
 # boundary with an ellipsis.
 GIST_MAX = 140
-# Tail of the transcript to scan (bytes). The last assistant message sits at the
-# end; reading a long session's whole JSONL every turn would be wasteful.
-TAIL_BYTES = 262_144
-# Poll budget for THIS turn's reply to land in the transcript. Claude appends the
-# just-finished assistant text to the JSONL a beat AFTER the Stop hook fires, so
-# the reply is often missing on the first read; we retry briefly rather than show
-# the previous turn's gist. Measured costs (notify ~0.25s, a tail read ~1ms) leave
-# ~2.5s of polling comfortably under the hook's 5s timeout.
-POLL_TRIES = 25
-POLL_DELAY = 0.1
 
 _MD = re.compile(r"[*_`]+")  # inline emphasis / code ticks
 _LINK = re.compile(r"\[([^\]]+)\]\([^)]+\)")  # [text](url) -> text
@@ -72,19 +60,6 @@ def _read_hook_input() -> dict:
     except Exception:
         return {}
     return data if isinstance(data, dict) else {}
-
-
-def _tail_lines(path: str) -> list[str]:
-    """Last TAIL_BYTES of `path` as decoded lines; [] if unreadable."""
-    try:
-        with open(path, "rb") as fh:
-            fh.seek(0, os.SEEK_END)
-            size = fh.tell()
-            fh.seek(max(0, size - TAIL_BYTES))
-            blob = fh.read()
-    except OSError:
-        return []
-    return blob.decode("utf-8", "replace").splitlines()
 
 
 def _clean_gist(text: str) -> str:
@@ -112,91 +87,45 @@ def _clean_gist(text: str) -> str:
     return line
 
 
-def _assistant_text(obj: dict) -> str:
-    """Concatenated text of an assistant entry; "" for a thinking/tool-only turn.
+def _payload_gist(data: dict) -> str | None:
+    """The current turn's reply text taken straight from the hook payload, cleaned.
 
-    `content` is a list of blocks (Claude) or a bare string; only `text` blocks
-    contribute, so a turn that only thought or called tools yields "".
+    Every host puts the just-finished reply in its stdin payload: Claude's Stop and
+    Codex's Stop as `last_assistant_message`, Gemini's AfterAgent as
+    `prompt_response` — all already flushed, so no transcript read is needed. None
+    for an absent/blank field (the field is optional — e.g. a tool-only final turn)
+    or Gemini's "[no response text]" sentinel, so the caller falls back to the host
+    label.
     """
-    content = obj.get("message", {}).get("content", [])
-    if isinstance(content, str):
-        return content
-    if isinstance(content, list):
-        return "".join(b.get("text", "") for b in content if isinstance(b, dict) and b.get("type") == "text")
-    return ""
+    raw = data.get("last_assistant_message") or data.get("prompt_response")
+    if not isinstance(raw, str) or not raw.strip() or raw.strip() == "[no response text]":
+        return None
+    return _clean_gist(raw) or None
 
 
-def _is_user_prompt(obj: dict) -> bool:
-    """True for a real user turn (a typed prompt), False for a tool_result echo.
+def _git_branch(cwd: str | None) -> str | None:
+    """Current git branch in `cwd` via `git rev-parse --abbrev-ref HEAD`, or None.
 
-    Both ride `type == "user"`; a prompt carries string content or a `text` block,
-    whereas a tool result carries only `tool_result` blocks. This is the turn
-    boundary the gist anchors to.
+    No host hands the current branch to a turn-end hook, so it's read live here.
+    Best-effort: None with no `cwd`, outside a repo, in detached HEAD (`git` prints
+    "HEAD"), or on any spawn error/timeout — never raises, so a turn-end hook stays
+    silent. The short timeout keeps it well inside the host's 5s hook budget.
     """
-    content = obj.get("message", {}).get("content", "")
-    if isinstance(content, str):
-        return bool(content.strip())
-    if isinstance(content, list):
-        return any(isinstance(b, dict) and b.get("type") == "text" for b in content)
-    return False
-
-
-def _gist_and_branch(transcript_path: str) -> tuple[str | None, str | None]:
-    """(gist, branch) for the CURRENT turn — the last assistant text positioned
-    *after* the last user prompt in the tail.
-
-    Anchoring to the last user prompt is what fixes the one-turn lag: the Stop hook
-    can fire before Claude appends the just-finished reply to the JSONL, so the
-    newest assistant text on disk may still be the PREVIOUS turn's. Refusing any
-    assistant text at or before the current prompt keeps the gist None until THIS
-    turn's reply lands (main() polls for it) — a stale gist is never surfaced.
-    `branch` is read off the newest assistant entry (stable across the turn) and
-    returned even while the gist is still None.
-
-    Scans the tail in reverse: assistant text seen before the prompt boundary is
-    the current turn's; the first user prompt hit (walking back) ends the turn. A
-    tail without a user prompt (session start, or a turn larger than TAIL_BYTES)
-    falls through to the last assistant text anywhere — best effort.
-    """
-    branch: str | None = None
-    gist: str | None = None
-    for line in reversed(_tail_lines(transcript_path)):
-        try:
-            obj = json.loads(line)
-        except ValueError:
-            continue
-        if not isinstance(obj, dict):
-            continue
-        kind = obj.get("type")
-        if kind == "assistant":
-            if branch is None:
-                branch = obj.get("gitBranch") or None
-            if gist is None:
-                text = _assistant_text(obj)
-                if text.strip():
-                    gist = _clean_gist(text)
-        elif kind == "user" and _is_user_prompt(obj):
-            break  # reached this turn's prompt; anything earlier is a past turn
-    return gist, branch
-
-
-def _await_gist(transcript_path: str) -> tuple[str | None, str | None]:
-    """_gist_and_branch, retried until THIS turn's reply has flushed to the JSONL.
-
-    The reply lands a beat after the Stop hook fires, so the first read can come
-    back with a None gist; poll up to ~2.5s (POLL_TRIES reads, POLL_DELAY apart,
-    within the 5s hook timeout), then give up so the caller falls back to the host
-    label. Never
-    blocks the host, never shows a stale gist. Returns immediately in the common
-    case where the reply is already on disk.
-    """
-    gist, branch = _gist_and_branch(transcript_path)
-    tries = 0
-    while gist is None and tries < POLL_TRIES:
-        time.sleep(POLL_DELAY)
-        tries += 1
-        gist, branch = _gist_and_branch(transcript_path)
-    return gist, branch
+    if not cwd:
+        return None
+    try:
+        out = subprocess.run(
+            ["git", "-C", cwd, "rev-parse", "--abbrev-ref", "HEAD"],
+            capture_output=True,
+            text=True,
+            timeout=2,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return None
+    branch = out.stdout.strip()
+    if out.returncode != 0 or not branch or branch == "HEAD":
+        return None
+    return branch
 
 
 def _title(host: str, cwd: str | None, branch: str | None) -> str:
@@ -209,8 +138,8 @@ def _title(host: str, cwd: str | None, branch: str | None) -> str:
 def main(argv: list[str]) -> int:
     """Pop the turn-end balloon for the firing session; never raise, always exit 0.
 
-    argv[0] is the host label (e.g. "Claude"); it heads the title when no cwd is
-    known and is the fallback body when no gist is available.
+    argv[0] is the host label (e.g. "Claude") — it heads the title when no cwd is
+    known and is the fallback body when the payload carries no reply text.
     """
     host = argv[0] if argv else "Agent"
     try:
@@ -218,8 +147,8 @@ def main(argv: list[str]) -> int:
             return 0  # not inside a JetBrains IDE: nothing to pop, and no error
         data = _read_hook_input()
         cwd = data.get("cwd") or os.environ.get("PWD")
-        transcript = data.get("transcript_path") or data.get("transcriptPath")
-        gist, branch = _await_gist(transcript) if transcript else (None, None)
+        gist = _payload_gist(data)
+        branch = _git_branch(cwd)
         title = _title(host, cwd, branch)
         body = gist or f"{host} finished responding"
         notify(html.escape(body), title=html.escape(title))
