@@ -47,17 +47,22 @@ describe("public API", () => {
     }
   });
 
-  test("detection is wired to the macOS impl on darwin", () => {
-    expect(process.platform).toBe("darwin");
-    // index.inIdea delegates to the mac impl: same answer for the same env.
-    const saved = process.env.__CFBundleIdentifier;
-    try {
-      process.env.__CFBundleIdentifier = "com.jetbrains.WebStorm";
-      expect(core.inIdea()).toBe(ideaMac.inIdea());
-      expect(core.inIdea()).toBe(true);
-    } finally {
-      if (saved === undefined) delete process.env.__CFBundleIdentifier;
-      else process.env.__CFBundleIdentifier = saved;
+  test("detection is wired to the running platform's impl", () => {
+    // index picks the per-OS module at load; assert the wiring for whatever
+    // platform runs this suite (darwin locally, linux in CI).
+    if (process.platform === "darwin") {
+      const saved = process.env.__CFBundleIdentifier;
+      try {
+        process.env.__CFBundleIdentifier = "com.jetbrains.WebStorm";
+        expect(core.inIdea()).toBe(ideaMac.inIdea());
+        expect(core.inIdea()).toBe(true);
+      } finally {
+        if (saved === undefined) delete process.env.__CFBundleIdentifier;
+        else process.env.__CFBundleIdentifier = saved;
+      }
+    } else {
+      // linux: the stub backs the public API, so detection throws.
+      expect(() => core.inIdea()).toThrow("not implemented for Linux");
     }
   });
 });

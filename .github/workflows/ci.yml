@@ -37,9 +37,6 @@ jobs:
   wire-python:
     name: Python (wire server)
     runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: ripperdoc/wetware/wire/server
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -63,7 +60,7 @@ jobs:
 
       - name: Typecheck
         continue-on-error: true # pre-existing wire debt (31 issues); non-blocking until a dedicated cleanup
-        run: uv run mypy src tests
+        run: uv run mypy
 
       - name: Test
         run: uv run pytest
