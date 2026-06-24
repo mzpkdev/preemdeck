@@ -9,10 +9,12 @@
  */
 
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
+  BIOME_SUFFIXES,
+  biomeCmd,
   CONTAINMENT_ROOT,
   extractFilePath,
   FORMATTERS,
@@ -73,11 +75,13 @@ describe("suffix", () => {
 });
 
 describe("FORMATTERS map", () => {
-  test(".ts and .json both route to biome format --write", () => {
-    expect(FORMATTERS[".ts"]).toEqual(FORMATTERS[".json"] as string[]);
-    expect(FORMATTERS[".ts"]?.join(" ")).toContain("biome");
-    expect(FORMATTERS[".ts"]).toContain("format");
-    expect(FORMATTERS[".ts"]).toContain("--write");
+  test(".ts and .json both route to biome (via biomeCmd, lazily resolved)", async () => {
+    expect(BIOME_SUFFIXES.has(".ts")).toBe(true);
+    expect(BIOME_SUFFIXES.has(".json")).toBe(true);
+    const cmd = await biomeCmd();
+    expect(cmd.join(" ")).toContain("biome");
+    expect(cmd).toContain("format");
+    expect(cmd).toContain("--write");
   });
 
   test(".py -> uv run ruff format", () => {
@@ -98,40 +102,40 @@ describe("FORMATTERS map", () => {
 describe("resolveInsideRoot (PATTERN E — real tmp fixture)", () => {
   let dir: string;
 
-  beforeEach(() => {
+  beforeEach(async () => {
     // A tmp dir UNDER the containment root so the relative_to() guard passes.
-    dir = mkdtempSync(join(CONTAINMENT_ROOT, ".fmt-test-"));
+    dir = await mkdtemp(join(CONTAINMENT_ROOT, ".fmt-test-"));
   });
 
-  afterEach(() => {
-    rmSync(dir, { recursive: true, force: true });
+  afterEach(async () => {
+    await rm(dir, { recursive: true, force: true });
   });
 
-  test("an existing file under the root resolves to its absolute path", () => {
+  test("an existing file under the root resolves to its absolute path", async () => {
     const f = join(dir, "x.ts");
-    writeFileSync(f, "const x=1;\n");
-    expect(resolveInsideRoot(f)).toBe(f);
+    await writeFile(f, "const x=1;\n");
+    expect(await resolveInsideRoot(f)).toBe(f);
   });
 
-  test("a non-existent path -> null", () => {
-    expect(resolveInsideRoot(join(dir, "nope.ts"))).toBeNull();
+  test("a non-existent path -> null", async () => {
+    expect(await resolveInsideRoot(join(dir, "nope.ts"))).toBeNull();
   });
 
-  test("a directory (not a file) -> null", () => {
+  test("a directory (not a file) -> null", async () => {
     const sub = join(dir, "subdir");
-    mkdirSync(sub);
-    expect(resolveInsideRoot(sub)).toBeNull();
+    await mkdir(sub);
+    expect(await resolveInsideRoot(sub)).toBeNull();
   });
 
-  test("a file OUTSIDE the containment root -> null", () => {
+  test("a file OUTSIDE the containment root -> null", async () => {
     // tmpdir() is /var/folders/... on macOS, /tmp on Linux — not under $HOME.
-    const outside = mkdtempSync(join(tmpdir(), "fmt-outside-"));
+    const outside = await mkdtemp(join(tmpdir(), "fmt-outside-"));
     try {
       const f = join(outside, "y.ts");
-      writeFileSync(f, "const y=1;\n");
-      expect(resolveInsideRoot(f)).toBeNull();
+      await writeFile(f, "const y=1;\n");
+      expect(await resolveInsideRoot(f)).toBeNull();
     } finally {
-      rmSync(outside, { recursive: true, force: true });
+      await rm(outside, { recursive: true, force: true });
     }
   });
 });

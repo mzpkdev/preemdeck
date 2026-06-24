@@ -30,7 +30,7 @@ export const _internals = { inIdea, resolveExecPath, previewUrl };
  * is the single guard for a live IDE; then previewUrl() fires the ideScript.
  */
 export const openUrl = async (url: string, title?: string): Promise<void> => {
-  _internals.resolveExecPath();
+  await _internals.resolveExecPath();
   await _internals.previewUrl(url, title);
 };
 

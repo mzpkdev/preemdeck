@@ -29,18 +29,18 @@ const writeSkill = async (skillsDir: string, name: string, body: string) => {
 };
 
 describe("findConfig", () => {
-  test("returns null when absent", () => {
-    expect(findConfig(dir)).toBeNull();
+  test("returns null when absent", async () => {
+    expect(await findConfig(dir)).toBeNull();
   });
   test("finds it in the start dir", async () => {
     const cfg = await writeCfg("{}");
-    expect(findConfig(dir)).toBe(cfg);
+    expect(await findConfig(dir)).toBe(cfg);
   });
   test("walks up to an ancestor", async () => {
     const cfg = await writeCfg("{}");
     const nested = join(dir, "plugins", "cache", "directive", "scripts");
     await mkdir(nested, { recursive: true });
-    expect(findConfig(nested)).toBe(cfg);
+    expect(await findConfig(nested)).toBe(cfg);
   });
   test("the nearest ancestor wins", async () => {
     await writeCfg('{"loc":"far"}');
@@ -48,53 +48,55 @@ describe("findConfig", () => {
     await mkdir(nearDir, { recursive: true });
     const near = join(nearDir, "preemdeck.json");
     await writeFile(near, '{"loc":"near"}');
-    expect(findConfig(nearDir)).toBe(near);
+    expect(await findConfig(nearDir)).toBe(near);
   });
 });
 
 describe("selectVariants", () => {
   test("object values in slot order", async () => {
-    expect(selectVariants(await writeCfg('{"directive":{"strategy":"swarm","discretion":"auto"}}'))).toEqual([
+    expect(await selectVariants(await writeCfg('{"directive":{"strategy":"swarm","discretion":"auto"}}'))).toEqual([
       "swarm",
       "auto",
     ]);
   });
   test("a bare string is a single value", async () => {
-    expect(selectVariants(await writeCfg('{"directive":"swarm"}'))).toEqual(["swarm"]);
+    expect(await selectVariants(await writeCfg('{"directive":"swarm"}'))).toEqual(["swarm"]);
   });
   test("empty when the field is missing", async () => {
-    expect(selectVariants(await writeCfg('{"other":"x"}'))).toEqual([]);
+    expect(await selectVariants(await writeCfg('{"other":"x"}'))).toEqual([]);
   });
   test("empty when malformed", async () => {
-    expect(selectVariants(await writeCfg("{bad json"))).toEqual([]);
+    expect(await selectVariants(await writeCfg("{bad json"))).toEqual([]);
   });
   test("empty when the field is the wrong type", async () => {
-    expect(selectVariants(await writeCfg('{"directive":42}'))).toEqual([]);
+    expect(await selectVariants(await writeCfg('{"directive":42}'))).toEqual([]);
   });
   test("an empty object yields nothing", async () => {
-    expect(selectVariants(await writeCfg('{"directive":{}}'))).toEqual([]);
+    expect(await selectVariants(await writeCfg('{"directive":{}}'))).toEqual([]);
   });
   test("filters blanks/non-strings and dedupes", async () => {
-    expect(selectVariants(await writeCfg('{"directive":{"a":"swarm","b":"","c":5,"d":"swarm"}}'))).toEqual(["swarm"]);
+    expect(await selectVariants(await writeCfg('{"directive":{"a":"swarm","b":"","c":5,"d":"swarm"}}'))).toEqual([
+      "swarm",
+    ]);
   });
 });
 
 describe("loadModeText", () => {
   test("loads the directive body (trimmed)", async () => {
     await writeSkill(dir, "swarm", "swarm body");
-    expect(loadModeText(dir, "swarm")).toBe("swarm body");
+    expect(await loadModeText(dir, "swarm")).toBe("swarm body");
   });
-  test("null for unknown", () => {
-    expect(loadModeText(dir, "nope")).toBeNull();
+  test("null for unknown", async () => {
+    expect(await loadModeText(dir, "nope")).toBeNull();
   });
   test("null for an empty body", async () => {
     await writeSkill(dir, "blank", "   ");
-    expect(loadModeText(dir, "blank")).toBeNull();
+    expect(await loadModeText(dir, "blank")).toBeNull();
   });
   test("rejects path traversal", async () => {
     await mkdir(join(dir, "secret"));
     await writeFile(join(dir, "secret", "directive.md"), "secret");
-    expect(loadModeText(join(dir, "skills"), "../secret")).toBeNull();
+    expect(await loadModeText(join(dir, "skills"), "../secret")).toBeNull();
   });
 });
 
@@ -116,13 +118,14 @@ describe("main pipeline (renderBodies + envelope)", () => {
   async function emit(opts: { stdin?: string; event?: string } = {}): Promise<string> {
     const cliEvent = opts.event ?? null;
     let out = "";
+    const bodies = await renderBodies(dir, skillsDir);
     await runInjectionHook({
       event: cliEvent ?? undefined,
       stdin: { text: () => Promise.resolve(opts.stdin ?? "{}") },
       write: (l) => {
         out = l;
       },
-      render: () => renderBodies(dir, skillsDir),
+      render: () => bodies,
     });
     return out;
   }

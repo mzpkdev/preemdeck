@@ -17,8 +17,8 @@ import * as ideaMac from "./idea-mac.ts";
 
 type PlatformModule = {
   inIdea: () => boolean;
-  resolveExecPath: () => string;
-  resolveLogDir: () => string;
+  resolveExecPath: () => Promise<string>;
+  resolveLogDir: () => Promise<string>;
 };
 
 const pickPlatform = (): PlatformModule => {
@@ -40,13 +40,13 @@ export const inIdea = (): boolean => {
 };
 
 /** Absolute path to the JetBrains IDE binary this process is running inside (per-OS). */
-export const resolveExecPath = (): string => {
-  return platformModule.resolveExecPath();
+export const resolveExecPath = async (): Promise<string> => {
+  return await platformModule.resolveExecPath();
 };
 
 /** Log dir of the IDE this process is running inside (per-OS). */
-export const resolveLogDir = (): string => {
-  return platformModule.resolveLogDir();
+export const resolveLogDir = async (): Promise<string> => {
+  return await platformModule.resolveLogDir();
 };
 
 /** Shared error types callers `catch`/`instanceof` across the toolbox. */

@@ -29,9 +29,10 @@
  * tracked `*.json` files.
  */
 
-import { existsSync, statSync } from "node:fs";
+import { stat } from "node:fs/promises";
 import { dirname, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { exists } from "../lib/fs.ts";
 import { spawn } from "../lib/proc.ts";
 
 // Two distinct roots:
@@ -50,13 +51,17 @@ const CONTAINMENT_ROOT = dirname(REPO_ROOT);
 // The scaffold's Biome binary, resolved relative to the script's own location.
 // Falls back to `bun x @biomejs/biome` when node_modules isn't shipped alongside.
 const BIOME_BIN = resolve(REPO_ROOT, "node_modules", ".bin", "biome");
-const BIOME_CMD: string[] = existsSync(BIOME_BIN)
-  ? [BIOME_BIN, "format", "--write"]
-  : ["bun", "x", "@biomejs/biome", "format", "--write"];
+// Lazy-init: the binary probe is async (no `existsSync`), and a top-level await
+// at module load is disallowed — so the Biome command is resolved on demand
+// inside `format()` instead of as a load-time const.
+const biomeCmd = async (): Promise<string[]> =>
+  (await exists(BIOME_BIN)) ? [BIOME_BIN, "format", "--write"] : ["bun", "x", "@biomejs/biome", "format", "--write"];
+
+// Suffixes routed to Biome; resolved via `biomeCmd()` at format time (the others
+// are static, so they live in FORMATTERS directly).
+const BIOME_SUFFIXES = new Set([".ts", ".json"]);
 
 const FORMATTERS: Record<string, string[]> = {
-  ".ts": BIOME_CMD,
-  ".json": BIOME_CMD,
   ".py": ["uv", "run", "--quiet", "ruff", "format"],
   ".md": ["uv", "run", "--quiet", "mdformat"],
   ".markdown": ["uv", "run", "--quiet", "mdformat"],
@@ -96,9 +101,9 @@ const extractFilePath = (payload: Record<string, unknown>): string | null => {
 };
 
 /** Resolve `filePath`; return it only if it's an existing file under the containment root. */
-const resolveInsideRoot = (filePath: string): string | null => {
+const resolveInsideRoot = async (filePath: string): Promise<string | null> => {
   const abs = resolve(filePath);
-  if (!existsSync(abs) || !statSync(abs).isFile()) {
+  if (!(await exists(abs)) || !(await stat(abs)).isFile()) {
     return null;
   }
   // relative(root, abs) escaping the root starts with ".." (or is absolute on a
@@ -122,7 +127,8 @@ const suffix = (path: string): string => {
 
 /** Run the suffix-matched formatter on `path`. Errors warn on stderr; never throws. */
 const format = async (path: string): Promise<void> => {
-  const cmd = FORMATTERS[suffix(path)];
+  const sfx = suffix(path);
+  const cmd = BIOME_SUFFIXES.has(sfx) ? await biomeCmd() : FORMATTERS[sfx];
   if (cmd === undefined) {
     return;
   }
@@ -148,7 +154,7 @@ export const main = async (stdin: { text(): Promise<string> } = Bun.stdin): Prom
   const filePath = extractFilePath(payload);
   if (filePath === null) return;
 
-  const path = resolveInsideRoot(filePath);
+  const path = await resolveInsideRoot(filePath);
   if (path === null) return;
 
   await format(path);
@@ -159,7 +165,17 @@ export const main = async (stdin: { text(): Promise<string> } = Bun.stdin): Prom
  * helpers are re-exported so the unit tests can exercise them directly without
  * shelling out to a real formatter.
  */
-export { CONTAINMENT_ROOT, extractFilePath, FORMATTERS, format, readPayload, resolveInsideRoot, suffix };
+export {
+  BIOME_SUFFIXES,
+  biomeCmd,
+  CONTAINMENT_ROOT,
+  extractFilePath,
+  FORMATTERS,
+  format,
+  readPayload,
+  resolveInsideRoot,
+  suffix,
+};
 
 if (import.meta.main) {
   await main();

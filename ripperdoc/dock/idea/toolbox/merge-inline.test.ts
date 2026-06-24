@@ -6,7 +6,8 @@
  */
 
 import { afterEach, beforeEach, describe, expect, spyOn, test } from "bun:test";
-import { existsSync, readFileSync, unlinkSync } from "node:fs";
+import { readFile, unlink } from "node:fs/promises";
+import { exists } from "../../../../lib/fs.ts";
 import { _internals, main, mergeInline } from "./merge-inline.ts";
 
 const MERGED = "MERGED\n";
@@ -27,7 +28,7 @@ const spy = (result: string | null = MERGED) => {
     snap.base = base;
     snap.wait = wait;
     for (const p of [target, suggestion, ...(base !== null ? [base] : [])]) {
-      snap.contents[p] = readFileSync(p, { encoding: "utf8" });
+      snap.contents[p] = await readFile(p, { encoding: "utf8" });
     }
     return result;
   };
@@ -54,8 +55,8 @@ describe("mergeInline", () => {
     expect(snap.contents[snap.target]).toBe("mine");
     expect(snap.contents[snap.suggestion]).toBe("theirs");
     expect(snap.base).toBeNull();
-    expect(existsSync(snap.target)).toBe(false);
-    expect(existsSync(snap.suggestion)).toBe(false);
+    expect(await exists(snap.target)).toBe(false);
+    expect(await exists(snap.suggestion)).toBe(false);
   });
 
   test("spills base when present", async () => {
@@ -75,7 +76,7 @@ describe("mergeInline", () => {
     _internals.mergeFile = spy(null);
     expect(await mergeInline("x", "y", "z")).toBeNull();
     expect(reaped).toEqual([[snap.target, snap.suggestion, snap.base as string]]);
-    for (const p of [snap.target, snap.suggestion, snap.base as string]) if (existsSync(p)) unlinkSync(p);
+    for (const p of [snap.target, snap.suggestion, snap.base as string]) if (await exists(p)) await unlink(p);
   });
 });
 

@@ -7,9 +7,10 @@
  */
 
 import { afterEach, beforeEach, describe, expect, spyOn, test } from "bun:test";
-import { existsSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtemp, readFile, realpath, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { exists } from "../../../../lib/fs.ts";
 import { IdeaError } from "./core/errors.ts";
 import { _internals, main, mergeFile } from "./merge-file.ts";
 
@@ -30,26 +31,26 @@ const stubLaunch = (text = MERGED) => {
     calls.push(args);
     const output = args[args.length - 1] as string;
     return {
-      exited: Promise.resolve().then(() => {
-        writeFileSync(output, text);
+      exited: Promise.resolve().then(async () => {
+        await writeFile(output, text);
         return 0;
       }),
     } as unknown as Bun.Subprocess;
   };
 };
 
-const makeInputs = (): { target: string; suggestion: string; base: string } => {
+const makeInputs = async (): Promise<{ target: string; suggestion: string; base: string }> => {
   const target = join(dir, "target.py");
   const suggestion = join(dir, "suggestion.py");
   const base = join(dir, "base.py");
-  writeFileSync(target, "a\n");
-  writeFileSync(suggestion, "b\n");
-  writeFileSync(base, "o\n");
+  await writeFile(target, "a\n");
+  await writeFile(suggestion, "b\n");
+  await writeFile(base, "o\n");
   return { target, suggestion, base };
 };
 
-beforeEach(() => {
-  dir = mkdtempSync(join(tmpdir(), "preemdeck-mergefile-"));
+beforeEach(async () => {
+  dir = await mkdtemp(join(tmpdir(), "preemdeck-mergefile-"));
   calls = [];
   reaped = [];
   _internals.inIdea = () => true;
@@ -57,57 +58,62 @@ beforeEach(() => {
   _internals.reapLater = (paths: Iterable<string>) => {
     reaped.push([...paths]);
   };
-  _internals.readFile = (p: string) => readFileSync(p, { encoding: "utf8" });
+  _internals.readFile = (p: string) => readFile(p, { encoding: "utf8" });
 });
-afterEach(() => {
+afterEach(async () => {
   _internals.inIdea = real.inIdea;
   _internals.launch = real.launch;
   _internals.reapLater = real.reapLater;
   _internals.readFile = real.readFile;
-  rmSync(dir, { recursive: true, force: true });
+  await rm(dir, { recursive: true, force: true });
 });
 
 describe("mergeFile", () => {
   test("no base: argv is [merge, target, suggestion, output], never --wait", async () => {
-    const { target, suggestion } = makeInputs();
+    const { target, suggestion } = await makeInputs();
     await mergeFile(target, suggestion, null, true);
     const argv = calls[0] as string[];
-    expect(argv.slice(0, 3)).toEqual(["merge", realpathSync(target), realpathSync(suggestion)]);
+    expect(argv.slice(0, 3)).toEqual(["merge", await realpath(target), await realpath(suggestion)]);
     expect(argv.length).toBe(4);
     expect(argv).not.toContain("--wait");
   });
 
   test("with base: base THIRD, output LAST", async () => {
-    const { target, suggestion, base } = makeInputs();
+    const { target, suggestion, base } = await makeInputs();
     await mergeFile(target, suggestion, base, true);
     const argv = calls[0] as string[];
-    expect(argv.slice(0, 4)).toEqual(["merge", realpathSync(target), realpathSync(suggestion), realpathSync(base)]);
+    expect(argv.slice(0, 4)).toEqual([
+      "merge",
+      await realpath(target),
+      await realpath(suggestion),
+      await realpath(base),
+    ]);
     expect(argv.length).toBe(5);
   });
 
   test("wait joins the process, returns the output, cleans up", async () => {
-    const { target, suggestion } = makeInputs();
+    const { target, suggestion } = await makeInputs();
     expect(await mergeFile(target, suggestion, null, true)).toBe(MERGED);
     const output = (calls[0] as string[])[3] as string;
-    expect(existsSync(output)).toBe(false);
+    expect(await exists(output)).toBe(false);
   });
 
   test("no-wait returns null and schedules a reap of the output temp", async () => {
-    const { target, suggestion } = makeInputs();
+    const { target, suggestion } = await makeInputs();
     expect(await mergeFile(target, suggestion)).toBeNull();
     const output = (calls[0] as string[])[3] as string;
     expect(reaped).toEqual([[output]]);
-    if (existsSync(output)) rmSync(output, { force: true });
+    if (await exists(output)) await rm(output, { force: true });
   });
 
   test("missing input throws before launch", async () => {
-    const { target } = makeInputs();
+    const { target } = await makeInputs();
     await expect(mergeFile(target, join(dir, "nope.py"))).rejects.toThrow();
     expect(calls).toEqual([]);
   });
 
   test("output suffix mirrors the target extension", async () => {
-    const { target, suggestion } = makeInputs();
+    const { target, suggestion } = await makeInputs();
     await mergeFile(target, suggestion, null, true);
     expect((calls[0] as string[])[3]?.endsWith(".py")).toBe(true);
   });
@@ -115,7 +121,7 @@ describe("mergeFile", () => {
 
 describe("main", () => {
   test("--wait prints the merged result", async () => {
-    const { target, suggestion } = makeInputs();
+    const { target, suggestion } = await makeInputs();
     const outSpy = spyOn(process.stdout, "write").mockImplementation((() => true) as never);
     try {
       expect(await main([target, suggestion, "--wait"])).toBe(0);
@@ -129,7 +135,7 @@ describe("main", () => {
     _internals.launch = async () => {
       throw new IdeaError("no live IDE");
     };
-    const { target, suggestion } = makeInputs();
+    const { target, suggestion } = await makeInputs();
     const errSpy = spyOn(process.stderr, "write").mockImplementation((() => true) as never);
     try {
       expect(await main([target, suggestion])).toBe(1);

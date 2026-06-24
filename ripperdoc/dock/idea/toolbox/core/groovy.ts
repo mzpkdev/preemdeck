@@ -11,8 +11,7 @@
  * templates on this bridge.
  */
 
-import { mkdtempSync } from "node:fs";
-import { writeFile } from "node:fs/promises";
+import { mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { IdeaError, NotImplementedError } from "./errors.ts";
@@ -41,7 +40,7 @@ export type RunGroovyDeps = {
 };
 
 const defaultWriteTemp = async (groovy: string): Promise<string> => {
-  const dir = mkdtempSync(join(tmpdir(), "idea-groovy-"));
+  const dir = await mkdtemp(join(tmpdir(), "idea-groovy-"));
   const script = join(dir, `${crypto.randomUUID()}.groovy`);
   await writeFile(script, groovy);
   return script;

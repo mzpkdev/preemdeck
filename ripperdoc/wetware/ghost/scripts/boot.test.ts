@@ -21,24 +21,24 @@ afterEach(async () => {
 const b64 = (s: string) => Buffer.from(s, "utf8").toString("base64");
 
 describe("readSource", () => {
-  test("returns null when both missing", () => {
-    expect(readSource(dir, "engram.dat", "ENGRAM.md")).toBeNull();
+  test("returns null when both missing", async () => {
+    expect(await readSource(dir, "engram.dat", "ENGRAM.md")).toBeNull();
   });
 
   test("reads the .dat (base64) over the .md", async () => {
     await writeFile(join(dir, "engram.dat"), b64("hello from dat"));
     await writeFile(join(dir, "ENGRAM.md"), "hello from md");
-    expect(readSource(dir, "engram.dat", "ENGRAM.md")).toBe("hello from dat");
+    expect(await readSource(dir, "engram.dat", "ENGRAM.md")).toBe("hello from dat");
   });
 
   test("reads the .md when the .dat is missing", async () => {
     await writeFile(join(dir, "ENGRAM.md"), "engram content");
-    expect(readSource(dir, "engram.dat", "ENGRAM.md")).toBe("engram content");
+    expect(await readSource(dir, "engram.dat", "ENGRAM.md")).toBe("engram content");
   });
 
   test("decodes base64 .dat content", async () => {
     await writeFile(join(dir, "engram.dat"), b64("persona data here"));
-    expect(readSource(dir, "engram.dat", "ENGRAM.md")).toBe("persona data here");
+    expect(await readSource(dir, "engram.dat", "ENGRAM.md")).toBe("persona data here");
   });
 });
 
@@ -46,13 +46,14 @@ describe("combinedPersona + envelope", () => {
   // Helper: run the same render/emit pipeline main() uses, with injected stdin.
   async function emit(stdinText: string): Promise<string> {
     let out = "";
+    const persona = await combinedPersona(dir);
     await runInjectionHook({
       event: "SessionStart",
       stdin: { text: () => Promise.resolve(stdinText) },
       write: (l) => {
         out = l;
       },
-      render: () => combinedPersona(dir) || null,
+      render: () => persona || null,
     });
     return out;
   }
@@ -74,7 +75,7 @@ describe("combinedPersona + envelope", () => {
   test("concatenates engram + firmware with a blank line", async () => {
     await writeFile(join(dir, "ENGRAM.md"), "  engram  ");
     await writeFile(join(dir, "FIRMWARE.md"), "  firmware  ");
-    expect(combinedPersona(dir)).toBe("engram\n\nfirmware");
+    expect(await combinedPersona(dir)).toBe("engram\n\nfirmware");
   });
 
   test("default event is SessionStart", async () => {

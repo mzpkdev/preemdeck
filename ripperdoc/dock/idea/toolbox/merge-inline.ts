@@ -11,7 +11,7 @@
  * return null. The OUTPUT temp is mergeFile's to reap.
  */
 
-import { unlinkSync } from "node:fs";
+import { unlink } from "node:fs/promises";
 import { parseArgs } from "node:util";
 import { argparseError, argparseMessage } from "./cli.ts";
 import { IdeaError } from "./core/errors.ts";
@@ -59,7 +59,7 @@ export const mergeInline = async (
     // wait=true: mergeFile already returned, input temps are spent — remove now.
     if (wait) {
       for (const path of temps) {
-        unlinkSync(path);
+        await unlink(path);
       }
     }
   }

@@ -34,7 +34,7 @@ describe("availableModes", () => {
   test("lists skill folders with a directive.md (sorted)", async () => {
     const d = join(dir, "skills");
     for (const n of ["swarm", "ask"]) await writeSkill(d, n, "body");
-    expect(availableModes(d)).toEqual(["ask", "swarm"]);
+    expect(await availableModes(d)).toEqual(["ask", "swarm"]);
   });
 });
 
@@ -54,7 +54,7 @@ describe("main", () => {
     const body = "# Strategy: swarm\n\nOrchestrate — don't do.\n";
     await mkdir(join(skills, "swarm"), { recursive: true });
     await writeFile(join(skills, "swarm", "directive.md"), body);
-    expect(main(["swarm"], skills, write)).toBe(0);
+    expect(await main(["swarm"], skills, write)).toBe(0);
     expect(out).toBe(body);
   });
 
@@ -62,27 +62,27 @@ describe("main", () => {
     await writeSkill(skills, "swarm", "body");
     const err = captureStderr();
     try {
-      expect(main(["nope"], skills, write)).toBe(2);
+      expect(await main(["nope"], skills, write)).toBe(2);
       expect(err.text()).toContain("swarm");
     } finally {
       err.restore();
     }
   });
 
-  test("wrong arg count -> 2", () => {
+  test("wrong arg count -> 2", async () => {
     const err = captureStderr();
     try {
-      expect(main([], skills, write)).toBe(2);
-      expect(main(["swarm", "extra"], skills, write)).toBe(2);
+      expect(await main([], skills, write)).toBe(2);
+      expect(await main(["swarm", "extra"], skills, write)).toBe(2);
     } finally {
       err.restore();
     }
   });
 
-  test("blank arg -> 2", () => {
+  test("blank arg -> 2", async () => {
     const err = captureStderr();
     try {
-      expect(main(["   "], skills, write)).toBe(2);
+      expect(await main(["   "], skills, write)).toBe(2);
     } finally {
       err.restore();
     }
@@ -93,7 +93,7 @@ describe("main", () => {
     await writeFile(join(dir, "secret", "directive.md"), "secret");
     const err = captureStderr();
     try {
-      expect(main(["../secret"], skills, write)).toBe(2);
+      expect(await main(["../secret"], skills, write)).toBe(2);
     } finally {
       err.restore();
     }
@@ -104,7 +104,7 @@ describe("main", () => {
     await writeFile(join(skills, "a", "b", "directive.md"), "nested");
     const err = captureStderr();
     try {
-      expect(main(["a/b"], skills, write)).toBe(2);
+      expect(await main(["a/b"], skills, write)).toBe(2);
     } finally {
       err.restore();
     }

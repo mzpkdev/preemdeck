@@ -7,13 +7,13 @@
  *
  * `ps -o ppid=,comm=` is the ancestry probe. VERIFIED under the pinned Bun:
  * macOS `comm=` returns the FULL untruncated path (e.g. a 71-char
- * `/System/.../Contents/MacOS/loginwindow` came back whole via Bun.spawnSync),
- * so the basename match against IDE_BINARIES works directly — no switch to
- * `command=` + split is needed. The classic ~15-char `comm` truncation is a
- * Linux/procps trait, not macOS BSD `ps`.
+ * `/System/.../Contents/MacOS/loginwindow` came back whole via `ps`), so the
+ * basename match against IDE_BINARIES works directly — no switch to `command=`
+ * + split is needed. The classic ~15-char `comm` truncation is a Linux/procps
+ * trait, not macOS BSD `ps`.
  */
 
-import { readdirSync, statSync } from "node:fs";
+import { readdir, stat } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { IdeaError } from "./errors.ts";
@@ -47,13 +47,14 @@ type PsEntry = {
  * Injectable so tests can feed canned ancestry without spawning `ps` (mirrors
  * the Python tests monkeypatching `idea_mac.subprocess.run`).
  */
-export type PsProbe = (pid: number) => PsEntry | null;
+export type PsProbe = (pid: number) => Promise<PsEntry | null>;
 
-const defaultPsProbe: PsProbe = (pid) => {
-  const { stdout } = Bun.spawnSync(["ps", "-o", "ppid=,comm=", "-p", String(pid)], {
-    timeout: 5000,
+const defaultPsProbe: PsProbe = async (pid) => {
+  const proc = Bun.spawn(["ps", "-o", "ppid=,comm=", "-p", String(pid)], {
+    stdout: "pipe",
   });
-  const out = stdout.toString();
+  const out = await new Response(proc.stdout).text();
+  await proc.exited;
   // Python: out.split(maxsplit=1) — leading whitespace stripped, split once.
   const trimmed = out.replace(/^\s+/, "");
   const match = trimmed.match(/^(\S+)\s+([\s\S]*)$/);
@@ -88,11 +89,14 @@ export const inIdea = (): boolean => {
  * `probe`/`startPid` are injectable seams for hermetic tests; production calls
  * use real `ps` and `process.pid`.
  */
-export const resolveExecPath = (probe: PsProbe = defaultPsProbe, startPid: number = process.pid): string => {
+export const resolveExecPath = async (
+  probe: PsProbe = defaultPsProbe,
+  startPid: number = process.pid,
+): Promise<string> => {
   let pid = startPid;
   for (let i = 0; i < 16; i++) {
     // bounded climb
-    const entry = probe(pid);
+    const entry = await probe(pid);
     if (entry === null) {
       break;
     }
@@ -118,10 +122,14 @@ export const resolveExecPath = (probe: PsProbe = defaultPsProbe, startPid: numbe
  * launched this process, not whichever is focused.
  *
  * `resolveExec` is injectable for tests; production resolves the real ancestry.
+ * The seam accepts a sync OR async resolver (the default is the now-async
+ * `resolveExecPath`) and is awaited.
  */
-export const resolveLogDir = (resolveExec: () => string = () => resolveExecPath()): string => {
+export const resolveLogDir = async (
+  resolveExec: () => string | Promise<string> = () => resolveExecPath(),
+): Promise<string> => {
   // Path(exec).stem.lower(): the basename without its final suffix, lowercased.
-  const execPath = resolveExec();
+  const execPath = await resolveExec();
   const baseName = execPath.slice(execPath.lastIndexOf("/") + 1);
   const dot = baseName.lastIndexOf(".");
   const stem = (dot > 0 ? baseName.slice(0, dot) : baseName).toLowerCase();
@@ -133,7 +141,7 @@ export const resolveLogDir = (resolveExec: () => string = () => resolveExecPath(
 
   let names: string[];
   try {
-    names = readdirSync(base);
+    names = await readdir(base);
   } catch {
     names = [];
   }
@@ -144,9 +152,9 @@ export const resolveLogDir = (resolveExec: () => string = () => resolveExecPath(
       continue;
     }
     const path = join(base, name);
-    let st: ReturnType<typeof statSync>;
+    let st: Awaited<ReturnType<typeof stat>>;
     try {
-      st = statSync(path);
+      st = await stat(path);
     } catch {
       continue;
     }

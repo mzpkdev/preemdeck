@@ -9,22 +9,24 @@
  * Exit codes: 0 printed; 2 usage error, unsafe value, or no matching directive.md.
  */
 
-import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
+import { readdir, readFile, stat } from "node:fs/promises";
 import { dirname, join } from "node:path";
+import { exists } from "../../../../lib/fs.ts";
 import { pyName } from "./pyname.ts";
 
 const SKILLS_DIR = join(dirname(import.meta.dir), "skills");
 
 /** Sorted mode names — skill folders that ship a `directive.md`. */
-export const availableModes = (skillsDir: string): string[] => {
-  if (!existsSync(skillsDir) || !statSync(skillsDir).isDirectory()) return [];
+export const availableModes = async (skillsDir: string): Promise<string[]> => {
+  if (!(await exists(skillsDir)) || !(await stat(skillsDir)).isDirectory()) return [];
   const names: string[] = [];
-  for (const entry of readdirSync(skillsDir)) {
+  const entries = await readdir(skillsDir);
+  for (const entry of entries) {
     const dir = join(skillsDir, entry);
     if (
-      statSync(dir).isDirectory() &&
-      existsSync(join(dir, "directive.md")) &&
-      statSync(join(dir, "directive.md")).isFile()
+      (await stat(dir)).isDirectory() &&
+      (await exists(join(dir, "directive.md"))) &&
+      (await stat(join(dir, "directive.md"))).isFile()
     ) {
       names.push(entry);
     }
@@ -37,12 +39,12 @@ export const availableModes = (skillsDir: string): string[] => {
  * directive body verbatim. Returns the process exit code (0 printed; 2 on usage
  * error, an unsafe value, or no matching directive.md) so callers stay testable.
  */
-export const main = (
+export const main = async (
   argv: string[],
   skillsDir: string = SKILLS_DIR,
   write: (s: string) => void = (s) => process.stdout.write(s),
-): number => {
-  const modes = availableModes(skillsDir);
+): Promise<number> => {
+  const modes = await availableModes(skillsDir);
   const listing = modes.join(", ") || "none";
   if (argv.length !== 1 || !argv[0] || argv[0].trim() === "") {
     process.stderr.write(`usage: show-mode <value>   (values: ${listing})\n`);
@@ -54,11 +56,11 @@ export const main = (
     return 2;
   }
   const body = join(skillsDir, value, "directive.md");
-  if (!existsSync(body) || !statSync(body).isFile()) {
+  if (!(await exists(body)) || !(await stat(body)).isFile()) {
     process.stderr.write(`unknown value ${pyRepr(value)}; available: ${listing}\n`);
     return 2;
   }
-  write(readFileSync(body, "utf8"));
+  write(await readFile(body, "utf8"));
   return 0;
 };
 
@@ -69,5 +71,5 @@ const pyRepr = (value: string): string => {
 };
 
 if (import.meta.main) {
-  process.exit(main(Bun.argv.slice(2)));
+  process.exit(await main(Bun.argv.slice(2)));
 }

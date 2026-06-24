@@ -5,7 +5,7 @@
  */
 
 import { afterEach, beforeEach, describe, expect, spyOn, test } from "bun:test";
-import { mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtemp, readFile, realpath, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { IdeaError } from "./core/errors.ts";
@@ -21,62 +21,62 @@ const stubLaunch = (writeTo?: string, text = RECONCILED) => {
     const wait = options.wait ?? false;
     calls.push({ args, wait });
     if (wait && writeTo !== undefined) {
-      writeFileSync(writeTo, text);
+      await writeFile(writeTo, text);
     }
     return {} as unknown as Bun.Subprocess;
   };
 };
 
-const makeInputs = (): { target: string; suggestion: string } => {
+const makeInputs = async (): Promise<{ target: string; suggestion: string }> => {
   const target = join(dir, "target.py");
   const suggestion = join(dir, "suggestion.py");
-  writeFileSync(target, "a\n");
-  writeFileSync(suggestion, "b\n");
+  await writeFile(target, "a\n");
+  await writeFile(suggestion, "b\n");
   return { target, suggestion };
 };
 
-beforeEach(() => {
-  dir = mkdtempSync(join(tmpdir(), "preemdeck-difffile-"));
+beforeEach(async () => {
+  dir = await mkdtemp(join(tmpdir(), "preemdeck-difffile-"));
   calls = [];
   _internals.inIdea = () => true;
   _internals.launch = stubLaunch();
-  _internals.readFile = (p: string) => readFileSync(p, { encoding: "utf8" });
+  _internals.readFile = (p: string) => readFile(p, { encoding: "utf8" });
 });
-afterEach(() => {
+afterEach(async () => {
   _internals.inIdea = real.inIdea;
   _internals.launch = real.launch;
   _internals.readFile = real.readFile;
-  rmSync(dir, { recursive: true, force: true });
+  await rm(dir, { recursive: true, force: true });
 });
 
 describe("diffFile", () => {
   test("threads resolved paths into argv (diff L R), async by default", async () => {
-    const { target, suggestion } = makeInputs();
+    const { target, suggestion } = await makeInputs();
     await diffFile(target, suggestion);
-    expect(calls).toEqual([{ args: ["diff", realpathSync(target), realpathSync(suggestion)], wait: false }]);
+    expect(calls).toEqual([{ args: ["diff", await realpath(target), await realpath(suggestion)], wait: false }]);
     expect(calls[0]?.args).not.toContain("--wait");
   });
 
   test("2-way wait watches LEFT (target) and returns its edited text", async () => {
-    const { target, suggestion } = makeInputs();
-    _internals.launch = stubLaunch(realpathSync(target), "AFTER EDIT\n");
+    const { target, suggestion } = await makeInputs();
+    _internals.launch = stubLaunch(await realpath(target), "AFTER EDIT\n");
     expect(await diffFile(target, suggestion, true)).toBe("AFTER EDIT\n");
     expect(calls[0]?.wait).toBe(true);
   });
 
   test("wait untouched LEFT returns original", async () => {
-    const { target, suggestion } = makeInputs();
+    const { target, suggestion } = await makeInputs();
     expect(await diffFile(target, suggestion, true)).toBe("a\n");
   });
 
   test("no-wait returns null, launch wait=false", async () => {
-    const { target, suggestion } = makeInputs();
+    const { target, suggestion } = await makeInputs();
     expect(await diffFile(target, suggestion)).toBeNull();
     expect(calls[0]?.wait).toBe(false);
   });
 
   test("missing input throws before launch", async () => {
-    const { target } = makeInputs();
+    const { target } = await makeInputs();
     await expect(diffFile(target, join(dir, "nope.py"))).rejects.toThrow();
     expect(calls).toEqual([]);
   });
@@ -84,14 +84,14 @@ describe("diffFile", () => {
 
 describe("main", () => {
   test("two files invoke diff, returns 0", async () => {
-    const { target, suggestion } = makeInputs();
+    const { target, suggestion } = await makeInputs();
     expect(await main([target, suggestion])).toBe(0);
-    expect(calls).toEqual([{ args: ["diff", realpathSync(target), realpathSync(suggestion)], wait: false }]);
+    expect(calls).toEqual([{ args: ["diff", await realpath(target), await realpath(suggestion)], wait: false }]);
   });
 
   test("--wait prints LEFT contents", async () => {
-    const { target, suggestion } = makeInputs();
-    _internals.launch = stubLaunch(realpathSync(target), RECONCILED);
+    const { target, suggestion } = await makeInputs();
+    _internals.launch = stubLaunch(await realpath(target), RECONCILED);
     const outSpy = spyOn(process.stdout, "write").mockImplementation((() => true) as never);
     try {
       expect(await main([target, suggestion, "--wait"])).toBe(0);
@@ -102,7 +102,7 @@ describe("main", () => {
   });
 
   test("missing input -> 1", async () => {
-    const { target } = makeInputs();
+    const { target } = await makeInputs();
     const errSpy = spyOn(process.stderr, "write").mockImplementation((() => true) as never);
     try {
       expect(await main([target, join(dir, "nope.py")])).toBe(1);
@@ -116,7 +116,7 @@ describe("main", () => {
     _internals.launch = async () => {
       throw new IdeaError("no live IDE");
     };
-    const { target, suggestion } = makeInputs();
+    const { target, suggestion } = await makeInputs();
     const errSpy = spyOn(process.stderr, "write").mockImplementation((() => true) as never);
     try {
       expect(await main([target, suggestion])).toBe(1);

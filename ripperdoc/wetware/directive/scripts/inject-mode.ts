@@ -12,8 +12,9 @@
  * Path resolution: SKILLS_DIR = <script-dir>/../skills.
  */
 
-import { existsSync, readFileSync, statSync } from "node:fs";
+import { readFile, stat } from "node:fs/promises";
 import { dirname, join } from "node:path";
+import { exists } from "../../../../lib/fs.ts";
 import { runInjectionHook } from "../../../../lib/inject.ts";
 import { pyName } from "./pyname.ts";
 
@@ -24,11 +25,11 @@ const SEARCH_START = import.meta.dir;
 const SKILLS_DIR = join(dirname(import.meta.dir), "skills");
 
 /** Walk up from `start` (inclusive) toward the root; first preemdeck.json wins. */
-export const findConfig = (start: string): string | null => {
+export const findConfig = async (start: string): Promise<string | null> => {
   let dir = start;
   for (;;) {
     const candidate = join(dir, CONFIG_NAME);
-    if (existsSync(candidate) && statSync(candidate).isFile()) return candidate;
+    if ((await exists(candidate)) && (await stat(candidate)).isFile()) return candidate;
     const parent = dirname(dir);
     if (parent === dir) return null;
     dir = parent;
@@ -36,10 +37,10 @@ export const findConfig = (start: string): string | null => {
 };
 
 /** Active values from the config's `directive` field, in slot order, deduped. */
-export const selectVariants = (config: string): string[] => {
+export const selectVariants = async (config: string): Promise<string[]> => {
   let data: unknown;
   try {
-    data = JSON.parse(readFileSync(config, "utf8"));
+    data = JSON.parse(await readFile(config, "utf8"));
   } catch {
     return [];
   }
@@ -65,11 +66,11 @@ export const selectVariants = (config: string): string[] => {
  * `value` must be a bare name (no path separator / dot-segment) so a config value
  * can't escape the skills dir.
  */
-export const loadModeText = (skillsDir: string, value: string): string | null => {
+export const loadModeText = async (skillsDir: string, value: string): Promise<string | null> => {
   if (pyName(value) !== value) return null;
   const body = join(skillsDir, value, "directive.md");
-  if (!existsSync(body) || !statSync(body).isFile()) return null;
-  const text = readFileSync(body, "utf8").trim();
+  if (!(await exists(body)) || !(await stat(body)).isFile()) return null;
+  const text = (await readFile(body, "utf8")).trim();
   return text || null;
 };
 
@@ -82,12 +83,12 @@ export const extractEvent = (argv: string[]): string | null => {
 };
 
 /** Build the concatenated directive bodies for the active config, or "" / null. */
-export const renderBodies = (searchStart: string, skillsDir: string): string | null => {
-  const config = findConfig(searchStart);
+export const renderBodies = async (searchStart: string, skillsDir: string): Promise<string | null> => {
+  const config = await findConfig(searchStart);
   if (config === null) return null;
   const bodies: string[] = [];
-  for (const v of selectVariants(config)) {
-    const t = loadModeText(skillsDir, v);
+  for (const v of await selectVariants(config)) {
+    const t = await loadModeText(skillsDir, v);
     if (t) bodies.push(t);
   }
   if (bodies.length === 0) return null;
@@ -96,9 +97,10 @@ export const renderBodies = (searchStart: string, skillsDir: string): string | n
 
 if (import.meta.main) {
   const cliEvent = extractEvent(Bun.argv.slice(2));
+  const bodies = await renderBodies(SEARCH_START, SKILLS_DIR);
   await runInjectionHook({
     event: cliEvent ?? undefined,
-    render: () => renderBodies(SEARCH_START, SKILLS_DIR),
+    render: () => bodies,
   });
   process.exit(0);
 }

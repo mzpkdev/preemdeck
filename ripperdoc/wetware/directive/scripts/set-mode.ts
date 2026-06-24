@@ -16,8 +16,9 @@
  * not found.
  */
 
-import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
+import { readdir, readFile, stat } from "node:fs/promises";
 import { dirname, join } from "node:path";
+import { exists } from "../../../../lib/fs.ts";
 import { writeJson } from "../../../../lib/json-store.ts";
 
 const CONFIG_NAME = "preemdeck.json";
@@ -28,11 +29,11 @@ const SKILLS_DIR = join(dirname(import.meta.dir), "skills");
 const MODES_FILE = join(import.meta.dir, "modes.json");
 
 /** Walk up from `start` (inclusive) toward the root; first preemdeck.json wins. */
-export const findConfig = (start: string): string | null => {
+export const findConfig = async (start: string): Promise<string | null> => {
   let dir = start;
   for (;;) {
     const candidate = join(dir, CONFIG_NAME);
-    if (existsSync(candidate) && statSync(candidate).isFile()) return candidate;
+    if ((await exists(candidate)) && (await stat(candidate)).isFile()) return candidate;
     const parent = dirname(dir);
     if (parent === dir) return null;
     dir = parent;
@@ -40,13 +41,14 @@ export const findConfig = (start: string): string | null => {
 };
 
 /** Sorted mode names — skill folders that ship a `directive.md`. */
-export const availableModes = (skillsDir: string): string[] => {
-  if (!existsSync(skillsDir) || !statSync(skillsDir).isDirectory()) return [];
+export const availableModes = async (skillsDir: string): Promise<string[]> => {
+  if (!(await exists(skillsDir)) || !(await stat(skillsDir)).isDirectory()) return [];
   const names: string[] = [];
-  for (const entry of readdirSync(skillsDir)) {
+  const entries = await readdir(skillsDir);
+  for (const entry of entries) {
     const dir = join(skillsDir, entry);
     const body = join(dir, "directive.md");
-    if (statSync(dir).isDirectory() && existsSync(body) && statSync(body).isFile()) {
+    if ((await stat(dir)).isDirectory() && (await exists(body)) && (await stat(body)).isFile()) {
       names.push(entry);
     }
   }
@@ -60,10 +62,10 @@ export class ModesError extends Error {}
  * The slot a value maps to in modes.json; null if it has no (non-blank) entry.
  * Throws ModesError if modes.json is missing, unreadable, or not a JSON object.
  */
-export const slotFor = (modesFile: string, value: string): string | null => {
+export const slotFor = async (modesFile: string, value: string): Promise<string | null> => {
   let data: unknown;
   try {
-    data = JSON.parse(readFileSync(modesFile, "utf8"));
+    data = JSON.parse(await readFile(modesFile, "utf8"));
   } catch {
     throw new ModesError(`${modesFile} missing or malformed`);
   }
@@ -75,10 +77,10 @@ export const slotFor = (modesFile: string, value: string): string | null => {
 };
 
 /** Slot keys already defined in the config's `directive` object (insertion order). */
-export const configSlots = (config: string): string[] => {
+export const configSlots = async (config: string): Promise<string[]> => {
   let data: unknown;
   try {
-    data = JSON.parse(readFileSync(config, "utf8"));
+    data = JSON.parse(await readFile(config, "utf8"));
   } catch {
     return [];
   }
@@ -92,7 +94,7 @@ export const configSlots = (config: string): string[] => {
 export const setDirective = async (config: string, slot: string, value: string): Promise<void> => {
   let data: unknown;
   try {
-    data = JSON.parse(readFileSync(config, "utf8"));
+    data = JSON.parse(await readFile(config, "utf8"));
   } catch {
     data = {};
   }
@@ -126,7 +128,7 @@ export const main = async (
   const skillsDir = opts.skillsDir ?? SKILLS_DIR;
   const modesFile = opts.modesFile ?? MODES_FILE;
 
-  const modes = availableModes(skillsDir);
+  const modes = await availableModes(skillsDir);
   const listing = modes.join(", ") || "none";
   if (argv.length !== 1 || !argv[0] || argv[0].trim() === "") {
     process.stderr.write(`usage: set-mode <value>   (values: ${listing})\n`);
@@ -139,7 +141,7 @@ export const main = async (
   }
   let slot: string | null;
   try {
-    slot = slotFor(modesFile, value);
+    slot = await slotFor(modesFile, value);
   } catch (exc) {
     process.stderr.write(`${exc instanceof Error ? exc.message : String(exc)}\n`);
     return 2;
@@ -148,12 +150,12 @@ export const main = async (
     process.stderr.write(`mode ${pyRepr(value)} has no slot in modes.json\n`);
     return 2;
   }
-  const config = findConfig(searchStart);
+  const config = await findConfig(searchStart);
   if (config === null) {
     process.stderr.write(`${CONFIG_NAME} not found above ${searchStart}\n`);
     return 2;
   }
-  const slots = configSlots(config);
+  const slots = await configSlots(config);
   if (!slots.includes(slot)) {
     const slisting = slots.join(", ") || "none";
     process.stderr.write(`unknown slot ${pyRepr(slot)}; defined slots: ${slisting}\n`);

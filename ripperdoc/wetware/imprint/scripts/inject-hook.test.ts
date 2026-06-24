@@ -29,6 +29,8 @@ const writeTmp = async (content: string): Promise<string> => {
 // Mirror main(): split --event, then render, then emit with the injected stdin.
 const runHookCli = async (argv: string[], stdinText: string): Promise<{ out: string }> => {
   const [cliEvent, rest] = extractEventArg(argv);
+  // pluginRoot is irrelevant here: tests pass absolute paths, which resolve() honors verbatim.
+  const text = await renderTemplate(rest);
   let out = "";
   await runInjectionHook({
     event: cliEvent ?? undefined,
@@ -36,8 +38,7 @@ const runHookCli = async (argv: string[], stdinText: string): Promise<{ out: str
     write: (l) => {
       out = l;
     },
-    // pluginRoot is irrelevant here: tests pass absolute paths, which resolve() honors verbatim.
-    render: () => renderTemplate(rest),
+    render: () => text,
   });
   return { out };
 };
@@ -129,6 +130,7 @@ describe("inject-hook CLI", () => {
   test("--file imprint --event SessionStart parses with --event present", async () => {
     // Resolves IMPRINT.md against the real plugin root (renderTemplate default).
     const [cliEvent, rest] = extractEventArg(["--file", "imprint", "--event", "SessionStart"]);
+    const text = await renderTemplate(rest);
     let out = "";
     await runInjectionHook({
       event: cliEvent ?? undefined,
@@ -136,7 +138,7 @@ describe("inject-hook CLI", () => {
       write: (l) => {
         out = l;
       },
-      render: () => renderTemplate(rest),
+      render: () => text,
     });
     expect(JSON.parse(out).hookSpecificOutput.hookEventName).toBe("SessionStart");
   });

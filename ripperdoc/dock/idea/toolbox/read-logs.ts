@@ -3,7 +3,7 @@
  * read-logs.ts — read the last N lines of the running JetBrains IDE's log.
  */
 
-import { readFileSync } from "node:fs";
+import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { parseArgs } from "node:util";
 import { argparseError, argparseMessage } from "./cli.ts";
@@ -29,7 +29,7 @@ const parseIntArg = (name: string, raw: string): number => {
 export const _internals = {
   inIdea,
   resolveLogDir,
-  readFile: (path: string): string => readFileSync(path, { encoding: "latin1" }),
+  readFile: (path: string): Promise<string> => readFile(path, { encoding: "latin1" }),
 };
 
 /**
@@ -57,18 +57,18 @@ const splitLines = (text: string): string[] => {
  * resolveLogDir() is the single guard for a live IDE: it throws IdeaError if
  * none is found.
  */
-export const readLogs = (n = 50): string[] => {
-  const log = join(_internals.resolveLogDir(), "idea.log");
+export const readLogs = async (n = 50): Promise<string[]> => {
+  const log = join(await _internals.resolveLogDir(), "idea.log");
   // errors="replace" parity: read as latin1 so every byte decodes (no throw),
   // matching read_text(errors="replace") for the tail use case.
-  const lines = splitLines(_internals.readFile(log));
+  const lines = splitLines(await _internals.readFile(log));
   // Python slices lines[-n:]. Replicate its semantics exactly: n>0 -> last n;
   // n==0 -> all (Python's [-0:] is [0:]); n<0 -> drop the first |n|.
   return lines.slice(n > 0 ? Math.max(0, lines.length - n) : -n);
 };
 
 /** CLI entrypoint: parse argv argparse-faithfully (int n), gate on a live IDE, run readLogs, map errors to exit codes. */
-export const main = (argv: string[] = Bun.argv.slice(2)): number => {
+export const main = async (argv: string[] = Bun.argv.slice(2)): Promise<number> => {
   let parsed: ReturnType<typeof parseArgs>;
   try {
     parsed = parseArgs({ args: argv, allowPositionals: true });
@@ -88,7 +88,7 @@ export const main = (argv: string[] = Bun.argv.slice(2)): number => {
     if (!_internals.inIdea()) {
       throw new IdeaError("no JetBrains IDE in the process ancestry");
     }
-    lines = readLogs(n);
+    lines = await readLogs(n);
   } catch (exc) {
     if (exc instanceof IdeaError || (exc instanceof Error && typeof (exc as NodeJS.ErrnoException).code === "string")) {
       process.stderr.write(`read-logs: ${exc.message}\n`);
@@ -101,5 +101,5 @@ export const main = (argv: string[] = Bun.argv.slice(2)): number => {
 };
 
 if (import.meta.main) {
-  process.exit(main());
+  process.exit(await main());
 }
