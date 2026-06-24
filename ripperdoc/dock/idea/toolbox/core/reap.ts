@@ -16,14 +16,14 @@
  * (the contract settled this) — either would drop the pending reap.
  */
 
-import { unlink } from "node:fs/promises";
+import { unlink } from "node:fs/promises"
 
 /**
  * Default delay before the deferred unlink fires. ~3s gives the IDE ample
  * margin over its ~1s read window to pull the handed-off temp into memory
  * before the on-disk copy is reaped.
  */
-export const REAP_DELAY_MS = 3000;
+export const REAP_DELAY_MS = 3000
 
 /**
  * Schedule `paths` to be unlinked `delayMs` ms from now; return at once.
@@ -39,19 +39,19 @@ export const REAP_DELAY_MS = 3000;
  * caller-owned generator can't be exhausted before the timer fires.
  */
 export const reapLater = (paths: Iterable<string>, delayMs: number = REAP_DELAY_MS): void => {
-  const targets = [...paths];
+  const targets = [...paths]
   setTimeout(() => {
-    void reap(targets);
-  }, delayMs);
-};
+    void reap(targets)
+  }, delayMs)
+}
 
 /** Unlink every target, swallowing per-path errors (never rejects). */
 const reap = async (targets: string[]): Promise<void> => {
   for (const path of targets) {
     try {
-      await unlink(path);
+      await unlink(path)
     } catch {
       // never raise from the reaper (matches missing_ok=True + suppress(OSError))
     }
   }
-};
+}

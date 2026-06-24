@@ -19,7 +19,7 @@
  * (and our own validation failures via `usageError`) into a stderr line + exit 2.
  */
 
-import { type ParseArgsConfig, parseArgs } from "node:util";
+import { type ParseArgsConfig, parseArgs } from "node:util"
 
 /** Thrown by validators to request a clean `exit 2` with a usage message. */
 export class UsageError extends Error {}
@@ -28,12 +28,11 @@ export class UsageError extends Error {}
 // The `=> never` lives on the variable type, not inline on the arrow: only an
 // explicitly-typed `never`-returning binding drives call-site control-flow
 // analysis (an inline `(): never =>` does not), so callers like `parseOrExit`
-// and every `main` are correctly seen as terminating. (`argparseError` in
-// `ripperdoc/dock/idea/toolbox/cli.ts` uses the same pattern.)
+// and every `main` are correctly seen as terminating.
 export const usageError: (prog: string, message: string) => never = (prog, message) => {
-  process.stderr.write(`${prog}: ${message}\n`);
-  process.exit(2);
-};
+  process.stderr.write(`${prog}: ${message}\n`)
+  process.exit(2)
+}
 
 /**
  * Run `parseArgs`, converting any thrown parse error (and any `UsageError` from
@@ -42,12 +41,12 @@ export const usageError: (prog: string, message: string) => never = (prog, messa
  */
 export const parseOrExit = <T extends ParseArgsConfig>(prog: string, config: T): ReturnType<typeof parseArgs<T>> => {
   try {
-    return parseArgs<T>({ args: Bun.argv.slice(2), ...config });
+    return parseArgs<T>({ args: Bun.argv.slice(2), ...config })
   } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
-    usageError(prog, message);
+    const message = err instanceof Error ? err.message : String(err)
+    usageError(prog, message)
   }
-};
+}
 
 /**
  * Parse an int option value the way argparse `type=int` does. `raw` is the
@@ -57,16 +56,16 @@ export const parseOrExit = <T extends ParseArgsConfig>(prog: string, config: T):
 export const parseIntArg = (prog: string, name: string, raw: string): number => {
   // Reject anything that isn't a clean optional-sign integer (no floats, no "3abc").
   if (!/^[+-]?\d+$/.test(raw.trim())) {
-    usageError(prog, `argument ${name}: invalid int value: '${raw}'`);
+    usageError(prog, `argument ${name}: invalid int value: '${raw}'`)
   }
-  return Number.parseInt(raw, 10);
-};
+  return Number.parseInt(raw, 10)
+}
 
 /** One parsed `--action`: its `name`, and the `=arg` payload (`null` when bare). */
-export type Action = { name: string; arg: string | null };
+export type Action = { name: string; arg: string | null }
 
 /** Whitelist entry per action name: `[needsArg]`. Extend the tuple as porting needs. */
-export type ActionSpec = Record<string, { needsArg: boolean }>;
+export type ActionSpec = Record<string, { needsArg: boolean }>
 
 /**
  * Split a `--action` value into `{name, arg}` on the FIRST `=` only.
@@ -74,10 +73,10 @@ export type ActionSpec = Record<string, { needsArg: boolean }>;
  * original `_parse_action` (so `=` inside a URL/path query stays in `arg`).
  */
 export const parseAction = (value: string): Action => {
-  const eq = value.indexOf("=");
-  if (eq === -1) return { name: value, arg: null };
-  return { name: value.slice(0, eq), arg: value.slice(eq + 1) };
-};
+  const eq = value.indexOf("=")
+  if (eq === -1) return { name: value, arg: null }
+  return { name: value.slice(0, eq), arg: value.slice(eq + 1) }
+}
 
 /**
  * Parse + whitelist a list of raw `--action` values against `spec`. Returns the
@@ -86,18 +85,18 @@ export const parseAction = (value: string): Action => {
  * `_validate_action`. `raw` is `result.values.action` (string[] | undefined).
  */
 export const validateActions = (prog: string, raw: string[] | undefined, spec: ActionSpec): Action[] => {
-  const out: Action[] = [];
+  const out: Action[] = []
   for (const value of raw ?? []) {
-    const { name, arg } = parseAction(value);
-    const entry = spec[name];
+    const { name, arg } = parseAction(value)
+    const entry = spec[name]
     if (!entry) {
-      const allowed = Object.keys(spec).sort().join(", ");
-      usageError(prog, `unknown action '${name}' (choose from ${allowed})`);
+      const allowed = Object.keys(spec).sort().join(", ")
+      usageError(prog, `unknown action '${name}' (choose from ${allowed})`)
     }
     if (entry.needsArg && (arg === null || arg.length === 0)) {
-      usageError(prog, `action '${name}' needs an argument: --action ${name}=<value>`);
+      usageError(prog, `action '${name}' needs an argument: --action ${name}=<value>`)
     }
-    out.push({ name, arg });
+    out.push({ name, arg })
   }
-  return out;
-};
+  return out
+}

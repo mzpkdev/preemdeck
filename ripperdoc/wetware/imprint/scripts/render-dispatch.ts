@@ -45,7 +45,7 @@ No jobs / no args is the IDLE state, not an error: it renders an empty panel
 
 Fails LOUD (nonzero exit + stderr) on: an unknown flag, \`--waits-on\` without a
 preceding \`--blocked\`, or \`--waits-on\` with no value. Never emits a partial or
-quietly-wrong panel.`;
+quietly-wrong panel.`
 
 const GLYPH: Record<string, string> = {
   done: "■", // ■ U+25A0 black square
@@ -53,10 +53,10 @@ const GLYPH: Record<string, string> = {
   pending: "□", // □ U+25A1 white square  queued
   failed: "⊞", // ⊞ U+229E squared plus
   blocked: "⊟", // ⊟ U+229F squared minus
-};
-const FILLED = "▰"; // ▰
-const EMPTY = "▱"; // ▱
-const PARALLEL = "⎇"; // ⎇ U+2387 — parallel-wave node label
+}
+const FILLED = "▰" // ▰
+const EMPTY = "▱" // ▱
+const PARALLEL = "⎇" // ⎇ U+2387 — parallel-wave node label
 
 const STATUS_FLAGS: Record<string, string> = {
   "--done": "done",
@@ -64,26 +64,26 @@ const STATUS_FLAGS: Record<string, string> = {
   "--pending": "pending",
   "--failed": "failed",
   "--blocked": "blocked",
-};
-const WAVE_FLAGS = new Set(["--running", "--pending"]); // only these comma-group into waves
+}
+const WAVE_FLAGS = new Set(["--running", "--pending"]) // only these comma-group into waves
 
 // Rail pieces (box-drawing tree rails).
-const TEE = "├── "; // ├──
-const ELBOW = "└── "; // └──
-const PIPE = "│   "; // │ + 3 spaces
-const GAP = "    "; // 4 spaces (under a finished parent)
+const TEE = "├── " // ├──
+const ELBOW = "└── " // └──
+const PIPE = "│   " // │ + 3 spaces
+const GAP = "    " // 4 spaces (under a finished parent)
 
 /** Raised for any malformed invocation — surfaced as exit 2 + stderr. */
 export class DispatchError extends Error {}
 
 /** One top-level entry: a single job, or a `parallel` wave of members. */
 export type Node = {
-  status: string; // status key ("done"/…), or "parallel" for a wave
-  label: string; // job text (unused for a parallel node)
-  waitsOn: string | null; // set only for blocked jobs
-  memberStatus: string; // member glyph status, parallel nodes only
-  members: string[]; // wave member labels
-};
+  status: string // status key ("done"/…), or "parallel" for a wave
+  label: string // job text (unused for a parallel node)
+  waitsOn: string | null // set only for blocked jobs
+  memberStatus: string // member glyph status, parallel nodes only
+  members: string[] // wave member labels
+}
 
 const makeNode = (partial: Partial<Node> & { status: string }): Node => {
   return {
@@ -92,8 +92,8 @@ const makeNode = (partial: Partial<Node> & { status: string }): Node => {
     waitsOn: partial.waitsOn ?? null,
     memberStatus: partial.memberStatus ?? "",
     members: partial.members ?? [],
-  };
-};
+  }
+}
 
 /**
  * Split one arg on separating commas -> [pieces, ends_on_separating_comma].
@@ -101,165 +101,165 @@ const makeNode = (partial: Partial<Node> & { status: string }): Node => {
  * trailing bare comma = separator that continues forward; comma+space = literal.
  */
 export const scanArg = (arg: string): [string[], boolean] => {
-  const pieces: string[] = [];
-  let cur: string[] = [];
-  let endsOpen = false;
-  let i = 0;
-  const n = arg.length;
+  const pieces: string[] = []
+  let cur: string[] = []
+  let endsOpen = false
+  let i = 0
+  const n = arg.length
   while (i < n) {
-    const ch = arg[i];
+    const ch = arg[i]
     if (ch === "," && (i + 1 >= n || arg[i + 1] !== " ")) {
       // separating comma: close the current piece
-      pieces.push(cur.join(""));
-      cur = [];
+      pieces.push(cur.join(""))
+      cur = []
       if (i + 1 >= n) {
-        endsOpen = true; // bare trailing comma -> continue forward
+        endsOpen = true // bare trailing comma -> continue forward
       }
-      i += 1;
-      continue;
+      i += 1
+      continue
     }
-    cur.push(ch as string);
-    i += 1;
+    cur.push(ch as string)
+    i += 1
   }
   if (cur.length > 0 || !endsOpen) {
-    pieces.push(cur.join(""));
+    pieces.push(cur.join(""))
   }
-  return [pieces, endsOpen];
-};
+  return [pieces, endsOpen]
+}
 
 /** Group a wave flag's value args into waves (each a list of member labels). */
 export const splitWaves = (args: string[]): string[][] => {
-  const waves: string[][] = [];
-  let carry = false; // previous arg ended on a separating comma -> join forward
+  const waves: string[][] = []
+  let carry = false // previous arg ended on a separating comma -> join forward
   for (const arg of args) {
-    const [pieces, endsOpen] = scanArg(arg);
+    const [pieces, endsOpen] = scanArg(arg)
     if (carry && waves.length > 0) {
       // the bare trailing comma was a separator: further members of the SAME wave.
-      (waves[waves.length - 1] as string[]).push(...pieces);
+      ;(waves[waves.length - 1] as string[]).push(...pieces)
     } else {
-      waves.push([...pieces]);
+      waves.push([...pieces])
     }
-    carry = endsOpen;
+    carry = endsOpen
   }
   // drop empty members, then drop any wave left with nothing
-  const cleaned = waves.map((wave) => wave.filter((m) => m !== ""));
-  return cleaned.filter((wave) => wave.length > 0);
-};
+  const cleaned = waves.map((wave) => wave.filter((m) => m !== ""))
+  return cleaned.filter((wave) => wave.length > 0)
+}
 
 /** Walk argv left-to-right into an ordered list of Nodes. */
 export const parse = (argv: string[]): Node[] => {
-  const nodes: Node[] = [];
-  let i = 0;
-  const n = argv.length;
+  const nodes: Node[] = []
+  let i = 0
+  const n = argv.length
   while (i < n) {
-    const tok = argv[i] as string;
+    const tok = argv[i] as string
     if (tok === "--waits-on") {
-      throw new DispatchError("--waits-on must follow a --blocked job");
+      throw new DispatchError("--waits-on must follow a --blocked job")
     }
     if (!(tok in STATUS_FLAGS)) {
-      throw new DispatchError(`unknown flag: ${tok}`);
+      throw new DispatchError(`unknown flag: ${tok}`)
     }
-    const status = STATUS_FLAGS[tok] as string;
+    const status = STATUS_FLAGS[tok] as string
     // gather this flag's value args (everything up to the next flag)
-    let j = i + 1;
-    const values: string[] = [];
+    let j = i + 1
+    const values: string[] = []
     while (j < n && !(argv[j] as string).startsWith("--")) {
-      values.push(argv[j] as string);
-      j += 1;
+      values.push(argv[j] as string)
+      j += 1
     }
     if (status === "blocked") {
       if (values.length !== 1) {
-        throw new DispatchError("--blocked takes exactly one LABEL");
+        throw new DispatchError("--blocked takes exactly one LABEL")
       }
-      const label = values[0] as string;
+      const label = values[0] as string
       // must be immediately followed by --waits-on VALUE
       if (j >= n || argv[j] !== "--waits-on") {
-        throw new DispatchError("--blocked must be followed by --waits-on");
+        throw new DispatchError("--blocked must be followed by --waits-on")
       }
       if (j + 1 >= n || (argv[j + 1] as string).startsWith("--")) {
-        throw new DispatchError("--waits-on requires a value");
+        throw new DispatchError("--waits-on requires a value")
       }
-      nodes.push(makeNode({ status: "blocked", label, waitsOn: argv[j + 1] as string }));
-      i = j + 2;
-      continue;
+      nodes.push(makeNode({ status: "blocked", label, waitsOn: argv[j + 1] as string }))
+      i = j + 2
+      continue
     }
     if (values.length === 0) {
-      throw new DispatchError(`${tok} requires at least one LABEL`);
+      throw new DispatchError(`${tok} requires at least one LABEL`)
     }
     if (WAVE_FLAGS.has(tok)) {
-      const waves = splitWaves(values);
+      const waves = splitWaves(values)
       if (waves.length === 0) {
-        throw new DispatchError(`${tok} requires at least one LABEL`);
+        throw new DispatchError(`${tok} requires at least one LABEL`)
       }
       for (const wave of waves) {
         // a singleton wave is a plain branch; 2+ members -> parallel node
         if (wave.length === 1) {
-          nodes.push(makeNode({ status, label: wave[0] as string }));
+          nodes.push(makeNode({ status, label: wave[0] as string }))
         } else {
-          nodes.push(makeNode({ status: "parallel", memberStatus: status, members: wave }));
+          nodes.push(makeNode({ status: "parallel", memberStatus: status, members: wave }))
         }
       }
     } else {
       // done / failed: commas are literal, one branch per value arg
       for (const v of values) {
-        nodes.push(makeNode({ status, label: v }));
+        nodes.push(makeNode({ status, label: v }))
       }
     }
-    i = j;
+    i = j
   }
-  return nodes;
-};
+  return nodes
+}
 
 /** Render parsed nodes into the JOBS panel text (no trailing newline). */
 export const render = (nodes: Node[]): string => {
   if (nodes.length === 0) {
     // idle state: empty 0/0 gauge over a single `idle` node
-    return `JOBS  ${EMPTY}  0/0\n${ELBOW}idle`;
+    return `JOBS  ${EMPTY}  0/0\n${ELBOW}idle`
   }
 
-  let total = 0;
-  let done = 0;
+  let total = 0
+  let done = 0
   for (const node of nodes) {
     if (node.status === "parallel") {
-      total += node.members.length;
+      total += node.members.length
       // parallel members are running/pending -> never ■, so add 0 to done
     } else {
-      total += 1;
+      total += 1
       if (node.status === "done") {
-        done += 1;
+        done += 1
       }
     }
   }
 
-  const gauge = FILLED.repeat(done) + EMPTY.repeat(total - done);
-  const lines = [`JOBS  ${gauge}  ${done}/${total}`];
+  const gauge = FILLED.repeat(done) + EMPTY.repeat(total - done)
+  const lines = [`JOBS  ${gauge}  ${done}/${total}`]
 
   for (let idx = 0; idx < nodes.length; idx++) {
-    const node = nodes[idx] as Node;
-    const last = idx === nodes.length - 1;
-    const branch = last ? ELBOW : TEE;
+    const node = nodes[idx] as Node
+    const last = idx === nodes.length - 1
+    const branch = last ? ELBOW : TEE
     if (node.status === "parallel") {
-      lines.push(`${branch}${PARALLEL}`);
-      const memberGlyph = GLYPH[node.memberStatus] as string;
-      const cont = last ? GAP : PIPE;
+      lines.push(`${branch}${PARALLEL}`)
+      const memberGlyph = GLYPH[node.memberStatus] as string
+      const cont = last ? GAP : PIPE
       for (let midx = 0; midx < node.members.length; midx++) {
-        const member = node.members[midx] as string;
-        const mlast = midx === node.members.length - 1;
-        const mbranch = mlast ? ELBOW : TEE;
-        lines.push(`${cont}${mbranch}${memberGlyph} ${member}`);
+        const member = node.members[midx] as string
+        const mlast = midx === node.members.length - 1
+        const mbranch = mlast ? ELBOW : TEE
+        lines.push(`${cont}${mbranch}${memberGlyph} ${member}`)
       }
     } else {
-      const glyph = GLYPH[node.status] as string;
-      let line = `${branch}${glyph} ${node.label}`;
+      const glyph = GLYPH[node.status] as string
+      let line = `${branch}${glyph} ${node.label}`
       if (node.waitsOn !== null) {
-        line += ` — waits on ${node.waitsOn}`; // — waits on X
+        line += ` — waits on ${node.waitsOn}` // — waits on X
       }
-      lines.push(line);
+      lines.push(line)
     }
   }
 
-  return lines.join("\n");
-};
+  return lines.join("\n")
+}
 
 /**
  * The CLI entry: print the help on `-h`/`--help`, else parse argv and write the
@@ -269,24 +269,24 @@ export const render = (nodes: Node[]): string => {
  */
 export const main = (argv: string[]): number => {
   if (argv.includes("-h") || argv.includes("--help")) {
-    process.stdout.write(`${DOC}\n`);
-    return 0;
+    process.stdout.write(`${DOC}\n`)
+    return 0
   }
-  let panel: string;
+  let panel: string
   try {
-    const nodes = parse(argv);
-    panel = render(nodes);
+    const nodes = parse(argv)
+    panel = render(nodes)
   } catch (exc) {
     if (exc instanceof DispatchError) {
-      process.stderr.write(`render-dispatch: ${exc.message}\n`);
-      return 2;
+      process.stderr.write(`render-dispatch: ${exc.message}\n`)
+      return 2
     }
-    throw exc;
+    throw exc
   }
-  process.stdout.write(`${panel}\n`);
-  return 0;
-};
+  process.stdout.write(`${panel}\n`)
+  return 0
+}
 
 if (import.meta.main) {
-  process.exit(main(Bun.argv.slice(2)));
+  process.exit(main(Bun.argv.slice(2)))
 }

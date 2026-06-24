@@ -13,10 +13,10 @@
  * trait, not macOS BSD `ps`.
  */
 
-import { readdir, stat } from "node:fs/promises";
-import { homedir } from "node:os";
-import { join } from "node:path";
-import { IdeaError } from "./errors.ts";
+import { readdir, stat } from "node:fs/promises"
+import { homedir } from "node:os"
+import { join } from "node:path"
+import { IdeaError } from "./errors.ts"
 
 /** Basenames of JetBrains IDE launchers at `<App>.app/Contents/MacOS/<name>`. */
 export const IDE_BINARIES: ReadonlySet<string> = new Set([
@@ -30,13 +30,13 @@ export const IDE_BINARIES: ReadonlySet<string> = new Set([
   "rider",
   "datagrip",
   "rustrover",
-]);
+])
 
 /** One ancestry step: a process's parent pid and its executable path. */
 type PsEntry = {
-  ppid: number;
-  exe: string;
-};
+  ppid: number
+  exe: string
+}
 
 /**
  * One `ps -o ppid=,comm= -p <pid>` probe, parsed. Returns null when `ps`
@@ -47,33 +47,33 @@ type PsEntry = {
  * Injectable so tests can feed canned ancestry without spawning `ps` (mirrors
  * the Python tests monkeypatching `idea_mac.subprocess.run`).
  */
-export type PsProbe = (pid: number) => Promise<PsEntry | null>;
+export type PsProbe = (pid: number) => Promise<PsEntry | null>
 
 const defaultPsProbe: PsProbe = async (pid) => {
   const proc = Bun.spawn(["ps", "-o", "ppid=,comm=", "-p", String(pid)], {
     stdout: "pipe",
-  });
-  const out = await new Response(proc.stdout).text();
-  await proc.exited;
+  })
+  const out = await new Response(proc.stdout).text()
+  await proc.exited
   // Python: out.split(maxsplit=1) — leading whitespace stripped, split once.
-  const trimmed = out.replace(/^\s+/, "");
-  const match = trimmed.match(/^(\S+)\s+([\s\S]*)$/);
+  const trimmed = out.replace(/^\s+/, "")
+  const match = trimmed.match(/^(\S+)\s+([\s\S]*)$/)
   if (match === null) {
-    return null;
+    return null
   }
-  const ppid = Number(match[1]);
-  const exe = (match[2] ?? "").trim();
+  const ppid = Number(match[1])
+  const exe = (match[2] ?? "").trim()
   if (!Number.isFinite(ppid)) {
-    return null;
+    return null
   }
-  return { ppid, exe };
-};
+  return { ppid, exe }
+}
 
 /** True when this terminal was launched by a JetBrains IDE. */
 export const inIdea = (): boolean => {
-  const bundle = process.env.__CFBundleIdentifier ?? "";
-  return bundle.startsWith("com.jetbrains.") || process.env.TERMINAL_EMULATOR === "JetBrains-JediTerm";
-};
+  const bundle = process.env.__CFBundleIdentifier ?? ""
+  return bundle.startsWith("com.jetbrains.") || process.env.TERMINAL_EMULATOR === "JetBrains-JediTerm"
+}
 
 /**
  * Absolute path to the JetBrains IDE binary this hook is running inside.
@@ -93,26 +93,26 @@ export const resolveExecPath = async (
   probe: PsProbe = defaultPsProbe,
   startPid: number = process.pid,
 ): Promise<string> => {
-  let pid = startPid;
+  let pid = startPid
   for (let i = 0; i < 16; i++) {
     // bounded climb
-    const entry = await probe(pid);
+    const entry = await probe(pid)
     if (entry === null) {
-      break;
+      break
     }
-    const { ppid, exe } = entry;
+    const { ppid, exe } = entry
     // basename: everything after the last "/" (Python str.rpartition("/")[2]).
-    const base = exe.slice(exe.lastIndexOf("/") + 1);
+    const base = exe.slice(exe.lastIndexOf("/") + 1)
     if (IDE_BINARIES.has(base)) {
-      return exe;
+      return exe
     }
-    pid = ppid;
+    pid = ppid
     if (pid <= 1) {
-      break;
+      break
     }
   }
-  throw new IdeaError("no JetBrains IDE in the process ancestry");
-};
+  throw new IdeaError("no JetBrains IDE in the process ancestry")
+}
 
 /**
  * Log dir of the IDE this process is running inside (active product, newest
@@ -129,46 +129,46 @@ export const resolveLogDir = async (
   resolveExec: () => string | Promise<string> = () => resolveExecPath(),
 ): Promise<string> => {
   // Path(exec).stem.lower(): the basename without its final suffix, lowercased.
-  const execPath = await resolveExec();
-  const baseName = execPath.slice(execPath.lastIndexOf("/") + 1);
-  const dot = baseName.lastIndexOf(".");
-  const stem = (dot > 0 ? baseName.slice(0, dot) : baseName).toLowerCase();
-  const product = stem === "idea" ? "intellijidea" : stem;
+  const execPath = await resolveExec()
+  const baseName = execPath.slice(execPath.lastIndexOf("/") + 1)
+  const dot = baseName.lastIndexOf(".")
+  const stem = (dot > 0 ? baseName.slice(0, dot) : baseName).toLowerCase()
+  const product = stem === "idea" ? "intellijidea" : stem
 
   // Path.home() honors $HOME; mirror that so the tmp-HOME tests work.
-  const home = process.env.HOME ?? homedir();
-  const base = join(home, "Library/Logs/JetBrains");
+  const home = process.env.HOME ?? homedir()
+  const base = join(home, "Library/Logs/JetBrains")
 
-  let names: string[];
+  let names: string[]
   try {
-    names = await readdir(base);
+    names = await readdir(base)
   } catch {
-    names = [];
+    names = []
   }
 
-  const matches: Array<{ path: string; mtime: number }> = [];
+  const matches: Array<{ path: string; mtime: number }> = []
   for (const name of names) {
     if (!name.toLowerCase().startsWith(product)) {
-      continue;
+      continue
     }
-    const path = join(base, name);
-    let st: Awaited<ReturnType<typeof stat>>;
+    const path = join(base, name)
+    let st: Awaited<ReturnType<typeof stat>>
     try {
-      st = await stat(path);
+      st = await stat(path)
     } catch {
-      continue;
+      continue
     }
     if (!st.isDirectory()) {
-      continue;
+      continue
     }
-    matches.push({ path, mtime: st.mtimeMs });
+    matches.push({ path, mtime: st.mtimeMs })
   }
 
   // Newest mtime first (Python sorted(..., key=mtime, reverse=True)).
-  matches.sort((a, b) => b.mtime - a.mtime);
-  const newest = matches[0];
+  matches.sort((a, b) => b.mtime - a.mtime)
+  const newest = matches[0]
   if (newest === undefined) {
-    throw new IdeaError(`no log dir for '${product}'`);
+    throw new IdeaError(`no log dir for '${product}'`)
   }
-  return newest.path;
-};
+  return newest.path
+}

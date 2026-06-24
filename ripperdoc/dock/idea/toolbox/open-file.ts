@@ -11,116 +11,138 @@
  * Opt-in preview=true layers a best-effort step AFTER the open: setPreview()
  * flips the editor to the rendered preview via ideScript. setPreview() never
  * throws: a failure degrades with a stderr note, so the open still succeeds.
+ *
+ * The CLI is a cmdore commandless command: cmdore owns parsing, help, the global
+ * flags (--quiet/--verbose/--json/--dry-run/--help/--version), and exit codes.
+ * main() wraps execute() with onError:"throw" so it can keep the repo CLI shape
+ * (return a number; process.exit only under the import.meta.main guard) and map
+ * IdeaError / CmdoreError to the open-file: prefixed stderr line.
  */
 
-import { readFile } from "node:fs/promises";
-import { resolve } from "node:path";
-import { parseArgs } from "node:util";
-import { argparseError, argparseMessage } from "./cli.ts";
-import { IdeaError } from "./core/errors.ts";
-import { inIdea, launch, setPreview } from "./core/index.ts";
+import { readFile } from "node:fs/promises"
+import { resolve } from "node:path"
+import type { StandardSchemaV1 } from "cmdore"
+import { CmdoreError, defineCommand, effect, execute } from "cmdore"
+import { IdeaError } from "./core/errors.ts"
+import { inIdea, launch as rawLaunch, setPreview as rawSetPreview } from "./core/index.ts"
 
-const PROG = "open-file";
-const USAGE = "usage: open-file [-h] [--line LINE] [--column COLUMN] [--wait] [--preview]\n                 path";
+const PROG = "open-file"
 
-/** argparse type=int parity: reject non-integers with the exact error message + exit 2. */
-const parseIntArg = (name: string, raw: string): number => {
-  if (!/^[+-]?\d+$/.test(raw.trim())) {
-    argparseError(USAGE, PROG, `argument ${name}: invalid int value: '${raw}'`);
-  }
-  return Number.parseInt(raw, 10);
-};
+/** cmdore metadata for the commandless CLI; version mirrors the idea plugin manifest. */
+const METADATA = {
+  name: PROG,
+  version: "0.1.0",
+  description: "Open a file in the running JetBrains IDE.",
+} as const
 
 /**
- * Engine seam: tests override these instead of mock.module on ./core (which
- * leaks across the single `bun test` run).
+ * A Standard Schema that coerces an integer token to a number. cmdore hands it
+ * the raw `--line`/`--column` string; a non-integer fails validation, which
+ * cmdore surfaces as a CmdoreError carrying this message.
  */
-export const _internals = {
-  inIdea,
-  launch,
-  setPreview,
-  readFile: (path: string): Promise<string> => readFile(path, { encoding: "utf8" }),
-};
+const integer = (flag: string): StandardSchemaV1<number> => ({
+  "~standard": {
+    version: 1,
+    vendor: "preemdeck",
+    validate: (value: unknown) => {
+      const text = String(value).trim()
+      return /^[+-]?\d+$/.test(text)
+        ? { value: Number.parseInt(text, 10) }
+        : { issues: [{ message: `${flag} must be an integer, got '${value}'` }] }
+    },
+  },
+})
+
+/**
+ * The write side-effects, wrapped as cmdore `effect.fn` so they are skipped on
+ * `--dry-run` (when cmdore flips `effect.enabled` off) and mockable in tests by
+ * the WRAPPER REFERENCE (`effect.mock(launch, …)`) — no per-file mutable seam.
+ * The `--wait` read-back is a READ and stays unwrapped (real `node:fs/promises`).
+ */
+export const launch = effect.fn(rawLaunch, "ide.launch")
+export const setPreview = effect.fn(rawSetPreview, "ide.setPreview")
 
 /** Options for {@link openFile}: 1-based caret line/column, the wait toggle, and the rendered-preview opt-in. */
 export type OpenFileOptions = {
-  line?: number;
-  column?: number | null;
-  wait?: boolean;
-  preview?: boolean;
-};
+  line?: number
+  column?: number | null
+  wait?: boolean
+  preview?: boolean
+}
 
 /**
  * Open `path` at `line` (and optional `column`) in the running JetBrains IDE.
  * Returns the file's text on the wait path, else null (fire-and-forget).
  */
 export const openFile = async (path: string, options: OpenFileOptions = {}): Promise<string | null> => {
-  const line = options.line ?? 1;
-  const column = options.column ?? null;
-  const wait = options.wait ?? false;
-  const preview = options.preview ?? false;
+  const line = options.line ?? 1
+  const column = options.column ?? null
+  const wait = options.wait ?? false
+  const preview = options.preview ?? false
 
-  const target = resolve(path);
-  const args = ["--line", String(line)];
+  const target = resolve(path)
+  const args = ["--line", String(line)]
   if (column !== null) {
-    args.push("--column", String(column));
+    args.push("--column", String(column))
   }
-  args.push(target);
-  await _internals.launch(args, { wait });
+  args.push(target)
+  await launch(args, { wait })
   if (preview) {
-    await _internals.setPreview(target);
+    await setPreview(target)
   }
-  return wait ? await _internals.readFile(path) : null;
-};
+  return wait ? await readFile(path, { encoding: "utf8" }) : null
+}
 
-/** CLI entrypoint: parse argv argparse-faithfully (int line/column), gate on a live IDE, run openFile, map errors to exit codes. */
-export const main = async (argv: string[] = Bun.argv.slice(2)): Promise<number> => {
-  const options = {
-    line: { type: "string" },
-    column: { type: "string" },
-    wait: { type: "boolean" },
-    preview: { type: "boolean" },
-  } as const;
-  let parsed: ReturnType<typeof parseArgs<{ options: typeof options; allowPositionals: true }>>;
-  try {
-    parsed = parseArgs({ args: argv, options, allowPositionals: true });
-  } catch (err) {
-    argparseError(USAGE, PROG, argparseMessage(err));
-  }
-  const path = parsed.positionals[0];
-  if (path === undefined) {
-    argparseError(USAGE, PROG, "the following arguments are required: path");
-  }
-  if (parsed.positionals.length > 1) {
-    argparseError(USAGE, PROG, `unrecognized arguments: ${parsed.positionals.slice(1).join(" ")}`);
-  }
-  const line = parsed.values.line !== undefined ? parseIntArg("--line", parsed.values.line) : 1;
-  const column = parsed.values.column !== undefined ? parseIntArg("--column", parsed.values.column) : null;
-  const wait = parsed.values.wait === true;
-  const preview = parsed.values.preview === true;
+/**
+ * The cmdore command behind the CLI. Gates on a live IDE (cheap fail-fast before
+ * launch()'s deeper resolveExecPath() ancestry walk), runs openFile, and on the
+ * --wait path writes the file text to stdout verbatim (no trailing newline).
+ */
+const openFileCommand = defineCommand({
+  name: PROG,
+  description: METADATA.description,
+  arguments: [{ name: "path", description: "file to open", required: true }],
+  options: [
+    { name: "line", arity: 1, hint: "n", description: "1-based caret line", schema: integer("--line") },
+    { name: "column", arity: 1, hint: "n", description: "1-based caret column", schema: integer("--column") },
+    { name: "wait", arity: 0, description: "block until the tab closes, then print the file back" },
+    { name: "preview", arity: 0, description: "flip the editor to the rendered preview after opening" },
+  ],
+  run: async ({ path, line, column, wait, preview }) => {
+    if (!inIdea()) {
+      throw new IdeaError("no JetBrains IDE in the process ancestry")
+    }
+    const contents = await openFile(path, { line, column, wait, preview })
+    if (contents !== null) {
+      process.stdout.write(contents)
+    }
+  },
+})
 
-  let contents: string | null;
+/**
+ * CLI entrypoint. Hands argv to cmdore (parsing, help, global flags), then maps
+ * the two domain failures to the open-file: stderr line and their exit codes:
+ * IdeaError -> 1, CmdoreError (bad flag / missing path / non-integer) -> its
+ * own exitCode. Anything else is a bug and rethrown.
+ */
+export const main = async (argv: string[]): Promise<number> => {
   try {
-    // Cheap CLI gate: fail fast/clean outside a JetBrains terminal, before
-    // launch()'s deeper resolveExecPath() ancestry walk.
-    if (!_internals.inIdea()) {
-      throw new IdeaError("no JetBrains IDE in the process ancestry");
+    await execute(openFileCommand, { argv, metadata: METADATA, onError: "throw" })
+  } catch (error) {
+    if (error instanceof IdeaError) {
+      process.stderr.write(`${PROG}: ${error.message}\n`)
+      return 1
     }
-    contents = await openFile(path, { line, column, wait, preview });
-  } catch (exc) {
-    if (exc instanceof IdeaError) {
-      process.stderr.write(`open-file: ${exc.message}\n`);
-      return 1;
+    if (error instanceof CmdoreError) {
+      process.stderr.write(`${PROG}: ${error.message}\n`)
+      return error.exitCode
     }
-    throw exc;
+    throw error
   }
-  // Only --wait is result-aware: print the file text (no trailing newline added).
-  if (contents !== null) {
-    process.stdout.write(contents);
-  }
-  return 0;
-};
+  return 0
+}
 
 if (import.meta.main) {
-  process.exit(await main());
+  const code = await main(Bun.argv.slice(2))
+  process.exit(code)
 }

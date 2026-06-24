@@ -36,16 +36,16 @@
  * as a hard failure and exits non-zero.
  */
 
-import { extname } from "node:path";
-import { parseUrl } from "../../../../../lib/text.ts";
-import { escapeGroovy, type RunGroovyDeps, runGroovy } from "./groovy.ts";
+import { extname } from "node:path"
+import { parseUrl } from "../../../../../lib/text.ts"
+import { escapeGroovy, type RunGroovyDeps, runGroovy } from "./groovy.ts"
 
 /**
  * HTML-family extensions that route to the JCEF web preview instead of the
  * markdown SHOW_PREVIEW flip. Matched case-insensitively against the target's
  * suffix.
  */
-export const HTML_PREVIEW_EXTS: ReadonlySet<string> = new Set([".html", ".htm", ".xhtml"]);
+export const HTML_PREVIEW_EXTS: ReadonlySet<string> = new Set([".html", ".htm", ".xhtml"])
 
 /**
  * Groovy run on the EDT against the live IntelliJ Platform API. `path` is the
@@ -74,8 +74,8 @@ ApplicationManager.getApplication().invokeLater {
         editor.setLayout(TextEditorWithPreview.Layout.SHOW_PREVIEW)
     }
 }
-`;
-};
+`
+}
 
 /**
  * Groovy for HTML-family targets: open the platform's JCEF web preview. `path`
@@ -108,8 +108,8 @@ ApplicationManager.getApplication().invokeLater {
         t.printStackTrace()
     }
 }
-`;
-};
+`
+}
 
 /**
  * The proven WebPreview-open OPERATION, the SINGLE SOURCE OF TRUTH so every
@@ -135,8 +135,8 @@ const webpreviewOpenBodyRaw = (url: string, title: string, projectVar: string): 
 def url = com.intellij.util.Urls.newFromEncoded("${url}")
 def dummy = new com.intellij.testFramework.LightVirtualFile("${title}")
 def previewFile = new com.intellij.ide.browsers.actions.WebPreviewVirtualFile(dummy, url)
-com.intellij.openapi.fileEditor.FileEditorManager.getInstance(${projectVar}).openFile(previewFile, true)`;
-};
+com.intellij.openapi.fileEditor.FileEditorManager.getInstance(${projectVar}).openFile(previewFile, true)`
+}
 
 /**
  * Splice controls for {@link webpreviewOpenBody}: which in-scope Project the
@@ -150,10 +150,10 @@ export type WebpreviewOpenBodyOptions = {
    * `project` (notify's action) must pass a non-colliding name, since Groovy
    * forbids re-declaring an enclosing-scope variable.
    */
-  projectVar?: string;
+  projectVar?: string
   /** Prefixed to every line so the block aligns when spliced into a deeper nesting level. */
-  indent?: string;
-};
+  indent?: string
+}
 
 /**
  * Render the shared WebPreview-open fragment with `url`/`title` literals.
@@ -169,17 +169,17 @@ export const webpreviewOpenBody = (
   titleLiteral: string,
   options: WebpreviewOpenBodyOptions = {},
 ): string => {
-  const projectVar = options.projectVar ?? "project";
-  const indent = options.indent ?? "";
-  const body = webpreviewOpenBodyRaw(urlLiteral, titleLiteral, projectVar);
+  const projectVar = options.projectVar ?? "project"
+  const indent = options.indent ?? ""
+  const body = webpreviewOpenBodyRaw(urlLiteral, titleLiteral, projectVar)
   if (indent === "") {
-    return body;
+    return body
   }
   return body
     .split("\n")
     .map((line) => indent + line)
-    .join("\n");
-};
+    .join("\n")
+}
 
 /**
  * Groovy for an arbitrary http/https URL: open it straight into the IDE's
@@ -202,8 +202,8 @@ ${body}
         t.printStackTrace()
     }
 }
-`;
-};
+`
+}
 
 /**
  * Derive a clean tab label from `url`: its host with `:port` when present, e.g.
@@ -212,12 +212,12 @@ ${body}
  * always gets a non-empty label.
  */
 const titleFor = (url: string): string => {
-  const parts = parseUrl(url);
+  const parts = parseUrl(url)
   if (parts.hostname) {
-    return parts.port !== null ? `${parts.hostname}:${parts.port}` : parts.hostname;
+    return parts.port !== null ? `${parts.hostname}:${parts.port}` : parts.hostname
   }
-  return url;
-};
+  return url
+}
 
 /**
  * Render the preview Groovy with `path` embedded as a safe string literal.
@@ -227,10 +227,10 @@ const titleFor = (url: string): string => {
  * markdown SHOW_PREVIEW flip.
  */
 const groovyFor = (path: string): string => {
-  const literal = escapeGroovy(path);
-  const ext = extname(path).toLowerCase();
-  return HTML_PREVIEW_EXTS.has(ext) ? groovyWebPreview(literal) : groovySetLayout(literal);
-};
+  const literal = escapeGroovy(path)
+  const ext = extname(path).toLowerCase()
+  return HTML_PREVIEW_EXTS.has(ext) ? groovyWebPreview(literal) : groovySetLayout(literal)
+}
 
 /**
  * Best-effort: switch the open editor for `path` to its rendered preview.
@@ -247,8 +247,8 @@ const groovyFor = (path: string): string => {
  * `deps` is forwarded to runGroovy for hermetic tests.
  */
 export const setPreview = async (path: string, deps: RunGroovyDeps = {}): Promise<void> => {
-  await runGroovy(groovyFor(path), "preview: could not set preview", deps);
-};
+  await runGroovy(groovyFor(path), "preview: could not set preview", deps)
+}
 
 /**
  * Open `url` in the running IDE's embedded JCEF web-preview tab (best-effort).
@@ -266,10 +266,10 @@ export const setPreview = async (path: string, deps: RunGroovyDeps = {}): Promis
  * so the open_url CLI turns that note into a non-zero exit.
  */
 export const previewUrl = async (url: string, title?: string, deps: RunGroovyDeps = {}): Promise<void> => {
-  const label = title !== undefined ? title : titleFor(url);
+  const label = title !== undefined ? title : titleFor(url)
   // The open itself is the shared fragment (parity with notify's open-preview);
   // this script only adds the EDT + project-fetch + throwable-guard wrapper. The
   // body sits two levels deep (invokeLater + try), so indent it to 8 spaces.
-  const body = webpreviewOpenBody(escapeGroovy(url), escapeGroovy(label), { indent: " ".repeat(8) });
-  await runGroovy(groovyUrlPreview(body), "preview: could not open URL preview", deps);
-};
+  const body = webpreviewOpenBody(escapeGroovy(url), escapeGroovy(label), { indent: " ".repeat(8) })
+  await runGroovy(groovyUrlPreview(body), "preview: could not open URL preview", deps)
+}

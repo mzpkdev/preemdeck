@@ -16,44 +16,44 @@
  * not found.
  */
 
-import { readdir, readFile, stat } from "node:fs/promises";
-import { dirname, join } from "node:path";
-import { exists } from "../../../../lib/fs.ts";
-import { writeJson } from "../../../../lib/json-store.ts";
+import { readdir, readFile, stat } from "node:fs/promises"
+import { dirname, join } from "node:path"
+import { exists } from "../../../../lib/fs.ts"
+import { writeJson } from "../../../../lib/json-store.ts"
 
-const CONFIG_NAME = "preemdeck.json";
-const DIRECTIVE_KEY = "directive";
+const CONFIG_NAME = "preemdeck.json"
+const DIRECTIVE_KEY = "directive"
 
-const SEARCH_START = import.meta.dir;
-const SKILLS_DIR = join(dirname(import.meta.dir), "skills");
-const MODES_FILE = join(import.meta.dir, "modes.json");
+const SEARCH_START = import.meta.dir
+const SKILLS_DIR = join(dirname(import.meta.dir), "skills")
+const MODES_FILE = join(import.meta.dir, "modes.json")
 
 /** Walk up from `start` (inclusive) toward the root; first preemdeck.json wins. */
 export const findConfig = async (start: string): Promise<string | null> => {
-  let dir = start;
+  let dir = start
   for (;;) {
-    const candidate = join(dir, CONFIG_NAME);
-    if ((await exists(candidate)) && (await stat(candidate)).isFile()) return candidate;
-    const parent = dirname(dir);
-    if (parent === dir) return null;
-    dir = parent;
+    const candidate = join(dir, CONFIG_NAME)
+    if ((await exists(candidate)) && (await stat(candidate)).isFile()) return candidate
+    const parent = dirname(dir)
+    if (parent === dir) return null
+    dir = parent
   }
-};
+}
 
 /** Sorted mode names — skill folders that ship a `directive.md`. */
 export const availableModes = async (skillsDir: string): Promise<string[]> => {
-  if (!(await exists(skillsDir)) || !(await stat(skillsDir)).isDirectory()) return [];
-  const names: string[] = [];
-  const entries = await readdir(skillsDir);
+  if (!(await exists(skillsDir)) || !(await stat(skillsDir)).isDirectory()) return []
+  const names: string[] = []
+  const entries = await readdir(skillsDir)
   for (const entry of entries) {
-    const dir = join(skillsDir, entry);
-    const body = join(dir, "directive.md");
+    const dir = join(skillsDir, entry)
+    const body = join(dir, "directive.md")
     if ((await stat(dir)).isDirectory() && (await exists(body)) && (await stat(body)).isFile()) {
-      names.push(entry);
+      names.push(entry)
     }
   }
-  return names.sort();
-};
+  return names.sort()
+}
 
 /** Raised for a missing/malformed modes.json — a hard error, distinct from no-entry. */
 export class ModesError extends Error {}
@@ -63,55 +63,55 @@ export class ModesError extends Error {}
  * Throws ModesError if modes.json is missing, unreadable, or not a JSON object.
  */
 export const slotFor = async (modesFile: string, value: string): Promise<string | null> => {
-  let data: unknown;
+  let data: unknown
   try {
-    data = JSON.parse(await readFile(modesFile, "utf8"));
+    data = JSON.parse(await readFile(modesFile, "utf8"))
   } catch {
-    throw new ModesError(`${modesFile} missing or malformed`);
+    throw new ModesError(`${modesFile} missing or malformed`)
   }
   if (data === null || typeof data !== "object" || Array.isArray(data)) {
-    throw new ModesError(`${modesFile} missing or malformed`);
+    throw new ModesError(`${modesFile} missing or malformed`)
   }
-  const slot = (data as Record<string, unknown>)[value];
-  return typeof slot === "string" && slot.trim() ? slot : null;
-};
+  const slot = (data as Record<string, unknown>)[value]
+  return typeof slot === "string" && slot.trim() ? slot : null
+}
 
 /** Slot keys already defined in the config's `directive` object (insertion order). */
 export const configSlots = async (config: string): Promise<string[]> => {
-  let data: unknown;
+  let data: unknown
   try {
-    data = JSON.parse(await readFile(config, "utf8"));
+    data = JSON.parse(await readFile(config, "utf8"))
   } catch {
-    return [];
+    return []
   }
-  if (data === null || typeof data !== "object" || Array.isArray(data)) return [];
-  const field = (data as Record<string, unknown>)[DIRECTIVE_KEY];
-  if (field === null || typeof field !== "object" || Array.isArray(field)) return [];
-  return Object.keys(field as Record<string, unknown>);
-};
+  if (data === null || typeof data !== "object" || Array.isArray(data)) return []
+  const field = (data as Record<string, unknown>)[DIRECTIVE_KEY]
+  if (field === null || typeof field !== "object" || Array.isArray(field)) return []
+  return Object.keys(field as Record<string, unknown>)
+}
 
 /** Set `directive[slot] = value`, preserving other slots/keys; atomic write. */
 export const setDirective = async (config: string, slot: string, value: string): Promise<void> => {
-  let data: unknown;
+  let data: unknown
   try {
-    data = JSON.parse(await readFile(config, "utf8"));
+    data = JSON.parse(await readFile(config, "utf8"))
   } catch {
-    data = {};
+    data = {}
   }
-  if (data === null || typeof data !== "object" || Array.isArray(data)) data = {};
-  const obj = data as Record<string, unknown>;
-  let field = obj[DIRECTIVE_KEY];
-  if (field === null || typeof field !== "object" || Array.isArray(field)) field = {};
-  (field as Record<string, unknown>)[slot] = value;
-  obj[DIRECTIVE_KEY] = field;
-  await writeJson(config, obj);
-};
+  if (data === null || typeof data !== "object" || Array.isArray(data)) data = {}
+  const obj = data as Record<string, unknown>
+  let field = obj[DIRECTIVE_KEY]
+  if (field === null || typeof field !== "object" || Array.isArray(field)) field = {}
+  ;(field as Record<string, unknown>)[slot] = value
+  obj[DIRECTIVE_KEY] = field
+  await writeJson(config, obj)
+}
 
 /** Render a string the way Python's `{value!r}` does for the common cases. */
 const pyRepr = (value: string): string => {
-  if (!value.includes("'") || value.includes('"')) return `'${value}'`;
-  return `"${value}"`;
-};
+  if (!value.includes("'") || value.includes('"')) return `'${value}'`
+  return `"${value}"`
+}
 
 /**
  * The CLI entry: validate <value>, derive its slot from modes.json, confirm the
@@ -124,48 +124,48 @@ export const main = async (
   argv: string[],
   opts: { searchStart?: string; skillsDir?: string; modesFile?: string } = {},
 ): Promise<number> => {
-  const searchStart = opts.searchStart ?? SEARCH_START;
-  const skillsDir = opts.skillsDir ?? SKILLS_DIR;
-  const modesFile = opts.modesFile ?? MODES_FILE;
+  const searchStart = opts.searchStart ?? SEARCH_START
+  const skillsDir = opts.skillsDir ?? SKILLS_DIR
+  const modesFile = opts.modesFile ?? MODES_FILE
 
-  const modes = await availableModes(skillsDir);
-  const listing = modes.join(", ") || "none";
+  const modes = await availableModes(skillsDir)
+  const listing = modes.join(", ") || "none"
   if (argv.length !== 1 || !argv[0] || argv[0].trim() === "") {
-    process.stderr.write(`usage: set-mode <value>   (values: ${listing})\n`);
-    return 2;
+    process.stderr.write(`usage: set-mode <value>   (values: ${listing})\n`)
+    return 2
   }
-  const value = (argv[0] as string).trim();
+  const value = (argv[0] as string).trim()
   if (!modes.includes(value)) {
-    process.stderr.write(`unknown value ${pyRepr(value)}; available: ${listing}\n`);
-    return 2;
+    process.stderr.write(`unknown value ${pyRepr(value)}; available: ${listing}\n`)
+    return 2
   }
-  let slot: string | null;
+  let slot: string | null
   try {
-    slot = await slotFor(modesFile, value);
+    slot = await slotFor(modesFile, value)
   } catch (exc) {
-    process.stderr.write(`${exc instanceof Error ? exc.message : String(exc)}\n`);
-    return 2;
+    process.stderr.write(`${exc instanceof Error ? exc.message : String(exc)}\n`)
+    return 2
   }
   if (slot === null) {
-    process.stderr.write(`mode ${pyRepr(value)} has no slot in modes.json\n`);
-    return 2;
+    process.stderr.write(`mode ${pyRepr(value)} has no slot in modes.json\n`)
+    return 2
   }
-  const config = await findConfig(searchStart);
+  const config = await findConfig(searchStart)
   if (config === null) {
-    process.stderr.write(`${CONFIG_NAME} not found above ${searchStart}\n`);
-    return 2;
+    process.stderr.write(`${CONFIG_NAME} not found above ${searchStart}\n`)
+    return 2
   }
-  const slots = await configSlots(config);
+  const slots = await configSlots(config)
   if (!slots.includes(slot)) {
-    const slisting = slots.join(", ") || "none";
-    process.stderr.write(`unknown slot ${pyRepr(slot)}; defined slots: ${slisting}\n`);
-    return 2;
+    const slisting = slots.join(", ") || "none"
+    process.stderr.write(`unknown slot ${pyRepr(slot)}; defined slots: ${slisting}\n`)
+    return 2
   }
-  await setDirective(config, slot, value);
-  process.stdout.write(`${DIRECTIVE_KEY}.${slot} = ${value}  (${config})\n`);
-  return 0;
-};
+  await setDirective(config, slot, value)
+  process.stdout.write(`${DIRECTIVE_KEY}.${slot} = ${value}  (${config})\n`)
+  return 0
+}
 
 if (import.meta.main) {
-  process.exit(await main(Bun.argv.slice(2)));
+  process.exit(await main(Bun.argv.slice(2)))
 }

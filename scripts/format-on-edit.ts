@@ -29,11 +29,11 @@
  * tracked `*.json` files.
  */
 
-import { stat } from "node:fs/promises";
-import { dirname, relative, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
-import { exists } from "../lib/fs.ts";
-import { spawn } from "../lib/proc.ts";
+import { stat } from "node:fs/promises"
+import { dirname, relative, resolve } from "node:path"
+import { fileURLToPath } from "node:url"
+import { exists } from "../lib/fs.ts"
+import { spawn } from "../lib/proc.ts"
 
 // Two distinct roots:
 //   CONTAINMENT_ROOT — the file-safety boundary. An edited file must live under
@@ -44,121 +44,121 @@ import { spawn } from "../lib/proc.ts";
 //     ($HOME); that's latently wrong for tool config discovery (Biome makes it a
 //     hard error when $HOME has its own biome.json — "nested root configuration"),
 //     so we deliberately run from the repo root where the project config lives.
-const SCRIPT_DIR = dirname(fileURLToPath(import.meta.url));
-const REPO_ROOT = dirname(SCRIPT_DIR);
-const CONTAINMENT_ROOT = dirname(REPO_ROOT);
+const SCRIPT_DIR = dirname(fileURLToPath(import.meta.url))
+const REPO_ROOT = dirname(SCRIPT_DIR)
+const CONTAINMENT_ROOT = dirname(REPO_ROOT)
 
 // The scaffold's Biome binary, resolved relative to the script's own location.
 // Falls back to `bun x @biomejs/biome` when node_modules isn't shipped alongside.
-const BIOME_BIN = resolve(REPO_ROOT, "node_modules", ".bin", "biome");
+const BIOME_BIN = resolve(REPO_ROOT, "node_modules", ".bin", "biome")
 // Lazy-init: the binary probe is async (no `existsSync`), and a top-level await
 // at module load is disallowed — so the Biome command is resolved on demand
 // inside `format()` instead of as a load-time const.
 const biomeCmd = async (): Promise<string[]> =>
-  (await exists(BIOME_BIN)) ? [BIOME_BIN, "format", "--write"] : ["bun", "x", "@biomejs/biome", "format", "--write"];
+  (await exists(BIOME_BIN)) ? [BIOME_BIN, "format", "--write"] : ["bun", "x", "@biomejs/biome", "format", "--write"]
 
 // Suffixes routed to Biome; resolved via `biomeCmd()` at format time (the others
 // are static, so they live in FORMATTERS directly).
-const BIOME_SUFFIXES = new Set([".ts", ".json"]);
+const BIOME_SUFFIXES = new Set([".ts", ".json"])
 
 const FORMATTERS: Record<string, string[]> = {
   ".py": ["uv", "run", "--quiet", "ruff", "format"],
   ".md": ["uv", "run", "--quiet", "mdformat"],
   ".markdown": ["uv", "run", "--quiet", "mdformat"],
-};
+}
 
-const FORMAT_TIMEOUT_MS = 30_000;
+const FORMAT_TIMEOUT_MS = 30_000
 
 /** Parse stdin as a JSON object. Empty/invalid/array/non-object -> null (no-op). */
 const readPayload = async (stdin: { text(): Promise<string> }): Promise<Record<string, unknown> | null> => {
-  let parsed: unknown;
+  let parsed: unknown
   try {
-    const raw = await stdin.text();
-    parsed = JSON.parse(raw);
+    const raw = await stdin.text()
+    parsed = JSON.parse(raw)
   } catch {
-    return null;
+    return null
   }
   if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) {
-    return null;
+    return null
   }
-  return parsed as Record<string, unknown>;
-};
+  return parsed as Record<string, unknown>
+}
 
 /** Pull the edited file path out of tool_input, probing the per-host key variants. */
 const extractFilePath = (payload: Record<string, unknown>): string | null => {
-  const toolInput = payload.tool_input;
+  const toolInput = payload.tool_input
   if (toolInput === null || typeof toolInput !== "object" || Array.isArray(toolInput)) {
-    return null;
+    return null
   }
-  const ti = toolInput as Record<string, unknown>;
+  const ti = toolInput as Record<string, unknown>
   for (const key of ["file_path", "absolute_path", "path"]) {
-    const value = ti[key];
+    const value = ti[key]
     if (typeof value === "string" && value) {
-      return value;
+      return value
     }
   }
-  return null;
-};
+  return null
+}
 
 /** Resolve `filePath`; return it only if it's an existing file under the containment root. */
 const resolveInsideRoot = async (filePath: string): Promise<string | null> => {
-  const abs = resolve(filePath);
+  const abs = resolve(filePath)
   if (!(await exists(abs)) || !(await stat(abs)).isFile()) {
-    return null;
+    return null
   }
   // relative(root, abs) escaping the root starts with ".." (or is absolute on a
   // different drive) — mirrors Python's path.relative_to(root) ValueError guard.
-  const rel = relative(CONTAINMENT_ROOT, abs);
+  const rel = relative(CONTAINMENT_ROOT, abs)
   if (rel === "" || rel.startsWith("..") || resolve(CONTAINMENT_ROOT, rel) !== abs) {
-    return null;
+    return null
   }
-  return abs;
-};
+  return abs
+}
 
 /** Extract the lowercased suffix (".ts", ".json", …) of a path, or "" if none. */
 const suffix = (path: string): string => {
-  const slash = Math.max(path.lastIndexOf("/"), path.lastIndexOf("\\"));
-  const base = slash >= 0 ? path.slice(slash + 1) : path;
-  const dot = base.lastIndexOf(".");
+  const slash = Math.max(path.lastIndexOf("/"), path.lastIndexOf("\\"))
+  const base = slash >= 0 ? path.slice(slash + 1) : path
+  const dot = base.lastIndexOf(".")
   // A leading-dot dotfile (".bashrc") has no suffix, matching Path(...).suffix.
-  if (dot <= 0) return "";
-  return base.slice(dot).toLowerCase();
-};
+  if (dot <= 0) return ""
+  return base.slice(dot).toLowerCase()
+}
 
 /** Run the suffix-matched formatter on `path`. Errors warn on stderr; never throws. */
 const format = async (path: string): Promise<void> => {
-  const sfx = suffix(path);
-  const cmd = BIOME_SUFFIXES.has(sfx) ? await biomeCmd() : FORMATTERS[sfx];
+  const sfx = suffix(path)
+  const cmd = BIOME_SUFFIXES.has(sfx) ? await biomeCmd() : FORMATTERS[sfx]
   if (cmd === undefined) {
-    return;
+    return
   }
-  const name = path.slice(Math.max(path.lastIndexOf("/"), path.lastIndexOf("\\")) + 1);
+  const name = path.slice(Math.max(path.lastIndexOf("/"), path.lastIndexOf("\\")) + 1)
   try {
     const result = await spawn([...cmd, path], {
       cwd: REPO_ROOT,
       timeoutMs: FORMAT_TIMEOUT_MS,
-    });
+    })
     if (result.timedOut) {
-      process.stderr.write(`format-on-edit: ${name}: timed out after ${FORMAT_TIMEOUT_MS}ms\n`);
+      process.stderr.write(`format-on-edit: ${name}: timed out after ${FORMAT_TIMEOUT_MS}ms\n`)
     }
   } catch (exc) {
-    process.stderr.write(`format-on-edit: ${name}: ${exc instanceof Error ? exc.message : String(exc)}\n`);
+    process.stderr.write(`format-on-edit: ${name}: ${exc instanceof Error ? exc.message : String(exc)}\n`)
   }
-};
+}
 
 /** Hook entrypoint. Always resolves (caller exits 0); a missing/bad input is a no-op. */
 export const main = async (stdin: { text(): Promise<string> } = Bun.stdin): Promise<void> => {
-  const payload = await readPayload(stdin);
-  if (payload === null) return;
+  const payload = await readPayload(stdin)
+  if (payload === null) return
 
-  const filePath = extractFilePath(payload);
-  if (filePath === null) return;
+  const filePath = extractFilePath(payload)
+  if (filePath === null) return
 
-  const path = await resolveInsideRoot(filePath);
-  if (path === null) return;
+  const path = await resolveInsideRoot(filePath)
+  if (path === null) return
 
-  await format(path);
-};
+  await format(path)
+}
 
 /**
  * Test surface — the containment root, suffix→formatter map, and the internal
@@ -175,9 +175,9 @@ export {
   readPayload,
   resolveInsideRoot,
   suffix,
-};
+}
 
 if (import.meta.main) {
-  await main();
-  process.exit(0);
+  await main()
+  process.exit(0)
 }

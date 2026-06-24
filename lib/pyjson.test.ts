@@ -4,8 +4,8 @@
  * from the interpreter; these guard the byte-parity of every injection hook.
  */
 
-import { describe, expect, test } from "bun:test";
-import { injectionEnvelope, pyJsonString } from "./pyjson.ts";
+import { describe, expect, test } from "bun:test"
+import { injectionEnvelope, pyJsonString } from "./pyjson.ts"
 
 describe("pyJsonString matches CPython json.dumps(s)", () => {
   // [input, expected json.dumps output] — captured from python3.
@@ -23,18 +23,18 @@ describe("pyJsonString matches CPython json.dumps(s)", () => {
     ["\x00\x01\x1f", '"\\u0000\\u0001\\u001f"'],
     ["\x7f", '"\\u007f"'], // DEL is escaped (> 0x7e)
     ["~", '"~"'], // 0x7e printable, raw
-  ];
+  ]
   for (const [input, expected] of cases) {
     test(`${JSON.stringify(input)}`, () => {
-      expect(pyJsonString(input)).toBe(expected);
-    });
+      expect(pyJsonString(input)).toBe(expected)
+    })
   }
-});
+})
 
 describe("injectionEnvelope", () => {
   test("matches the Python json.dumps envelope shape (spaced separators)", () => {
     expect(injectionEnvelope("UserPromptSubmit", "hello — world")).toBe(
       '{"hookSpecificOutput": {"hookEventName": "UserPromptSubmit", "additionalContext": "hello \\u2014 world"}}',
-    );
-  });
-});
+    )
+  })
+})

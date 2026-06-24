@@ -28,8 +28,10 @@ browser/editor fallback**: if the terminal is not running inside a JetBrains IDE
 - Each tool first checks it's inside a live JetBrains terminal — run `in-idea.ts` to make that check yourself (see
   below). When the check fails, the tool prints `<tool>: no JetBrains IDE in the process ancestry` to stderr and **exits
   1**.
-- **Exit-code semantics:** `0` = the action was dispatched to the IDE; `1` = no live IDE (or, for the path-taking tools,
-  a missing input / OS error). The `--type`/`--action` validation errors in `notify` exit `2` (argparse usage error).
+- **Exit-code semantics:** `0` = the action was dispatched to the IDE; `1` = no live IDE. A parse/validation error (bad
+  flag, missing required argument, non-integer `--line`, bad `notify --type`/`--action`) is a **usage** error and exits
+  `2`. Runtime failures stay `1`: the diff/merge tools resolve their paths strictly and exit `1` on a missing input
+  before launch; `read-logs` exits `1` if the log dir can't be resolved.
 - The IDE is the one that *launched* the process, not whichever is focused. Switching focus does not retarget it;
   quitting the launching IDE makes the tools fail rather than hit a different IDE.
 
@@ -37,7 +39,7 @@ So before relying on these, confirm you're in a JetBrains terminal with `in-idea
 
 ```bash
 "$HOME/.preemdeck/scripts/preemdeck-bun" "${CLAUDE_PLUGIN_ROOT}/toolbox/in-idea.ts"        # prints "in a JetBrains IDE terminal" / "not …"
-"$HOME/.preemdeck/scripts/preemdeck-bun" "${CLAUDE_PLUGIN_ROOT}/toolbox/in-idea.ts" -q && echo "good to go"   # quiet: gate on the exit code
+"$HOME/.preemdeck/scripts/preemdeck-bun" "${CLAUDE_PLUGIN_ROOT}/toolbox/in-idea.ts" -q && echo "good to go"   # quiet (-q/--silent): gate on the exit code
 ```
 
 ## Canonical invocation
@@ -69,6 +71,14 @@ when you need to read back what the user did; otherwise just dispatch and move o
 The `*_inline` tools spill their string args to temp files (the IDE only operates on files). On the `--wait` path the
 temps are removed synchronously; on fire-and-forget they're handed to a deferred reaper, so you never need to clean up.
 
+## Global flags
+
+Every tool also takes the standard set: `-h/--help` (the `USAGE` / `ARGUMENTS` / `OPTIONS` block shown per tool below),
+`-v/--version`, `--quiet` (mute output), `--verbose`, `--json`, `--no-colors`, and `--dry-run`. **`--dry-run` skips the
+IDE side-effect** — for the write tools (`open-*`, `diff-*`, `merge-*`, `notify`) it records the action but does *not*
+launch the IDE / run the groovy, so use it to rehearse an invocation without popping anything in the editor. (Note
+`--quiet` only mutes output; on `in-idea` it does **not** affect the exit-code gate — use `-q/--silent` for that.)
+
 ## Intent → tool map
 
 Pick the tool from what the user asked for:
@@ -98,7 +108,7 @@ ______________________________________________________________________
 ## open-file.ts — open a file in the IDE
 
 ```
-open-file.ts [-h] [--line LINE] [--column COLUMN] [--wait] [--preview] path
+open-file <path> [--line <n>] [--column <n>] [--wait] [--preview] [options]
 ```
 
 Open `path` at an optional caret position. Fire-and-forget by default; `--wait` blocks until the tab closes and then
@@ -122,7 +132,7 @@ prints the file's full text (whether or not it was edited).
 ## open-url.ts — open an http(s) URL in the IDE's preview
 
 ```
-open-url.ts [-h] [--title TITLE] url
+open-url <url> [--title <title>] [options]
 ```
 
 Open `url` in the IDE's embedded JCEF web-preview tab. Fire-and-forget (there's no editor to block on — **no
@@ -141,7 +151,7 @@ Open `url` in the IDE's embedded JCEF web-preview tab. Fire-and-forget (there's 
 ## open-inline.ts — open a string in the IDE
 
 ```
-open-inline.ts [-h] [--suffix SUFFIX] [--wait] [--preview] inline
+open-inline <inline> [--suffix <ext>] [--wait] [--preview] [options]
 ```
 
 String-native wrapper over `open-file.ts`: spills `inline` to a temp file and opens it. Use this to show a snippet or
@@ -165,7 +175,7 @@ the user's edits.
 ## diff-file.ts — 2-way diff of two files
 
 ```
-diff-file.ts [-h] [--wait] target suggestion
+diff-file <target> <suggestion> [--wait] [options]
 ```
 
 Open a 2-way diff. Panes map straight to `idea diff L R`: **`target` is LEFT, `suggestion` is RIGHT**. The LEFT pane is
@@ -188,7 +198,7 @@ user's/current file on the LEFT (`target`) so `--wait` reads back the reconciled
 ## diff-inline.ts — 2-way diff of two strings
 
 ```
-diff-inline.ts [-h] [--suffix SUFFIX] [--wait] target suggestion
+diff-inline <target> <suggestion> [--suffix <ext>] [--wait] [options]
 ```
 
 Same as `diff-file.ts` but each side is a string (spilled to a temp file). `target` → LEFT, `suggestion` → RIGHT;
@@ -209,7 +219,7 @@ vs a proposed rewrite.
 ## merge-file.ts — 3-way merge of two files (optional base)
 
 ```
-merge-file.ts [-h] [--wait] target suggestion [base]
+merge-file <target> <suggestion> [base] [--wait] [options]
 ```
 
 Open the IDE's native 3-way merge: `target` (local) vs `suggestion` (remote), with an optional `base` (common ancestor).
@@ -232,7 +242,7 @@ and then prints the merged result. Inputs are resolved strictly (missing path �
 ## merge-inline.ts — 3-way merge of strings (optional base)
 
 ```
-merge-inline.ts [-h] [--suffix SUFFIX] [--wait] target suggestion [base]
+merge-inline <target> <suggestion> [base] [--suffix <ext>] [--wait] [options]
 ```
 
 String-native `merge-file.ts`: each version is a string spilled to a temp file. Use this to let the user **merge a
@@ -253,7 +263,7 @@ proposed snippet into their version** without writing files first.
 ## read-logs.ts — tail the IDE's log
 
 ```
-read-logs.ts [-h] [n]
+read-logs [n] [options]
 ```
 
 Print the last `n` lines of the active IDE's `idea.log` (from its resolved log dir).
@@ -270,14 +280,15 @@ Print the last `n` lines of the active IDE's `idea.log` (from its resolved log d
 ## in-idea.ts — check you're in a JetBrains terminal
 
 ```
-in-idea.ts [-h] [-q]
+in-idea [-q | --silent] [options]
 ```
 
 Report whether this terminal is running inside a live JetBrains IDE — the same gate every other tool applies before it
 acts. Prints `in a JetBrains IDE terminal` / `not in a JetBrains IDE terminal` to stdout and, more usefully, sets the
 **exit code**: `0` inside, `1` outside. Use it to confirm the toolbox will work before you dispatch, or as a shell gate.
 
-- `-q`, `--quiet` — print nothing; signal the result through the exit code only.
+- `-q`, `--silent` — print nothing; signal the result through the exit code only. (Distinct from the global `--quiet`,
+  which mutes output but does **not** drive the gate.)
 
 **When to use:** sanity-check the environment before relying on the other tools, or gate a script on being inside the
 IDE.
@@ -290,7 +301,7 @@ IDE.
 ## notify.ts — pop an in-IDE notification balloon
 
 ```
-notify.ts [-h] [--title TITLE] [--type {info,warning,error}] [--action NAME[=ARG]] message
+notify <message> [--title <title>] [--type <info|warning|error>] [--action <name[=arg]>] [options]
 ```
 
 Raise a transient notification balloon in the live IDE (via the platform Notification API). Fire-and-forget — there's no

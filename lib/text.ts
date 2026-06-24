@@ -24,7 +24,7 @@ export const htmlEscape = (s: string): string =>
     .replaceAll("<", "&lt;")
     .replaceAll(">", "&gt;")
     .replaceAll('"', "&quot;")
-    .replaceAll("'", "&#x27;");
+    .replaceAll("'", "&#x27;")
 
 /**
  * The fields lifted from a parsed URL, mirroring the subset of
@@ -34,14 +34,14 @@ export const htmlEscape = (s: string): string =>
  */
 export type ParsedUrl = {
   /** The lowercased scheme WITHOUT a trailing colon, e.g. "https" — "" when absent. */
-  scheme: string;
+  scheme: string
   /** Lowercased hostname, or null when the input parsed without a host. */
-  hostname: string | null;
+  hostname: string | null
   /** Numeric port, or null when none was given. */
-  port: number | null;
+  port: number | null
   /** The original input, unchanged. Use this as the no-host fallback label. */
-  raw: string;
-};
+  raw: string
+}
 
 /**
  * Parse `url` the forgiving way `urlsplit` does: never throws. WHATWG `new URL`
@@ -54,15 +54,15 @@ export type ParsedUrl = {
  */
 export const parseUrl = (url: string): ParsedUrl => {
   try {
-    const u = new URL(url);
+    const u = new URL(url)
     return {
       // u.protocol is "https:"; strip the trailing colon to match urlsplit.scheme.
       scheme: u.protocol.replace(/:$/, "").toLowerCase(),
       hostname: u.hostname ? u.hostname.toLowerCase() : null,
       port: u.port ? Number(u.port) : null,
       raw: url,
-    };
+    }
   } catch {
-    return { scheme: "", hostname: null, port: null, raw: url };
+    return { scheme: "", hostname: null, port: null, raw: url }
   }
-};
+}
