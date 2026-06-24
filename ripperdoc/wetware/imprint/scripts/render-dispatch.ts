@@ -1,11 +1,11 @@
 #!/usr/bin/env -S preemdeck-bun
 /**
- * render-dispatch.ts — JOBS ASCII-tree panel from status flags (port of
- * render_dispatch.py). Byte-exact with the Python: same glyphs, rails, gauge,
- * alignment, error messages, and exit codes. CLI only; not hook-wired.
+ * render-dispatch.ts — JOBS ASCII-tree panel from status flags. Deterministic
+ * output: fixed glyphs, rails, gauge, alignment, error messages, and exit codes.
+ * CLI only; not hook-wired.
  *
- * The wave parser (splitWaves/scanArg) and the box-drawing renderer are bespoke
- * and ported line-for-line. See render_dispatch.py for the grammar.
+ * The wave parser (splitWaves/scanArg) and the box-drawing renderer are bespoke.
+ * The grammar is documented inline in the DOC constant below.
  */
 
 const DOC = `Render a JOBS ASCII-tree panel from status flags.
@@ -278,7 +278,7 @@ export const main = (argv: string[]): number => {
     panel = render(nodes);
   } catch (exc) {
     if (exc instanceof DispatchError) {
-      process.stderr.write(`render_dispatch: ${exc.message}\n`);
+      process.stderr.write(`render-dispatch: ${exc.message}\n`);
       return 2;
     }
     throw exc;

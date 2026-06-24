@@ -1,12 +1,12 @@
 /**
- * notify.test.ts — hermetic port of test_notify.py. Two layers:
+ * notify.test.ts — hermetic tests. Two layers:
  *   - the CLI (main): the `notify` worker is injected as a recorder via
  *     `_internals.notify`; nothing spawns. Defaults, --type/--action validation,
  *     the inIdea gate, and exit codes are asserted.
  *   - the Groovy render (notify worker end to end): `_internals.runGroovy` is a
  *     recorder capturing the generated Groovy (the engine seam — NOT mock.module,
  *     which leaks). The escaped title/message land as literals, each --type maps
- *     to the right constant, and the action closures match preview_url's fragment.
+ *     to the right constant, and the action closures match previewUrl's fragment.
  * All via DI seams kept hermetic across Bun's single-run suite.
  */
 

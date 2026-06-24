@@ -1,7 +1,7 @@
 /**
- * read-logs.test.ts — hermetic port of test_read_logs.py. resolveLogDir + the FS
- * read + inIdea are injected via `_internals` (DI seam). A real tmp idea.log
- * fixture backs the read (contract pattern E).
+ * read-logs.test.ts — hermetic suite. resolveLogDir + the FS read + inIdea are
+ * injected via `_internals` (DI seam). A real tmp idea.log fixture backs the read
+ * (contract pattern E).
  */
 
 import { afterEach, beforeEach, describe, expect, spyOn, test } from "bun:test";
@@ -80,7 +80,7 @@ describe("main", () => {
     try {
       expect(main([])).toBe(1);
       expect(logSpy.mock.calls.length).toBe(0);
-      expect(errSpy.mock.calls.map((c: unknown[]) => String(c[0])).join("")).toContain("read_logs:");
+      expect(errSpy.mock.calls.map((c: unknown[]) => String(c[0])).join("")).toContain("read-logs:");
     } finally {
       errSpy.mockRestore();
     }
@@ -95,7 +95,7 @@ describe("main", () => {
     try {
       expect(main([])).toBe(1);
       expect(errSpy.mock.calls.map((c: unknown[]) => String(c[0])).join("")).toContain(
-        "read_logs: no JetBrains IDE in the process ancestry",
+        "read-logs: no JetBrains IDE in the process ancestry",
       );
     } finally {
       errSpy.mockRestore();

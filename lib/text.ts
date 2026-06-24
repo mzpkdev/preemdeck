@@ -2,10 +2,10 @@
  * lib/text.ts — text helpers byte-compatible with the Python originals.
  *
  *   htmlEscape — matches `html.escape(s)` (quote=True, the stdlib default), used
- *                by turn_notify.py before handing text to the IDE notifier.
+ *                before handing text to the IDE notifier.
  *   parseUrl   — wraps WHATWG `new URL()` to preserve `urllib.parse.urlsplit`'s
- *                forgiving "no host -> return the input" behavior (open_url.py
- *                validation + _preview._title_for), instead of throwing.
+ *                forgiving "no host -> return the input" behavior (the open-url
+ *                validation + preview `_title_for`), instead of throwing.
  */
 
 /**
@@ -50,7 +50,7 @@ export type ParsedUrl = {
  * leaving callers to fall back to `raw` — matching Python `_title_for`'s
  * `if parts.hostname: ... else: return url`.
  *
- * Validation callers (open_url.py) should check `scheme` is "http"/"https".
+ * Validation callers (open-url) should check `scheme` is "http"/"https".
  */
 export const parseUrl = (url: string): ParsedUrl => {
   try {

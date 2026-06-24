@@ -3,18 +3,17 @@
  * scripts/format-on-edit.ts — format the file an agent just edited.
  *
  * SIDE-EFFECT PostToolUse / AfterTool hook (NOT a context injector — it does not
- * use lib/hook's envelope). Wired the SAME as the Python it ports
- * (`scripts/format_on_edit.py`) into `.claude/settings.json`,
+ * use lib/hook's envelope). Wired into `.claude/settings.json`,
  * `.codex/config.toml`, and `.gemini/settings.json`. ALWAYS exits 0 — a
  * formatter failure warns on stderr but never blocks the agent's edit.
  *
- * Behaviour ported byte-for-byte from format_on_edit.py:
+ * Behaviour:
  *   1. read the hook JSON from stdin; non-object / invalid -> exit 0 no-op.
  *   2. extract the edited path from tool_input.{file_path,absolute_path,path}
  *      (Gemini uses a differing key, hence the probe order).
  *   3. resolve it; it must be an existing file UNDER the containment root
  *      (`scripts/`'s grandparent — `$HOME` in the decoupled ~/.preemdeck layout,
- *      matching the Python `Path(__file__).resolve().parents[2]`). Outside -> no-op.
+ *      i.e. the `parents[2]` of the script). Outside -> no-op.
  *   4. map suffix -> formatter and run it (timeout, errors swallowed to stderr).
  *
  * Formatter map (this is the Bun/TS-era map; ruff + mdformat stay because
@@ -37,8 +36,8 @@ import { spawn } from "../lib/proc.ts";
 
 // Two distinct roots:
 //   CONTAINMENT_ROOT — the file-safety boundary. An edited file must live under
-//     it or we skip it. Matches format_on_edit.py's `parents[2]` ($HOME in the
-//     decoupled ~/.preemdeck layout, where the script lives at ~/.preemdeck/scripts/).
+//     it or we skip it. The boundary is `parents[2]` ($HOME in the decoupled
+//     ~/.preemdeck layout, where the script lives at ~/.preemdeck/scripts/).
 //   REPO_ROOT — the cwd the formatters run in, so Biome finds `biome.json` and
 //     `uv` finds `pyproject.toml`. The Python ran formatters in `parents[2]`
 //     ($HOME); that's latently wrong for tool config discovery (Biome makes it a
@@ -134,10 +133,10 @@ const format = async (path: string): Promise<void> => {
       timeoutMs: FORMAT_TIMEOUT_MS,
     });
     if (result.timedOut) {
-      process.stderr.write(`format_on_edit: ${name}: timed out after ${FORMAT_TIMEOUT_MS}ms\n`);
+      process.stderr.write(`format-on-edit: ${name}: timed out after ${FORMAT_TIMEOUT_MS}ms\n`);
     }
   } catch (exc) {
-    process.stderr.write(`format_on_edit: ${name}: ${exc instanceof Error ? exc.message : String(exc)}\n`);
+    process.stderr.write(`format-on-edit: ${name}: ${exc instanceof Error ? exc.message : String(exc)}\n`);
   }
 };
 

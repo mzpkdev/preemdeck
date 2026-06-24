@@ -1,6 +1,6 @@
 /**
- * ghost.test.ts — port of test_ghost.py. Tmp-fixture FS (MOCK PATTERN E); the
- * stdout side is captured via the injected `log` sink rather than spying console.
+ * ghost.test.ts — Tmp-fixture FS (MOCK PATTERN E); the stdout side is captured
+ * via the injected `log` sink rather than spying console.
  */
 
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";

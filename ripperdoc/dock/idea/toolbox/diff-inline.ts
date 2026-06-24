@@ -1,12 +1,11 @@
 #!/usr/bin/env bun
 /**
  * diff-inline.ts — diff two inline strings in the running JetBrains IDE.
- * Behavior-identical TS port of diff_inline.py (additive — the .py stays live).
  *
- * A string-native wrapper over diff_file: each version is spilled to a temp file
- * — `target` -> left, `suggestion` -> right — and handed to diff_file in
- * positional order. wait=true: diff_file blocks and returns the LEFT pane's text;
- * unlink both temps. wait=false: diff_file launched async; schedule a deferred
+ * A string-native wrapper over diffFile: each version is spilled to a temp file
+ * — `target` -> left, `suggestion` -> right — and handed to diffFile in
+ * positional order. wait=true: diffFile blocks and returns the LEFT pane's text;
+ * unlink both temps. wait=false: diffFile launched async; schedule a deferred
  * reap for both temps and return null.
  */
 
@@ -18,8 +17,8 @@ import { inIdea, reapLater } from "./core/index.ts";
 import { diffFile } from "./diff-file.ts";
 import { writeTemp } from "./tmp.ts";
 
-const PROG = "diff_inline.py";
-const USAGE = "usage: diff_inline.py [-h] [--suffix SUFFIX] [--wait] target suggestion";
+const PROG = "diff-inline";
+const USAGE = "usage: diff-inline [-h] [--suffix SUFFIX] [--wait] target suggestion";
 
 /** Options for {@link diffInline}: the temp-file suffix (drives IDE syntax highlighting) and the wait toggle. */
 export type DiffInlineOptions = {
@@ -48,7 +47,7 @@ export const diffInline = async (
     }
     return contents;
   } finally {
-    // wait=true: diff_file already returned, temps are spent — remove now.
+    // wait=true: diffFile already returned, temps are spent — remove now.
     if (wait) {
       for (const path of temps) {
         unlinkSync(path);
@@ -59,8 +58,8 @@ export const diffInline = async (
 
 /**
  * Engine + worker seam: tests override these instead of mock.module on ./core
- * (which leaks across the single `bun test` run). Mirrors the Python suite's
- * monkeypatch of `diff_inline.diff_file` / `.reap_later` / `.diff_inline`.
+ * (which leaks across the single `bun test` run): the diffFile delegate, the
+ * reaper, and diffInline itself.
  */
 export const _internals = { inIdea, diffFile, reapLater, diffInline };
 
@@ -92,7 +91,7 @@ export const main = async (argv: string[] = Bun.argv.slice(2)): Promise<number> 
     contents = await _internals.diffInline(positionals[0] as string, positionals[1] as string, { suffix, wait });
   } catch (exc) {
     if (exc instanceof IdeaError || (exc instanceof Error && typeof (exc as NodeJS.ErrnoException).code === "string")) {
-      process.stderr.write(`diff_inline: ${exc.message}\n`);
+      process.stderr.write(`diff-inline: ${exc.message}\n`);
       return 1;
     }
     throw exc;

@@ -1,7 +1,6 @@
 #!/usr/bin/env bun
 /**
- * diff-file.ts — diff two files in the running JetBrains IDE. Behavior-identical
- * TS port of diff_file.py (additive — the .py stays live).
+ * diff-file.ts — diff two files in the running JetBrains IDE.
  *
  * The positionals map straight onto `idea diff`'s panes: `diff L R` (passthrough)
  * — `target` LEFT, `suggestion` RIGHT. Both inputs are resolved strictly, so a
@@ -16,8 +15,8 @@ import { IdeaError } from "./core/errors.ts";
 import { inIdea, launch } from "./core/index.ts";
 import { resolveStrict } from "./tmp.ts";
 
-const PROG = "diff_file.py";
-const USAGE = "usage: diff_file.py [-h] [--wait] target suggestion";
+const PROG = "diff-file";
+const USAGE = "usage: diff-file [-h] [--wait] target suggestion";
 
 /**
  * Engine seam: tests override these instead of mock.module on ./core (which
@@ -69,7 +68,7 @@ export const main = async (argv: string[] = Bun.argv.slice(2)): Promise<number> 
     contents = await diffFile(positionals[0] as string, positionals[1] as string, wait);
   } catch (exc) {
     if (exc instanceof IdeaError || (exc instanceof Error && typeof (exc as NodeJS.ErrnoException).code === "string")) {
-      process.stderr.write(`diff_file: ${exc.message}\n`);
+      process.stderr.write(`diff-file: ${exc.message}\n`);
       return 1;
     }
     throw exc;

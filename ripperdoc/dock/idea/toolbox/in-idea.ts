@@ -1,8 +1,6 @@
 #!/usr/bin/env bun
 /**
  * in-idea.ts — report whether this terminal is running inside a JetBrains IDE.
- * Behavior-identical TS port of in_idea.py (additive — the .py stays live until
- * the flip phase).
  *
  * The same cheap gate every other tool applies before it acts: true when this
  * terminal was launched by a JetBrains IDE, false otherwise. The result is the
@@ -15,8 +13,8 @@ import { argparseError, argparseMessage } from "./cli.ts";
 import { NotImplementedError } from "./core/errors.ts";
 import { inIdea } from "./core/index.ts";
 
-const PROG = "in_idea.py";
-const USAGE = "usage: in_idea.py [-h] [-q]";
+const PROG = "in-idea";
+const USAGE = "usage: in-idea [-h] [-q]";
 
 /**
  * Engine seam: tests override `_internals.inIdea` instead of mock.module on
@@ -41,7 +39,7 @@ export const main = (argv: string[] = Bun.argv.slice(2)): number => {
     inside = _internals.inIdea();
   } catch (exc) {
     if (exc instanceof NotImplementedError) {
-      process.stderr.write(`in_idea: ${exc.message}\n`);
+      process.stderr.write(`in-idea: ${exc.message}\n`);
       return 1;
     }
     throw exc;

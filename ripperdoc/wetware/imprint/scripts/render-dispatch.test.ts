@@ -1,8 +1,8 @@
 /**
- * render-dispatch.test.ts — golden tests ported from test_render_dispatch.py.
+ * render-dispatch.test.ts — golden tests for the JOBS panel renderer.
  * Panels are compared as verbatim strings (the whole point of a golden test for a
  * fixed-shape renderer): any rail/glyph/gauge drift is caught. Error cases assert
- * parse() throws DispatchError (the .py exits nonzero with a stderr message).
+ * parse() throws DispatchError (the CLI exits nonzero with a stderr message).
  */
 
 import { describe, expect, test } from "bun:test";
@@ -12,7 +12,7 @@ const panel = (argv: string[]): string => {
   return render(parse(argv));
 };
 
-describe("render_dispatch golden panels", () => {
+describe("render-dispatch golden panels", () => {
   test("1 — golden anchor", () => {
     expect(
       panel(["--done", "Task 1 - Scout", "--running", "Task 2,Task 3", "Task 4,Task 5", "--pending", "Task 7 - Lint"]),
@@ -94,7 +94,7 @@ describe("render_dispatch golden panels", () => {
   });
 });
 
-describe("render_dispatch error cases (parse throws DispatchError)", () => {
+describe("render-dispatch error cases (parse throws DispatchError)", () => {
   test("16 — an unknown flag", () => {
     expect(() => parse(["--bogus", "x"])).toThrow(DispatchError);
   });

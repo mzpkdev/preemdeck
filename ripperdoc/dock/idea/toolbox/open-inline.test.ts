@@ -1,8 +1,8 @@
 /**
- * open-inline.test.ts — hermetic port of test_open_inline.py. The worker delegate
- * (openFile), the reaper, and inIdea are injected via `_internals`. A recorder
- * openFile snapshots the temp's contents at call time (before cleanup) so we can
- * assert what was spilled and how cleanup is gated on wait.
+ * open-inline.test.ts — hermetic suite. The worker delegate (openFile), the
+ * reaper, and inIdea are injected via `_internals`. A recorder openFile snapshots
+ * the temp's contents at call time (before cleanup) so we can assert what was
+ * spilled and how cleanup is gated on wait.
  */
 
 import { afterEach, beforeEach, describe, expect, spyOn, test } from "bun:test";
@@ -169,7 +169,7 @@ describe("main", () => {
     const errSpy = spyOn(process.stderr, "write").mockImplementation((() => true) as never);
     try {
       expect(await main(["body"])).toBe(1);
-      expect(errSpy.mock.calls.map((c: unknown[]) => String(c[0])).join("")).toContain("open_inline:");
+      expect(errSpy.mock.calls.map((c: unknown[]) => String(c[0])).join("")).toContain("open-inline:");
     } finally {
       errSpy.mockRestore();
     }
@@ -182,7 +182,7 @@ describe("main", () => {
       expect(await main(["body"])).toBe(1);
       expect(captured).toEqual([]);
       expect(errSpy.mock.calls.map((c: unknown[]) => String(c[0])).join("")).toContain(
-        "open_inline: no JetBrains IDE in the process ancestry",
+        "open-inline: no JetBrains IDE in the process ancestry",
       );
     } finally {
       errSpy.mockRestore();

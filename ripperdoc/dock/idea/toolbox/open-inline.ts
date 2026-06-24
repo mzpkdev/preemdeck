@@ -1,10 +1,9 @@
 #!/usr/bin/env bun
 /**
  * open-inline.ts — open an inline string in the running JetBrains IDE via a temp
- * file. Behavior-identical TS port of open_inline.py (additive — the .py stays
- * live).
+ * file.
  *
- * A thin string-native wrapper over open_file: the string is spilled to a temp
+ * A thin string-native wrapper over openFile: the string is spilled to a temp
  * file (named with `suffix` so the IDE picks the right syntax highlighting),
  * opened, and — on the wait path — the edited text is handed back. The IDE only
  * opens files, so the temp is the bridge.
@@ -18,8 +17,8 @@ import { inIdea, reapLater } from "./core/index.ts";
 import { openFile } from "./open-file.ts";
 import { mkstempSync, writeTemp } from "./tmp.ts";
 
-const PROG = "open_inline.py";
-const USAGE = "usage: open_inline.py [-h] [--suffix SUFFIX] [--wait] [--preview] inline";
+const PROG = "open-inline";
+const USAGE = "usage: open-inline [-h] [--suffix SUFFIX] [--wait] [--preview] inline";
 
 /** Options for {@link openInline}: the temp-file suffix (drives IDE syntax highlighting), the wait toggle, and the rendered-preview opt-in. */
 export type OpenInlineOptions = {
@@ -31,8 +30,8 @@ export type OpenInlineOptions = {
 /**
  * Open `content` in the running JetBrains IDE by routing it through a temp file.
  *
- * wait=true  -> open_file blocks and returns the edited text; unlink the temp,
- *   return the text. wait=false -> open_file launched async; schedule a deferred
+ * wait=true  -> openFile blocks and returns the edited text; unlink the temp,
+ *   return the text. wait=false -> openFile launched async; schedule a deferred
  *   reap (reapLater) and return null.
  */
 export const openInline = async (content: string, options: OpenInlineOptions = {}): Promise<string | null> => {
@@ -62,7 +61,7 @@ export const openInline = async (content: string, options: OpenInlineOptions = {
  * Engine + worker seam: tests override these instead of mock.module on ./core
  * (which leaks across the single `bun test` run). `openFile` is the delegate the
  * worker drives; `openInline` is the worker the CLI drives — both are overridable
- * the way the Python suite monkeypatches `open_inline.open_file` / `.open_inline`.
+ * here so a test can swap either the delegate or the worker.
  */
 export const _internals = { inIdea, openFile, reapLater, openInline };
 
@@ -98,7 +97,7 @@ export const main = async (argv: string[] = Bun.argv.slice(2)): Promise<number> 
     contents = await _internals.openInline(inline, { suffix, wait, preview });
   } catch (exc) {
     if (exc instanceof IdeaError) {
-      process.stderr.write(`open_inline: ${exc.message}\n`);
+      process.stderr.write(`open-inline: ${exc.message}\n`);
       return 1;
     }
     throw exc;

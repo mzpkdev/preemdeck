@@ -12,7 +12,7 @@
  *   - REPEATABLE `--action`: `{ type: "string", multiple: true }`. Each value is
  *     split on the FIRST `=` only (`parseAction`) so `=` in URLs/paths survives,
  *     then whitelisted (`validateActions`) — an unknown name or a missing required
- *     arg exits 2, mirroring notify.py `_validate_action` -> ArgumentTypeError.
+ *     arg exits 2, mirroring the original `_validate_action` -> ArgumentTypeError.
  *
  * USAGE ERRORS EXIT 2 (argparse's convention). `parseArgs` itself throws on an
  * unknown/badly-formed option; wrap the call in `parseOrExit` to turn that throw
@@ -28,7 +28,8 @@ export class UsageError extends Error {}
 // The `=> never` lives on the variable type, not inline on the arrow: only an
 // explicitly-typed `never`-returning binding drives call-site control-flow
 // analysis (an inline `(): never =>` does not), so callers like `parseOrExit`
-// and every `main` are correctly seen as terminating. See cli.ts `argparseError`.
+// and every `main` are correctly seen as terminating. (`argparseError` in
+// `ripperdoc/dock/idea/toolbox/cli.ts` uses the same pattern.)
 export const usageError: (prog: string, message: string) => never = (prog, message) => {
   process.stderr.write(`${prog}: ${message}\n`);
   process.exit(2);
@@ -69,8 +70,8 @@ export type ActionSpec = Record<string, { needsArg: boolean }>;
 
 /**
  * Split a `--action` value into `{name, arg}` on the FIRST `=` only.
- * `name=arg` -> `{name, arg}`; bare `name` -> `{name, arg: null}`. Matches
- * notify.py `_parse_action` (so `=` inside a URL/path query stays in `arg`).
+ * `name=arg` -> `{name, arg}`; bare `name` -> `{name, arg: null}`. Matches the
+ * original `_parse_action` (so `=` inside a URL/path query stays in `arg`).
  */
 export const parseAction = (value: string): Action => {
   const eq = value.indexOf("=");
@@ -81,7 +82,7 @@ export const parseAction = (value: string): Action => {
 /**
  * Parse + whitelist a list of raw `--action` values against `spec`. Returns the
  * vetted `Action[]` in CLI order, or exits 2 (usage error) when a name is not in
- * `spec` or a `needsArg` action is missing its arg — mirrors notify.py
+ * `spec` or a `needsArg` action is missing its arg — mirrors the original
  * `_validate_action`. `raw` is `result.values.action` (string[] | undefined).
  */
 export const validateActions = (prog: string, raw: string[] | undefined, spec: ActionSpec): Action[] => {

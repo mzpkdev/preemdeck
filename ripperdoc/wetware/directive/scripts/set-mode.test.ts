@@ -1,6 +1,6 @@
 /**
- * set-mode.test.ts — port of test_set_mode.py. Tmp-fixture FS; the exit-code path
- * is exercised through main() (which returns the code, like the Python main).
+ * set-mode.test.ts — Tmp-fixture FS; the exit-code path is exercised through
+ * main() (which returns the code rather than exiting).
  * stderr is captured by spying process.stderr.write (MOCK PATTERN B-style).
  */
 

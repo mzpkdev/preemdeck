@@ -1,15 +1,14 @@
 #!/usr/bin/env bun
 /**
  * merge-inline.ts — 3-way merge of inline strings (with an optional base) in the
- * running JetBrains IDE. Behavior-identical TS port of merge_inline.py (additive
- * — the .py stays live).
+ * running JetBrains IDE.
  *
- * A string-native wrapper over merge_file: each version is spilled to a temp file
+ * A string-native wrapper over mergeFile: each version is spilled to a temp file
  * — `target`, `suggestion`, and `base` ONLY when not null — and handed to
- * merge_file (which mints its own internal OUTPUT temp). wait=true: merge_file
+ * mergeFile (which mints its own internal OUTPUT temp). wait=true: mergeFile
  * blocks until Apply and returns the result; unlink the input temps. wait=false:
- * merge_file launched async; schedule a deferred reap for the input temps and
- * return null. The OUTPUT temp is merge_file's to reap.
+ * mergeFile launched async; schedule a deferred reap for the input temps and
+ * return null. The OUTPUT temp is mergeFile's to reap.
  */
 
 import { unlinkSync } from "node:fs";
@@ -20,8 +19,8 @@ import { inIdea, reapLater } from "./core/index.ts";
 import { mergeFile } from "./merge-file.ts";
 import { writeTemp } from "./tmp.ts";
 
-const PROG = "merge_inline.py";
-const USAGE = "usage: merge_inline.py [-h] [--suffix SUFFIX] [--wait]\n                       target suggestion [base]";
+const PROG = "merge-inline";
+const USAGE = "usage: merge-inline [-h] [--suffix SUFFIX] [--wait]\n                    target suggestion [base]";
 
 /** Options for {@link mergeInline}: the temp-file suffix (drives IDE syntax highlighting) and the wait toggle. */
 export type MergeInlineOptions = {
@@ -52,12 +51,12 @@ export const mergeInline = async (
     const result = await _internals.mergeFile(targetTmp, suggestionTmp, baseTmp, wait);
     if (!wait) {
       // Fire-and-forget: the IDE still has the input temps open; defer the reap.
-      // The output temp is merge_file's to reap, so it's not in `temps`.
+      // The output temp is mergeFile's to reap, so it's not in `temps`.
       _internals.reapLater(temps);
     }
     return result;
   } finally {
-    // wait=true: merge_file already returned, input temps are spent — remove now.
+    // wait=true: mergeFile already returned, input temps are spent — remove now.
     if (wait) {
       for (const path of temps) {
         unlinkSync(path);
@@ -68,8 +67,8 @@ export const mergeInline = async (
 
 /**
  * Engine + worker seam: tests override these instead of mock.module on ./core
- * (which leaks across the single `bun test` run). Mirrors the Python suite's
- * monkeypatch of `merge_inline.merge_file` / `.reap_later` / `.merge_inline`.
+ * (which leaks across the single `bun test` run): the mergeFile delegate, the
+ * reaper, and mergeInline itself.
  */
 export const _internals = { inIdea, mergeFile, reapLater, mergeInline };
 
@@ -102,7 +101,7 @@ export const main = async (argv: string[] = Bun.argv.slice(2)): Promise<number> 
     result = await _internals.mergeInline(positionals[0] as string, positionals[1] as string, base, { suffix, wait });
   } catch (exc) {
     if (exc instanceof IdeaError || (exc instanceof Error && typeof (exc as NodeJS.ErrnoException).code === "string")) {
-      process.stderr.write(`merge_inline: ${exc.message}\n`);
+      process.stderr.write(`merge-inline: ${exc.message}\n`);
       return 1;
     }
     throw exc;

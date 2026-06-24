@@ -1,6 +1,6 @@
 #!/usr/bin/env -S preemdeck-bun
 /**
- * set-mode.ts — the deterministic preemdeck.json writer (port of set_mode.py).
+ * set-mode.ts — the deterministic preemdeck.json writer.
  *
  * The SOLE writer of preemdeck.json's `directive` object. <value> is validated
  * against the shipped mode skills (skills/<value>/directive.md); its slot is
@@ -129,7 +129,7 @@ export const main = async (
   const modes = availableModes(skillsDir);
   const listing = modes.join(", ") || "none";
   if (argv.length !== 1 || !argv[0] || argv[0].trim() === "") {
-    process.stderr.write(`usage: set_mode.py <value>   (values: ${listing})\n`);
+    process.stderr.write(`usage: set-mode <value>   (values: ${listing})\n`);
     return 2;
   }
   const value = (argv[0] as string).trim();

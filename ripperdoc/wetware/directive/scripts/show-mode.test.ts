@@ -1,6 +1,6 @@
 /**
- * show-mode.test.ts — port of test_show_mode.py. Tmp-fixture FS; stdout captured
- * via the injected `write` sink, stderr via a process.stderr spy.
+ * show-mode.test.ts — Tmp-fixture FS; stdout captured via the injected `write`
+ * sink, stderr via a process.stderr spy.
  */
 
 import { afterEach, beforeEach, describe, expect, spyOn, test } from "bun:test";

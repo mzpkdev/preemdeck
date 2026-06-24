@@ -1,8 +1,8 @@
 /**
- * open-file.test.ts — hermetic port of test_open_file.py. launch + setPreview +
- * inIdea injected via `_internals` (DI seam); nothing spawns. The wait path reads
- * a real tmp file back; a launch stub models an edit by writing the resolved
- * target (the last argv element).
+ * open-file.test.ts — hermetic suite. launch + setPreview + inIdea injected via
+ * `_internals` (DI seam); nothing spawns. The wait path reads a real tmp file
+ * back; a launch stub models an edit by writing the resolved target (the last
+ * argv element).
  */
 
 import { afterEach, beforeEach, describe, expect, spyOn, test } from "bun:test";
@@ -128,7 +128,7 @@ describe("main", () => {
     const errSpy = spyOn(process.stderr, "write").mockImplementation((() => true) as never);
     try {
       expect(await main([target])).toBe(1);
-      expect(errSpy.mock.calls.map((c: unknown[]) => String(c[0])).join("")).toContain("open_file:");
+      expect(errSpy.mock.calls.map((c: unknown[]) => String(c[0])).join("")).toContain("open-file:");
     } finally {
       errSpy.mockRestore();
     }

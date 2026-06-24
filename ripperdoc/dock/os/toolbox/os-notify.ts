@@ -1,6 +1,6 @@
 #!/usr/bin/env -S preemdeck-bun
 /**
- * os-notify.ts — raise an OS-wide desktop notification (port of os_notify.py).
+ * os-notify.ts — raise an OS-wide desktop notification.
  *
  * macOS + Linux only. macOS prefers `terminal-notifier` (its own bundle = delivery
  * independent of the launching app's permissions), else osascript `display
@@ -111,7 +111,7 @@ export const notify = async (
  * else 0.
  */
 export const main = async (argv: string[]): Promise<number> => {
-  const prog = "os_notify.py";
+  const prog = "os-notify";
   let parsed: ReturnType<
     typeof parseArgs<{
       options: { title: { type: "string" }; verbose: { type: "boolean"; short: "v" } };

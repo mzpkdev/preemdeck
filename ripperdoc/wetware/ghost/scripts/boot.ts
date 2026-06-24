@@ -1,13 +1,13 @@
 #!/usr/bin/env -S preemdeck-bun
 /**
- * boot.ts — SessionStart persona injector (port of boot.py).
+ * boot.ts — SessionStart persona injector.
  *
  * Reads engram + firmware sources (base64 `.dat` preferred, else `.md`) from the
  * plugin root, concatenates the non-empty stripped bodies with a blank line, and
  * emits the standard context-injection envelope via lib/hook.ts. A missing/empty
  * persona is a silent `{}` no-op. Default event SessionStart; stdin wins.
  *
- * PLUGIN_ROOT resolution mirrors boot.py: CLAUDE_PLUGIN_ROOT || PLUGIN_ROOT ||
+ * PLUGIN_ROOT resolution: CLAUDE_PLUGIN_ROOT || PLUGIN_ROOT ||
  * the script dir's parent (scripts/ -> ghost/).
  */
 
@@ -17,14 +17,14 @@ import { runInjectionHook } from "../../../../lib/inject.ts";
 
 const DEFAULT_EVENT = "SessionStart";
 
-/** The plugin root, resolved the same way as boot.py. */
+/** The plugin root: CLAUDE_PLUGIN_ROOT || PLUGIN_ROOT || the script dir's parent. */
 export const pluginRoot = (): string => {
   return process.env.CLAUDE_PLUGIN_ROOT || process.env.PLUGIN_ROOT || dirname(import.meta.dir);
 };
 
 /**
  * Read a persona source: the base64 `.dat` if present (decoded), else the plain
- * `.md`, else null. Matches boot.py `read_source`.
+ * `.md`, else null.
  */
 export const readSource = (root: string, datName: string, mdName: string): string | null => {
   const dat = join(root, datName);

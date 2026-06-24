@@ -1,10 +1,9 @@
 #!/usr/bin/env bun
 /**
  * open-url.ts — open an http/https URL in the running JetBrains IDE's embedded
- * JCEF preview. Behavior-identical TS port of open_url.py (additive — the .py
- * stays live).
+ * JCEF preview.
  *
- * FIRE-AND-FORGET: there is no editor to block on, so unlike open_file there is
+ * FIRE-AND-FORGET: there is no editor to block on, so unlike open-file there is
  * no --wait. Clean-fail, NOT a browser fallback: resolveExecPath() is the single
  * guard for a live IDE — it throws IdeaError / NotImplementedError, which the CLI
  * turns into a non-zero exit. With a live IDE confirmed, previewUrl() fires the
@@ -17,8 +16,8 @@ import { argparseError, argparseMessage } from "./cli.ts";
 import { IdeaError, NotImplementedError } from "./core/errors.ts";
 import { inIdea, previewUrl, resolveExecPath } from "./core/index.ts";
 
-const PROG = "open_url.py";
-const USAGE = "usage: open_url.py [-h] [--title TITLE] url";
+const PROG = "open-url";
+const USAGE = "usage: open-url [-h] [--title TITLE] url";
 
 /**
  * Engine seam: tests override these instead of mock.module on ./core (which
@@ -54,7 +53,7 @@ export const main = async (argv: string[] = Bun.argv.slice(2)): Promise<number> 
   // Light validation: a non-empty http/https URL. The IDE's JCEF preview only
   // speaks http(s), so reject anything else up front with a clear note.
   if (!["http", "https"].includes(parseUrl(url).scheme)) {
-    process.stderr.write("open_url: url must be a non-empty http/https URL\n");
+    process.stderr.write("open-url: url must be a non-empty http/https URL\n");
     return 1;
   }
   try {
@@ -66,7 +65,7 @@ export const main = async (argv: string[] = Bun.argv.slice(2)): Promise<number> 
     await openUrl(url, title);
   } catch (exc) {
     if (exc instanceof IdeaError || exc instanceof NotImplementedError) {
-      process.stderr.write(`open_url: ${exc.message}\n`);
+      process.stderr.write(`open-url: ${exc.message}\n`);
       return 1;
     }
     throw exc;

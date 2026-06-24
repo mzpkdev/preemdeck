@@ -1,10 +1,10 @@
 #!/usr/bin/env -S preemdeck-bun
 /**
- * show-mode.ts — print a directive body verbatim (port of show_mode.py).
+ * show-mode.ts — print a directive body verbatim.
  *
  * Read-only: never touches preemdeck.json. Prints skills/<value>/directive.md
  * exactly as it ships, no framing. <value> must be a bare name (the same
- * anti-traversal guard inject_mode uses). Same input -> same bytes.
+ * anti-traversal guard inject-mode uses). Same input -> same bytes.
  *
  * Exit codes: 0 printed; 2 usage error, unsafe value, or no matching directive.md.
  */
@@ -45,7 +45,7 @@ export const main = (
   const modes = availableModes(skillsDir);
   const listing = modes.join(", ") || "none";
   if (argv.length !== 1 || !argv[0] || argv[0].trim() === "") {
-    process.stderr.write(`usage: show_mode.py <value>   (values: ${listing})\n`);
+    process.stderr.write(`usage: show-mode <value>   (values: ${listing})\n`);
     return 2;
   }
   const value = (argv[0] as string).trim();

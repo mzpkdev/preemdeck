@@ -1,9 +1,8 @@
 #!/usr/bin/env bun
 /**
  * notify.ts — pop an in-IDE notification balloon in the running JetBrains IDE.
- * Behavior-identical TS port of notify.py (additive — the .py stays live).
  *
- * A sibling to open_url: instead of opening a tab, it raises a transient
+ * A sibling to openUrl: instead of opening a tab, it raises a transient
  * notification balloon via the platform's Notification API, driven through the
  * same ideScript bridge. On the EDT it constructs a Notification(group, title,
  * content, type) and hands it to Notifications.Bus.notify(n, project). The group
@@ -28,9 +27,9 @@ import { argparseError, argparseMessage } from "./cli.ts";
 import { IdeaError, NotImplementedError } from "./core/errors.ts";
 import { escapeGroovy, inIdea, runGroovy, webpreviewOpenBody } from "./core/index.ts";
 
-const PROG = "notify.py";
+const PROG = "notify";
 const USAGE =
-  "usage: notify.py [-h] [--title TITLE] [--type {info,warning,error}]\n                 [--action NAME[=ARG]]\n                 message";
+  "usage: notify [-h] [--title TITLE] [--type {info,warning,error}]\n              [--action NAME[=ARG]]\n              message";
 
 /** The notification group id the balloon registers under. */
 export const NOTIFY_GROUP_ID = "idea.toolbox";
@@ -170,7 +169,7 @@ const validateType = (raw: string): string => {
   return raw;
 };
 
-/** Split + whitelist a --action value, mirroring notify.py _validate_action (exit 2 on bad). */
+/** Split + whitelist a --action value (exit 2 on bad). */
 const validateAction = (value: string): Action => {
   const eq = value.indexOf("=");
   const name = eq === -1 ? value : value.slice(0, eq);

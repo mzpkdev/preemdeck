@@ -1,7 +1,7 @@
 /**
- * in-idea.test.ts — hermetic port of test_in_idea.py. The inIdea() detector is
- * injected via `_internals.inIdea` (DI seam, NOT mock.module — which leaks across
- * Bun's single-run suite). Exit-code paths use spyOn(process, "exit") +
+ * in-idea.test.ts — hermetic suite. The inIdea() detector is injected via
+ * `_internals.inIdea` (DI seam, NOT mock.module — which leaks across Bun's
+ * single-run suite). Exit-code paths use spyOn(process, "exit") +
  * spyOn(process.stderr,"write) (contract pattern F).
  */
 
@@ -52,7 +52,7 @@ describe("main", () => {
     const errSpy = spyOn(process.stderr, "write").mockImplementation((() => true) as never);
     try {
       expect(main([])).toBe(1);
-      expect(errSpy.mock.calls.map((c: unknown[]) => String(c[0])).join("")).toContain("in_idea:");
+      expect(errSpy.mock.calls.map((c: unknown[]) => String(c[0])).join("")).toContain("in-idea:");
     } finally {
       errSpy.mockRestore();
     }
@@ -66,7 +66,7 @@ describe("main", () => {
     try {
       expect(() => main(["--bogus"])).toThrow("exit:2");
       const err = errSpy.mock.calls.map((c: unknown[]) => String(c[0])).join("");
-      expect(err).toContain("usage: in_idea.py");
+      expect(err).toContain("usage: in-idea");
       expect(err).toContain("unrecognized arguments: --bogus");
     } finally {
       exitSpy.mockRestore();

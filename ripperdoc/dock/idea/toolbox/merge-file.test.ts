@@ -1,8 +1,8 @@
 /**
- * merge-file.test.ts — hermetic port of test_merge_file.py. launch + inIdea +
+ * merge-file.test.ts — hermetic tests. launch + inIdea +
  * reaper + read-back injected via `_internals`; nothing spawns. The launch stub
  * returns a fake child whose `.exited` Promise (the native-merge join) writes the
- * OUTPUT (last argv element) — what merge_file reads back on wait. Inputs are real
+ * OUTPUT (last argv element) — what mergeFile reads back on wait. Inputs are real
  * tmp files (strict resolution).
  */
 
@@ -145,7 +145,7 @@ describe("main", () => {
     const errSpy = spyOn(process.stderr, "write").mockImplementation((() => true) as never);
     try {
       await expect(main(argv)).rejects.toThrow("exit:2");
-      expect(errSpy.mock.calls.map((c: unknown[]) => String(c[0])).join("")).toContain("usage: merge_file.py");
+      expect(errSpy.mock.calls.map((c: unknown[]) => String(c[0])).join("")).toContain("usage: merge-file");
     } finally {
       exitSpy.mockRestore();
       errSpy.mockRestore();

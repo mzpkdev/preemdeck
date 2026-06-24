@@ -1,7 +1,7 @@
 /**
- * open-url.test.ts — hermetic port of core/test_open_url.py. resolveExecPath (the
- * live-IDE guard) + previewUrl + inIdea are injected via `_internals` (DI seam).
- * Nothing spawns; previewUrl is a recorder.
+ * open-url.test.ts — hermetic suite. resolveExecPath (the live-IDE guard) +
+ * previewUrl + inIdea are injected via `_internals` (DI seam). Nothing spawns;
+ * previewUrl is a recorder.
  */
 
 import { afterEach, beforeEach, describe, expect, spyOn, test } from "bun:test";
@@ -48,7 +48,7 @@ describe("main", () => {
   test("non-http scheme -> 1 with note, no preview", async () => {
     expect(await main(["ftp://x"])).toBe(1);
     expect(previewed).toEqual([]);
-    expect(errText()).toContain("open_url: url must be a non-empty http/https URL");
+    expect(errText()).toContain("open-url: url must be a non-empty http/https URL");
   });
 
   test("non-url -> 1 with note", async () => {
@@ -62,7 +62,7 @@ describe("main", () => {
     };
     expect(await main(["http://localhost:3000"])).toBe(1);
     expect(previewed).toEqual([]);
-    expect(errText()).toContain("open_url:");
+    expect(errText()).toContain("open-url:");
   });
 
   test("stub platform (NotImplementedError) -> 1", async () => {
@@ -76,7 +76,7 @@ describe("main", () => {
     _internals.inIdea = () => false;
     expect(await main(["http://localhost:3000"])).toBe(1);
     expect(previewed).toEqual([]);
-    expect(errText()).toContain("open_url: no JetBrains IDE in the process ancestry");
+    expect(errText()).toContain("open-url: no JetBrains IDE in the process ancestry");
   });
 
   test("missing url -> exit 2", async () => {

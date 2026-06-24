@@ -1,6 +1,6 @@
 /**
- * lib/inject.ts — byte-exact context-injection hook runner for the Python
- * injectors (inject_hook.py / inject_mode.py / boot.py / pulse.py).
+ * lib/inject.ts — byte-exact context-injection hook runner for the context
+ * injectors.
  *
  * Same stdin/event/no-op contract as lib/hook.ts `runHook`, but the emitted
  * envelope is serialized with lib/pyjson.ts to match Python's BARE

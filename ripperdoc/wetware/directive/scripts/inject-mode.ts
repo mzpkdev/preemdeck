@@ -1,6 +1,6 @@
 #!/usr/bin/env -S preemdeck-bun
 /**
- * inject-mode.ts — directive-routing hook (port of inject_mode.py).
+ * inject-mode.ts — directive-routing hook.
  *
  * Walks up from the script dir to find preemdeck.json, reads its `directive`
  * object (slot -> value; a bare string is a single legacy value), resolves each
@@ -9,7 +9,7 @@
  * / all-unknown values is a silent `{}` no-op. Default event UserPromptSubmit;
  * `--event <name>` is the fallback; stdin's hook_event_name wins.
  *
- * Path resolution mirrors the Python: SKILLS_DIR = <script-dir>/../skills.
+ * Path resolution: SKILLS_DIR = <script-dir>/../skills.
  */
 
 import { existsSync, readFileSync, statSync } from "node:fs";

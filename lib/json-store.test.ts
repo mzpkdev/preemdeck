@@ -25,7 +25,7 @@ afterEach(async () => {
 });
 
 describe("jsonStore", () => {
-  test("writeJson emits 2-space indent + trailing newline (byte-match set_mode.py)", async () => {
+  test("writeJson emits 2-space indent + trailing newline (byte-match Python json.dumps)", async () => {
     await writeJson(path, { directive: { strategy: "swarm", discretion: "ask" } });
     const text = await Bun.file(path).text();
     expect(text).toBe('{\n  "directive": {\n    "strategy": "swarm",\n    "discretion": "ask"\n  }\n}\n');

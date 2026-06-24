@@ -1,5 +1,5 @@
 /**
- * diff-file.test.ts — hermetic port of test_diff_file.py. launch + inIdea +
+ * diff-file.test.ts — hermetic tests. launch + inIdea +
  * read-back injected via `_internals`; nothing spawns. Inputs are real tmp files
  * so strict resolution behaves like production (a missing input fails fast).
  */
@@ -106,7 +106,7 @@ describe("main", () => {
     const errSpy = spyOn(process.stderr, "write").mockImplementation((() => true) as never);
     try {
       expect(await main([target, join(dir, "nope.py")])).toBe(1);
-      expect(errSpy.mock.calls.map((c: unknown[]) => String(c[0])).join("")).toContain("diff_file:");
+      expect(errSpy.mock.calls.map((c: unknown[]) => String(c[0])).join("")).toContain("diff-file:");
     } finally {
       errSpy.mockRestore();
     }
@@ -132,7 +132,7 @@ describe("main", () => {
     const errSpy = spyOn(process.stderr, "write").mockImplementation((() => true) as never);
     try {
       await expect(main(argv)).rejects.toThrow("exit:2");
-      expect(errSpy.mock.calls.map((c: unknown[]) => String(c[0])).join("")).toContain("usage: diff_file.py");
+      expect(errSpy.mock.calls.map((c: unknown[]) => String(c[0])).join("")).toContain("usage: diff-file");
     } finally {
       exitSpy.mockRestore();
       errSpy.mockRestore();

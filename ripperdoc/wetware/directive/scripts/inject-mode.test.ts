@@ -1,6 +1,6 @@
 /**
- * inject-mode.test.ts — port of test_inject_mode.py. Tmp-fixture FS for the
- * config walk-up + skills dir; DI stdin/write for the envelope.
+ * inject-mode.test.ts — Tmp-fixture FS for the config walk-up + skills dir;
+ * DI stdin/write for the envelope.
  */
 
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";

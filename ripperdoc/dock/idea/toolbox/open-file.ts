@@ -1,7 +1,6 @@
 #!/usr/bin/env bun
 /**
- * open-file.ts — open a file in the running JetBrains IDE. Behavior-identical TS
- * port of open_file.py (additive — the .py stays live).
+ * open-file.ts — open a file in the running JetBrains IDE.
  *
  * FIRE-AND-FORGET by default (wait=false): launch() spawns the IDE async and the
  * call resolves null as soon as the process is started. With wait=true,
@@ -21,8 +20,8 @@ import { argparseError, argparseMessage } from "./cli.ts";
 import { IdeaError } from "./core/errors.ts";
 import { inIdea, launch, setPreview } from "./core/index.ts";
 
-const PROG = "open_file.py";
-const USAGE = "usage: open_file.py [-h] [--line LINE] [--column COLUMN] [--wait] [--preview]\n                    path";
+const PROG = "open-file";
+const USAGE = "usage: open-file [-h] [--line LINE] [--column COLUMN] [--wait] [--preview]\n                 path";
 
 /** argparse type=int parity: reject non-integers with the exact error message + exit 2. */
 const parseIntArg = (name: string, raw: string): number => {
@@ -110,7 +109,7 @@ export const main = async (argv: string[] = Bun.argv.slice(2)): Promise<number> 
     contents = await openFile(path, { line, column, wait, preview });
   } catch (exc) {
     if (exc instanceof IdeaError) {
-      process.stderr.write(`open_file: ${exc.message}\n`);
+      process.stderr.write(`open-file: ${exc.message}\n`);
       return 1;
     }
     throw exc;

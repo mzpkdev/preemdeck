@@ -1,5 +1,5 @@
 /**
- * os-notify.test.ts — port of test_os_notify.py. Hermetic: no real banners. The
+ * os-notify.test.ts — exercises os-notify.ts. Hermetic: no real banners. The
  * run seam (with env), the terminal-notifier presence check, and the platform
  * worker are injected. The no-injection contract (user text rides env/argv, never
  * the script source) is asserted explicitly, including hostile text.

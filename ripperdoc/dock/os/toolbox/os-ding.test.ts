@@ -1,5 +1,5 @@
 /**
- * os-ding.test.ts — port of test_os_ding.py. Hermetic: no real audio. The run
+ * os-ding.test.ts — exercises os-ding.ts. Hermetic: no real audio. The run
  * seam and the platform worker are injected (DI), and the real runCmd seam is
  * exercised against silent subprocesses (MOCK PATTERN D, lightly).
  */

@@ -1,6 +1,6 @@
 /**
- * boot.test.ts — port of test_boot.py. Tmp-fixture FS (MOCK PATTERN E) for
- * read_source/combinedPersona; DI stdin/write for the envelope.
+ * boot.test.ts — Tmp-fixture FS (MOCK PATTERN E) for readSource/combinedPersona;
+ * DI stdin/write for the envelope.
  */
 
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";

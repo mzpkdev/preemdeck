@@ -1,6 +1,6 @@
 #!/usr/bin/env -S preemdeck-bun
 /**
- * pulse.ts — UserPromptSubmit persona-pulse injector (port of pulse.py).
+ * pulse.ts — UserPromptSubmit persona-pulse injector.
  *
  * Reads the pulse source (base64 `pulse.dat` preferred, else `PULSE.md`) from the
  * plugin root and injects its stripped body via lib/hook.ts. Missing/empty is a
@@ -13,14 +13,14 @@ import { runInjectionHook } from "../../../../lib/inject.ts";
 
 const DEFAULT_EVENT = "UserPromptSubmit";
 
-/** The plugin root, resolved the same way as pulse.py. */
+/** The plugin root: CLAUDE_PLUGIN_ROOT || PLUGIN_ROOT || the script dir's parent. */
 export const pluginRoot = (): string => {
   return process.env.CLAUDE_PLUGIN_ROOT || process.env.PLUGIN_ROOT || dirname(import.meta.dir);
 };
 
 /**
  * Read the pulse source: base64 `.dat` if present (decoded), else the plain
- * `.md`, else null. Matches pulse.py `read_source`.
+ * `.md`, else null.
  */
 export const readSource = (root: string, datName: string, mdName: string): string | null => {
   const dat = join(root, datName);

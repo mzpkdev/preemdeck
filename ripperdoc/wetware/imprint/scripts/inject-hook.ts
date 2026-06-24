@@ -1,6 +1,6 @@
 #!/usr/bin/env -S preemdeck-bun
 /**
- * inject-hook.ts — imprint-template context injector (port of inject_hook.py).
+ * inject-hook.ts — imprint-template context injector.
  *
  * Resolves a template (positional path, or `--file <name>` -> <NAME>.md), reads it
  * from the plugin root, substitutes the optional host-tools file's contents for
@@ -8,9 +8,9 @@
  * silent `{}` no-op; a missing host-tools file substitutes empty. Default event
  * UserPromptSubmit; `--event <name>` (first only) is the fallback; stdin wins.
  *
- * Path note: like the Python, args resolve as `PLUGIN_ROOT / arg` with pathlib's
- * "absolute arg wins" rule — Node's `resolve()` matches it, so absolute temp
- * paths are honored verbatim. PLUGIN_ROOT = <script-dir>/.. (scripts/ -> imprint/).
+ * Path note: args resolve as `PLUGIN_ROOT / arg` with an "absolute arg wins"
+ * rule — Node's `resolve()` honors absolute temp paths verbatim. PLUGIN_ROOT =
+ * <script-dir>/.. (scripts/ -> imprint/).
  */
 
 import { existsSync, readFileSync, statSync } from "node:fs";
@@ -22,7 +22,7 @@ const PLUGIN_ROOT = dirname(import.meta.dir);
 
 /**
  * Pull `--event <name>` out of argv; return [event_or_null, remaining_argv].
- * Only the first `--event` is honored (matches inject_hook.py).
+ * Only the first `--event` is honored.
  */
 export const extractEventArg = (argv: string[]): [string | null, string[]] => {
   const out: string[] = [];

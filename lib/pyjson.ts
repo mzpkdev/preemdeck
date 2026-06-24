@@ -2,9 +2,8 @@
  * lib/pyjson.ts — a faithful port of Python's default `json.dumps(...)` framing
  * for the context-injection envelope.
  *
- * WHY THIS EXISTS (and not lib/hook.ts's serializer): the Python injectors
- * (inject_hook.py / inject_mode.py / boot.py / pulse.py) all emit the envelope
- * with a BARE `json.dumps({...})`, i.e. Python's defaults:
+ * WHY THIS EXISTS (and not lib/hook.ts's serializer): the Python injectors all
+ * emit the envelope with a BARE `json.dumps({...})`, i.e. Python's defaults:
  *   - separators ", " and ": " (a space after each comma and colon), and
  *   - ensure_ascii=True (every non-ASCII char escaped to \uXXXX, astral chars as
  *     UTF-16 surrogate pairs).

@@ -1,5 +1,5 @@
 /**
- * merge-inline.test.ts — hermetic port of test_merge_inline.py. The worker
+ * merge-inline.test.ts — hermetic tests. The worker
  * delegate (mergeFile), the reaper, and inIdea are injected via `_internals`. A
  * spy mergeFile snapshots each input temp at call time; base is spilled only when
  * present.
@@ -129,7 +129,7 @@ describe("main", () => {
     const errSpy = spyOn(process.stderr, "write").mockImplementation((() => true) as never);
     try {
       await expect(main(argv)).rejects.toThrow("exit:2");
-      expect(errSpy.mock.calls.map((c: unknown[]) => String(c[0])).join("")).toContain("usage: merge_inline.py");
+      expect(errSpy.mock.calls.map((c: unknown[]) => String(c[0])).join("")).toContain("usage: merge-inline");
     } finally {
       exitSpy.mockRestore();
       errSpy.mockRestore();

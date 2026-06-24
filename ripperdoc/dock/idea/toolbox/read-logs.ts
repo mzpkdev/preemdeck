@@ -1,7 +1,6 @@
 #!/usr/bin/env bun
 /**
  * read-logs.ts — read the last N lines of the running JetBrains IDE's log.
- * Behavior-identical TS port of read_logs.py (additive — the .py stays live).
  */
 
 import { readFileSync } from "node:fs";
@@ -11,8 +10,8 @@ import { argparseError, argparseMessage } from "./cli.ts";
 import { IdeaError } from "./core/errors.ts";
 import { inIdea, resolveLogDir } from "./core/index.ts";
 
-const PROG = "read_logs.py";
-const USAGE = "usage: read_logs.py [-h] [n]";
+const PROG = "read-logs";
+const USAGE = "usage: read-logs [-h] [n]";
 
 /** argparse type=int parity: reject non-integers with the exact error message + exit 2. */
 const parseIntArg = (name: string, raw: string): number => {
@@ -36,7 +35,7 @@ export const _internals = {
 /**
  * Split `text` into lines the way Python's str.splitlines() does for log files:
  * on \r\n / \n / \r, dropping the trailing empty segment after a final
- * terminator (so "a\nb\n" -> ["a", "b"], matching read_logs.py's
+ * terminator (so "a\nb\n" -> ["a", "b"], matching Python's
  * read_text().splitlines()). Other Unicode line boundaries are vanishingly rare
  * in idea.log and out of scope.
  */
@@ -92,7 +91,7 @@ export const main = (argv: string[] = Bun.argv.slice(2)): number => {
     lines = readLogs(n);
   } catch (exc) {
     if (exc instanceof IdeaError || (exc instanceof Error && typeof (exc as NodeJS.ErrnoException).code === "string")) {
-      process.stderr.write(`read_logs: ${exc.message}\n`);
+      process.stderr.write(`read-logs: ${exc.message}\n`);
       return 1;
     }
     throw exc;

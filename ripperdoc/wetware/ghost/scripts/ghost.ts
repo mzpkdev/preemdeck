@@ -1,6 +1,6 @@
 #!/usr/bin/env -S preemdeck-bun
 /**
- * ghost.ts — persona obfuscation CLI (port of ghost.py).
+ * ghost.ts — persona obfuscation CLI.
  *
  *   encode    — for each MAPPING, base64-encode <MD> into <DAT> and unlink <MD>.
  *   decode    — for each MAPPING, base64-decode <DAT> back into <MD> (DAT kept).
@@ -20,7 +20,7 @@ export const MAPPINGS: ReadonlyArray<readonly [string, string]> = [
   ["PULSE.md", "pulse.dat"],
 ];
 
-/** The plugin root, resolved the same way as ghost.py. */
+/** The plugin root: CLAUDE_PLUGIN_ROOT || PLUGIN_ROOT || the script dir's parent. */
 export const pluginRoot = (): string => {
   return process.env.CLAUDE_PLUGIN_ROOT || process.env.PLUGIN_ROOT || dirname(import.meta.dir);
 };
@@ -81,7 +81,7 @@ export const main = (
   } else if (cmd === "flatline") {
     flatline(root, log);
   } else {
-    process.stderr.write("Usage: ghost.py {encode|decode|flatline}\n");
+    process.stderr.write("Usage: ghost {encode|decode|flatline}\n");
     return 1;
   }
   return 0;

@@ -1,5 +1,5 @@
 /**
- * pulse.test.ts — port of test_pulse.py. Tmp-fixture FS + DI stdin/write.
+ * pulse.test.ts — Tmp-fixture FS + DI stdin/write.
  */
 
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";

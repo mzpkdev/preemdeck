@@ -1,8 +1,7 @@
 #!/usr/bin/env bun
 /**
  * merge-file.ts — 3-way merge of two files (with an optional base) in the running
- * JetBrains IDE. Behavior-identical TS port of merge_file.py (additive — the .py
- * stays live).
+ * JetBrains IDE.
  *
  * The positionals are READ-ONLY inputs resolved strictly (a missing path throws
  * before launch). They map onto `idea merge`'s fixed arg order, OUTPUT LAST and
@@ -23,8 +22,8 @@ import { IdeaError } from "./core/errors.ts";
 import { inIdea, launch, reapLater } from "./core/index.ts";
 import { mkstempSync, resolveStrict } from "./tmp.ts";
 
-const PROG = "merge_file.py";
-const USAGE = "usage: merge_file.py [-h] [--wait] target suggestion [base]";
+const PROG = "merge-file";
+const USAGE = "usage: merge-file [-h] [--wait] target suggestion [base]";
 
 /**
  * Engine seam: tests override these instead of mock.module on ./core (which
@@ -103,7 +102,7 @@ export const main = async (argv: string[] = Bun.argv.slice(2)): Promise<number> 
     result = await mergeFile(positionals[0] as string, positionals[1] as string, base, wait);
   } catch (exc) {
     if (exc instanceof IdeaError || (exc instanceof Error && typeof (exc as NodeJS.ErrnoException).code === "string")) {
-      process.stderr.write(`merge_file: ${exc.message}\n`);
+      process.stderr.write(`merge-file: ${exc.message}\n`);
       return 1;
     }
     throw exc;

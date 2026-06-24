@@ -1,8 +1,7 @@
 /**
- * inject-hook.test.ts — port of test_inject_hook.py. Tmp-fixture FS for templates
- * / host-tools files; DI stdin/write for the envelope. Absolute temp paths are
- * honored verbatim (resolve()'s "absolute wins"), mirroring the Python pathlib
- * behavior the suite relies on.
+ * inject-hook.test.ts — Tmp-fixture FS for templates / host-tools files; DI
+ * stdin/write for the envelope. Absolute temp paths are honored verbatim
+ * (resolve()'s "absolute wins"), which the suite relies on.
  */
 
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
@@ -73,7 +72,7 @@ describe("resolveTemplateArg", () => {
   });
 });
 
-describe("inject_hook CLI", () => {
+describe("inject-hook CLI", () => {
   test("substitutes {{host_tools}}", async () => {
     const template = await writeTmp("# T\n\n{{host_tools}}\n");
     const host = await writeTmp("HOST_TOOLS_MARKER");

@@ -1,6 +1,6 @@
 #!/usr/bin/env -S preemdeck-bun
 /**
- * os-ding.ts — play a short notification "ding" (port of os_ding.py).
+ * os-ding.ts — play a short notification "ding".
  *
  * macOS + Linux only (Windows/winsound already removed). Selects a host-native
  * mechanism by platform; falls back to the ASCII terminal bell so something always

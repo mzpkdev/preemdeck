@@ -1,5 +1,5 @@
 /**
- * diff-inline.test.ts — hermetic port of test_diff_inline.py. The worker delegate
+ * diff-inline.test.ts — hermetic tests. The worker delegate
  * (diffFile), the reaper, and inIdea are injected via `_internals`. A spy diffFile
  * snapshots each temp's contents at call time (before cleanup).
  */
@@ -115,7 +115,7 @@ describe("main", () => {
     const errSpy = spyOn(process.stderr, "write").mockImplementation((() => true) as never);
     try {
       await expect(main(argv)).rejects.toThrow("exit:2");
-      expect(errSpy.mock.calls.map((c: unknown[]) => String(c[0])).join("")).toContain("usage: diff_inline.py");
+      expect(errSpy.mock.calls.map((c: unknown[]) => String(c[0])).join("")).toContain("usage: diff-inline");
     } finally {
       exitSpy.mockRestore();
       errSpy.mockRestore();
