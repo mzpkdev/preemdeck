@@ -93,7 +93,7 @@ function spawn(cmd: string[], options?: SpawnOptions): Promise<SpawnResult>;
   `timedOut:true`. Never throws on non-zero exit (read `.exitCode`); throws only on empty argv. (Proven: `sleep 5` +
   200ms timeout returns in \<2s, exitCode≠0.)
 
-### `lib/jsonStore.ts` — atomic `preemdeck.json` read/write (matches `set_mode.py`)
+### `lib/json-store.ts` — atomic `preemdeck.json` read/write (matches `set_mode.py`)
 
 ```ts
 function readJson<T = unknown>(path: string, fallback?: T): Promise<T>;   // missing/invalid → fallback (default {})
@@ -144,8 +144,8 @@ function validateActions(prog: string, raw: string[] | undefined, spec: ActionSp
   before the consumer imports it.
 - **D — real subprocess + timing** (`proc.test.ts`): drive a real child, assert wall-clock (`performance.now()`) to
   prove a kill landed.
-- **E — tmp fixture** (`jsonStore.test.ts`): `mkdtemp` in `beforeEach`, `rm(dir,{recursive,force})` in `afterEach`; real
-  FS over mocking `fs`.
+- **E — tmp fixture** (`json-store.test.ts`): `mkdtemp` in `beforeEach`, `rm(dir,{recursive,force})` in `afterEach`;
+  real FS over mocking `fs`.
 - **F — `spyOn(process,"exit")`** (`args.test.ts`): replace `exit` with a thrown sentinel + spy `process.stderr.write`
   to assert exit codes without killing the runner. THE pattern for CLI exit-code tests.
 

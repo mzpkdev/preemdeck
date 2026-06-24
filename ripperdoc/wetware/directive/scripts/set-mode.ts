@@ -1,0 +1,169 @@
+#!/usr/bin/env -S preemdeck-bun
+/**
+ * set-mode.ts — the deterministic preemdeck.json writer (port of set_mode.py).
+ *
+ * The SOLE writer of preemdeck.json's `directive` object. <value> is validated
+ * against the shipped mode skills (skills/<value>/directive.md); its slot is
+ * DERIVED from scripts/modes.json (value->slot), so the value alone decides the
+ * slot. preemdeck.json is found by walking up from this script; the derived slot
+ * must already be present in the config's `directive` object; `directive[slot]` is
+ * set, every other slot/top-level key preserved, and the file rewritten atomically
+ * via lib/json-store.ts (2-space indent + trailing newline, byte-identical). Same
+ * input -> same bytes.
+ *
+ * Exit codes: 0 slot set (idempotent); 2 usage / unknown value / no slot in
+ * modes.json / missing-or-malformed modes.json / unknown derived slot / config
+ * not found.
+ */
+
+import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { writeJson } from "../../../../lib/json-store.ts";
+
+const CONFIG_NAME = "preemdeck.json";
+const DIRECTIVE_KEY = "directive";
+
+const SEARCH_START = import.meta.dir;
+const SKILLS_DIR = join(dirname(import.meta.dir), "skills");
+const MODES_FILE = join(import.meta.dir, "modes.json");
+
+/** Walk up from `start` (inclusive) toward the root; first preemdeck.json wins. */
+export const findConfig = (start: string): string | null => {
+  let dir = start;
+  for (;;) {
+    const candidate = join(dir, CONFIG_NAME);
+    if (existsSync(candidate) && statSync(candidate).isFile()) return candidate;
+    const parent = dirname(dir);
+    if (parent === dir) return null;
+    dir = parent;
+  }
+};
+
+/** Sorted mode names — skill folders that ship a `directive.md`. */
+export const availableModes = (skillsDir: string): string[] => {
+  if (!existsSync(skillsDir) || !statSync(skillsDir).isDirectory()) return [];
+  const names: string[] = [];
+  for (const entry of readdirSync(skillsDir)) {
+    const dir = join(skillsDir, entry);
+    const body = join(dir, "directive.md");
+    if (statSync(dir).isDirectory() && existsSync(body) && statSync(body).isFile()) {
+      names.push(entry);
+    }
+  }
+  return names.sort();
+};
+
+/** Raised for a missing/malformed modes.json — a hard error, distinct from no-entry. */
+export class ModesError extends Error {}
+
+/**
+ * The slot a value maps to in modes.json; null if it has no (non-blank) entry.
+ * Throws ModesError if modes.json is missing, unreadable, or not a JSON object.
+ */
+export const slotFor = (modesFile: string, value: string): string | null => {
+  let data: unknown;
+  try {
+    data = JSON.parse(readFileSync(modesFile, "utf8"));
+  } catch {
+    throw new ModesError(`${modesFile} missing or malformed`);
+  }
+  if (data === null || typeof data !== "object" || Array.isArray(data)) {
+    throw new ModesError(`${modesFile} missing or malformed`);
+  }
+  const slot = (data as Record<string, unknown>)[value];
+  return typeof slot === "string" && slot.trim() ? slot : null;
+};
+
+/** Slot keys already defined in the config's `directive` object (insertion order). */
+export const configSlots = (config: string): string[] => {
+  let data: unknown;
+  try {
+    data = JSON.parse(readFileSync(config, "utf8"));
+  } catch {
+    return [];
+  }
+  if (data === null || typeof data !== "object" || Array.isArray(data)) return [];
+  const field = (data as Record<string, unknown>)[DIRECTIVE_KEY];
+  if (field === null || typeof field !== "object" || Array.isArray(field)) return [];
+  return Object.keys(field as Record<string, unknown>);
+};
+
+/** Set `directive[slot] = value`, preserving other slots/keys; atomic write. */
+export const setDirective = async (config: string, slot: string, value: string): Promise<void> => {
+  let data: unknown;
+  try {
+    data = JSON.parse(readFileSync(config, "utf8"));
+  } catch {
+    data = {};
+  }
+  if (data === null || typeof data !== "object" || Array.isArray(data)) data = {};
+  const obj = data as Record<string, unknown>;
+  let field = obj[DIRECTIVE_KEY];
+  if (field === null || typeof field !== "object" || Array.isArray(field)) field = {};
+  (field as Record<string, unknown>)[slot] = value;
+  obj[DIRECTIVE_KEY] = field;
+  await writeJson(config, obj);
+};
+
+/** Render a string the way Python's `{value!r}` does for the common cases. */
+const pyRepr = (value: string): string => {
+  if (!value.includes("'") || value.includes('"')) return `'${value}'`;
+  return `"${value}"`;
+};
+
+/**
+ * The CLI entry: validate <value>, derive its slot from modes.json, confirm the
+ * slot exists in the resolved config, and write it. Returns the process exit code
+ * (0 set/idempotent; 2 on any usage, lookup, or config error) instead of exiting,
+ * so the suite can drive it directly. The injectable `opts` override the
+ * module-level search/skills/modes paths for testing.
+ */
+export const main = async (
+  argv: string[],
+  opts: { searchStart?: string; skillsDir?: string; modesFile?: string } = {},
+): Promise<number> => {
+  const searchStart = opts.searchStart ?? SEARCH_START;
+  const skillsDir = opts.skillsDir ?? SKILLS_DIR;
+  const modesFile = opts.modesFile ?? MODES_FILE;
+
+  const modes = availableModes(skillsDir);
+  const listing = modes.join(", ") || "none";
+  if (argv.length !== 1 || !argv[0] || argv[0].trim() === "") {
+    process.stderr.write(`usage: set_mode.py <value>   (values: ${listing})\n`);
+    return 2;
+  }
+  const value = (argv[0] as string).trim();
+  if (!modes.includes(value)) {
+    process.stderr.write(`unknown value ${pyRepr(value)}; available: ${listing}\n`);
+    return 2;
+  }
+  let slot: string | null;
+  try {
+    slot = slotFor(modesFile, value);
+  } catch (exc) {
+    process.stderr.write(`${exc instanceof Error ? exc.message : String(exc)}\n`);
+    return 2;
+  }
+  if (slot === null) {
+    process.stderr.write(`mode ${pyRepr(value)} has no slot in modes.json\n`);
+    return 2;
+  }
+  const config = findConfig(searchStart);
+  if (config === null) {
+    process.stderr.write(`${CONFIG_NAME} not found above ${searchStart}\n`);
+    return 2;
+  }
+  const slots = configSlots(config);
+  if (!slots.includes(slot)) {
+    const slisting = slots.join(", ") || "none";
+    process.stderr.write(`unknown slot ${pyRepr(slot)}; defined slots: ${slisting}\n`);
+    return 2;
+  }
+  await setDirective(config, slot, value);
+  process.stdout.write(`${DIRECTIVE_KEY}.${slot} = ${value}  (${config})\n`);
+  return 0;
+};
+
+if (import.meta.main) {
+  process.exit(await main(Bun.argv.slice(2)));
+}

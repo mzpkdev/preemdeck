@@ -14,15 +14,15 @@ import { runInjectionHook } from "../../../../lib/inject.ts";
 const DEFAULT_EVENT = "UserPromptSubmit";
 
 /** The plugin root, resolved the same way as pulse.py. */
-export function pluginRoot(): string {
+export const pluginRoot = (): string => {
   return process.env.CLAUDE_PLUGIN_ROOT || process.env.PLUGIN_ROOT || dirname(import.meta.dir);
-}
+};
 
 /**
  * Read the pulse source: base64 `.dat` if present (decoded), else the plain
  * `.md`, else null. Matches pulse.py `read_source`.
  */
-export function readSource(root: string, datName: string, mdName: string): string | null {
+export const readSource = (root: string, datName: string, mdName: string): string | null => {
   const dat = join(root, datName);
   if (existsSync(dat)) {
     return Buffer.from(readFileSync(dat).toString("utf8"), "base64").toString("utf8");
@@ -32,7 +32,7 @@ export function readSource(root: string, datName: string, mdName: string): strin
     return readFileSync(md, "utf8");
   }
   return null;
-}
+};
 
 if (import.meta.main) {
   const root = pluginRoot();

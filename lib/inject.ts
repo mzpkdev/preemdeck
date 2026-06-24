@@ -15,7 +15,11 @@ import { injectionEnvelope } from "./pyjson.ts";
 
 const DEFAULT_EVENT = "UserPromptSubmit";
 
-export interface RunInjectionOptions {
+/**
+ * The knobs `runInjectionHook` needs: the rendering callback plus the fallback
+ * event, with seams (`stdin`/`write`) so tests can drive it without real IO.
+ */
+export type RunInjectionOptions = {
   /** Fallback event when stdin omits hook_event_name (the manifest's --event). */
   event?: string;
   /** Produce additionalContext; non-empty string injects, null/"" is a no-op. */
@@ -24,10 +28,10 @@ export interface RunInjectionOptions {
   stdin?: { text(): Promise<string> };
   /** Sink for the JSON line. Defaults to console.log. Override in tests. */
   write?: (line: string) => void;
-}
+};
 
 /** Read stdin, resolve the event, emit the Python-faithful envelope (or `{}`). */
-export async function runInjectionHook(options: RunInjectionOptions): Promise<void> {
+export const runInjectionHook = async (options: RunInjectionOptions): Promise<void> => {
   const { event, render } = options;
   const stdin = options.stdin ?? Bun.stdin;
   const write = options.write ?? ((line: string) => console.log(line));
@@ -61,4 +65,4 @@ export async function runInjectionHook(options: RunInjectionOptions): Promise<vo
     return;
   }
   write(injectionEnvelope(eventName, text));
-}
+};

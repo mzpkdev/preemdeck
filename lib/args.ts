@@ -25,38 +25,43 @@ import { type ParseArgsConfig, parseArgs } from "node:util";
 export class UsageError extends Error {}
 
 /** Print `prog: <msg>` to stderr and exit 2 — the argparse usage-error contract. */
-export function usageError(prog: string, message: string): never {
+// The `=> never` lives on the variable type, not inline on the arrow: only an
+// explicitly-typed `never`-returning binding drives call-site control-flow
+// analysis (an inline `(): never =>` does not), so callers like `parseOrExit`
+// and every `main` are correctly seen as terminating. See cli.ts `argparseError`.
+export const usageError: (prog: string, message: string) => never = (prog, message) => {
   process.stderr.write(`${prog}: ${message}\n`);
   process.exit(2);
-}
+};
 
 /**
  * Run `parseArgs`, converting any thrown parse error (and any `UsageError` from
  * downstream validation you call inside `then`-ish code) into stderr + exit 2.
  * `config.args` defaults to `Bun.argv.slice(2)` (the args after the script path).
  */
-export function parseOrExit<T extends ParseArgsConfig>(prog: string, config: T): ReturnType<typeof parseArgs<T>> {
+export const parseOrExit = <T extends ParseArgsConfig>(prog: string, config: T): ReturnType<typeof parseArgs<T>> => {
   try {
     return parseArgs<T>({ args: Bun.argv.slice(2), ...config });
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     usageError(prog, message);
   }
-}
+};
 
 /**
  * Parse an int option value the way argparse `type=int` does. `raw` is the
  * string `parseArgs` captured; returns the integer or exits 2 with a usage error.
  * `name` heads the error (e.g. "--timeout").
  */
-export function parseIntArg(prog: string, name: string, raw: string): number {
+export const parseIntArg = (prog: string, name: string, raw: string): number => {
   // Reject anything that isn't a clean optional-sign integer (no floats, no "3abc").
   if (!/^[+-]?\d+$/.test(raw.trim())) {
     usageError(prog, `argument ${name}: invalid int value: '${raw}'`);
   }
   return Number.parseInt(raw, 10);
-}
+};
 
+/** One parsed `--action`: its `name`, and the `=arg` payload (`null` when bare). */
 export type Action = { name: string; arg: string | null };
 
 /** Whitelist entry per action name: `[needsArg]`. Extend the tuple as porting needs. */
@@ -67,11 +72,11 @@ export type ActionSpec = Record<string, { needsArg: boolean }>;
  * `name=arg` -> `{name, arg}`; bare `name` -> `{name, arg: null}`. Matches
  * notify.py `_parse_action` (so `=` inside a URL/path query stays in `arg`).
  */
-export function parseAction(value: string): Action {
+export const parseAction = (value: string): Action => {
   const eq = value.indexOf("=");
   if (eq === -1) return { name: value, arg: null };
   return { name: value.slice(0, eq), arg: value.slice(eq + 1) };
-}
+};
 
 /**
  * Parse + whitelist a list of raw `--action` values against `spec`. Returns the
@@ -79,7 +84,7 @@ export function parseAction(value: string): Action {
  * `spec` or a `needsArg` action is missing its arg — mirrors notify.py
  * `_validate_action`. `raw` is `result.values.action` (string[] | undefined).
  */
-export function validateActions(prog: string, raw: string[] | undefined, spec: ActionSpec): Action[] {
+export const validateActions = (prog: string, raw: string[] | undefined, spec: ActionSpec): Action[] => {
   const out: Action[] = [];
   for (const value of raw ?? []) {
     const { name, arg } = parseAction(value);
@@ -94,4 +99,4 @@ export function validateActions(prog: string, raw: string[] | undefined, spec: A
     out.push({ name, arg });
   }
   return out;
-}
+};

@@ -19,7 +19,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "$HOME/.preemdeck/scripts/preemdeck-bun \"${CLAUDE_PLUGIN_ROOT}/toolbox/turn_notify.ts\" Codex",
+            "command": "$HOME/.preemdeck/scripts/preemdeck-bun \"${CLAUDE_PLUGIN_ROOT}/toolbox/turn-notify.ts\" Codex",
             "timeout": 5
           }
         ]

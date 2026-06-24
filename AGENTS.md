@@ -18,7 +18,7 @@ out to (`ruff`, `mdformat`) are unchanged. It never blocks the edit — failures
 
 | File                        | Role                                    |
 | --------------------------- | --------------------------------------- |
-| `scripts/format_on_edit.ts` | Shared script — single source of truth  |
+| `scripts/format-on-edit.ts` | Shared script — single source of truth  |
 | `.claude/settings.json`     | Claude: `PostToolUse` → script          |
 | `.codex/config.toml`        | Codex: `[[hooks.PostToolUse]]` → script |
 | `.gemini/settings.json`     | Gemini: `AfterTool` → script            |

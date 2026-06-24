@@ -8,8 +8,8 @@
  */
 
 import { describe, expect, test } from "bun:test";
-import * as ideaLinux from "./idea_linux.ts";
-import * as ideaMac from "./idea_mac.ts";
+import * as ideaLinux from "./idea-linux.ts";
+import * as ideaMac from "./idea-mac.ts";
 import * as core from "./index.ts";
 
 describe("linux stub", () => {

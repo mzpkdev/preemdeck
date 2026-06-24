@@ -14,7 +14,7 @@ import { type ActionSpec, parseAction, parseIntArg, parseOrExit, UsageError, val
 // requested (or null if it never exited). Restored in afterEach below.
 const spies: Array<{ mockRestore: () => void }> = [];
 
-function captureExit(fn: () => void): { code: number | null; stderr: string } {
+const captureExit = (fn: () => void): { code: number | null; stderr: string } => {
   let code: number | null = null;
   let stderr = "";
   const exitSpy = spyOn(process, "exit").mockImplementation(((c?: number) => {
@@ -32,7 +32,7 @@ function captureExit(fn: () => void): { code: number | null; stderr: string } {
     if (!(e instanceof UsageError)) throw e; // re-throw anything that isn't our sentinel
   }
   return { code, stderr };
-}
+};
 
 afterEach(() => {
   for (const s of spies.splice(0)) s.mockRestore();

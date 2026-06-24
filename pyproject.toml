@@ -73,7 +73,7 @@ disallow_untyped_defs = false
 disallow_incomplete_defs = false
 
 [tool.poe.tasks]
-# JSON formatting moved to Biome on the TS side (see scripts/format_on_edit.ts);
+# JSON formatting moved to Biome on the TS side (see scripts/format-on-edit.ts);
 # the former `format-json` task and scripts/format_json.py are gone.
 format = ["format-py", "format-md"]
 format-py = "ruff format ."

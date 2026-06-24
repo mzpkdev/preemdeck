@@ -9,7 +9,7 @@ disable-model-invocation: true
 Run the bundled reader — nothing else:
 
 ```bash
-"$HOME/.preemdeck/scripts/preemdeck-bun" "${CLAUDE_PLUGIN_ROOT}/scripts/show_mode.ts" swarm
+"$HOME/.preemdeck/scripts/preemdeck-bun" "${CLAUDE_PLUGIN_ROOT}/scripts/show-mode.ts" swarm
 ```
 
 `${CLAUDE_PLUGIN_ROOT}` resolves on Claude and Codex (aliased to `PLUGIN_ROOT`). Relay the script's output verbatim.

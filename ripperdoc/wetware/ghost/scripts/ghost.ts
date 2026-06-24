@@ -13,6 +13,7 @@
 import { existsSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 
+/** The <MD> ⇄ <DAT> persona files, in the fixed order every subcommand walks. */
 export const MAPPINGS: ReadonlyArray<readonly [string, string]> = [
   ["ENGRAM.md", "engram.dat"],
   ["FIRMWARE.md", "firmware.dat"],
@@ -20,12 +21,12 @@ export const MAPPINGS: ReadonlyArray<readonly [string, string]> = [
 ];
 
 /** The plugin root, resolved the same way as ghost.py. */
-export function pluginRoot(): string {
+export const pluginRoot = (): string => {
   return process.env.CLAUDE_PLUGIN_ROOT || process.env.PLUGIN_ROOT || dirname(import.meta.dir);
-}
+};
 
 /** base64-encode each present <MD> into <DAT> and remove the <MD>. */
-export function encode(root: string, log: (line: string) => void = console.log): void {
+export const encode = (root: string, log: (line: string) => void = console.log): void => {
   for (const [mdName, datName] of MAPPINGS) {
     const md = join(root, mdName);
     if (!existsSync(md)) continue;
@@ -35,10 +36,10 @@ export function encode(root: string, log: (line: string) => void = console.log):
     unlinkSync(md);
     log(`${mdName} -> ${datName}`);
   }
-}
+};
 
 /** base64-decode each present <DAT> back into <MD> (the <DAT> is left in place). */
-export function decode(root: string, log: (line: string) => void = console.log): void {
+export const decode = (root: string, log: (line: string) => void = console.log): void => {
   for (const [mdName, datName] of MAPPINGS) {
     const dat = join(root, datName);
     if (!existsSync(dat)) continue;
@@ -46,10 +47,10 @@ export function decode(root: string, log: (line: string) => void = console.log):
     writeFileSync(md, Buffer.from(readFileSync(dat).toString("utf8"), "base64"));
     log(`${datName} -> ${mdName}`);
   }
-}
+};
 
 /** Restore stock/<MD> over <MD> for each mapping, then encode to scrub the .md. */
-export function flatline(root: string, log: (line: string) => void = console.log): void {
+export const flatline = (root: string, log: (line: string) => void = console.log): void => {
   const stockDir = join(root, "stock");
   for (const [mdName] of MAPPINGS) {
     const src = join(stockDir, mdName);
@@ -59,9 +60,19 @@ export function flatline(root: string, log: (line: string) => void = console.log
   }
   encode(root, log);
   log("persona wiped to stock");
-}
+};
 
-export function main(argv: string[], root: string = pluginRoot(), log: (line: string) => void = console.log): number {
+/**
+ * The CLI entry: dispatch the {encode|decode|flatline} subcommand. Returns the
+ * process exit code (0 on a known command; 1 on an unknown/missing one, after
+ * printing usage) rather than exiting, so tests can assert on it. `root`/`log`
+ * are injectable for the suite.
+ */
+export const main = (
+  argv: string[],
+  root: string = pluginRoot(),
+  log: (line: string) => void = console.log,
+): number => {
   const cmd = argv.length > 0 ? argv[0] : undefined;
   if (cmd === "encode") {
     encode(root, log);
@@ -74,7 +85,7 @@ export function main(argv: string[], root: string = pluginRoot(), log: (line: st
     return 1;
   }
   return 0;
-}
+};
 
 if (import.meta.main) {
   process.exit(main(Bun.argv.slice(2)));

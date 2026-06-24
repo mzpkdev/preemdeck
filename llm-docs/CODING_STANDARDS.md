@@ -1,354 +1,398 @@
-# Python Coding Standards
+# TypeScript Coding Standards
 
-How we write Python here. Skim freely — every section stands alone. Target: Python 3.12+ syntax, no framework
-assumptions.
+How we write TypeScript here. Skim freely — every section stands alone. Target: the repo's source (`lib/`, `scripts/`,
+`ripperdoc/`), which runs on a **pinned Bun** as native ESM. The wire server (`ripperdoc/wetware/wire/server/`) is
+Python and out of scope.
+
+______________________________________________________________________
+
+## Tooling — decided, not re-litigated
+
+The repo settles these for you. State them, don't argue them.
+
+| Concern       | Tool / setting                                                                                 |
+| ------------- | ---------------------------------------------------------------------------------------------- |
+| Runtime       | Bun (pinned `1.3.14`), via `scripts/preemdeck-bun`. Native `.ts`, no build step.               |
+| Module system | ESM only (`"type": "module"`). No CommonJS, no `require`.                                      |
+| Format + lint | Biome — `bun run format` (write), `bun run lint` (check). CI enforces.                         |
+| Tests         | `bun test` — `bun:test` API, files colocated as `*.test.ts`.                                   |
+| Type-check    | `tsgo` (`@typescript/native-preview`, pinned) — `bun run typecheck` (`--noEmit`). CI enforces. |
+
+**Biome formatting** (don't hand-format against it): 2-space indent, 120-column lines, double quotes, semicolons always,
+trailing commas everywhere, `recommended` lint rules on.
+
+**tsconfig is `strict`** plus extras that change how you write code:
+
+- `noUncheckedIndexedAccess` — `arr[i]` is `T | undefined`. Guard or narrow before use; don't assume the index is there.
+- `verbatimModuleSyntax` — type-only imports **must** say `import type`. The linter won't paper over it.
+- `allowImportingTsExtensions` — relative imports carry the **`.ts`** extension (see
+  [Modules & imports](#modules--imports)).
+- `noFallthroughCasesInSwitch` — every `case` ends in `break`/`return`/`throw`.
 
 ______________________________________________________________________
 
 ## Naming
 
-| Kind               | Style              | Example                    |
-| ------------------ | ------------------ | -------------------------- |
-| Module / package   | `snake_case`       | `payment_gateway`          |
-| Class              | `PascalCase` noun  | `ElectricCar`              |
-| Function / method  | `snake_case` verb  | `calculate_sale_price`     |
-| Variable           | `snake_case` noun  | `cost_price`               |
-| Constant           | `UPPER_SNAKE` noun | `DEFAULT_MARGIN_PERCENT`   |
-| Private            | leading `_`        | `_internal_state`          |
-| Name-mangled (cls) | leading `__`       | `__calculate_taxes_factor` |
+| Kind                    | Style                | Example                              |
+| ----------------------- | -------------------- | ------------------------------------ |
+| File / module           | `kebab-case`         | `os-notify.ts`, `render-dispatch.ts` |
+| Test file               | `kebab-case.test.ts` | `args.test.ts`, `proc.test.ts`       |
+| Function / method       | `camelCase` verb     | `parseAction`, `runCmd`              |
+| Variable                | `camelCase` noun     | `costPrice`                          |
+| Type / type-alias       | `PascalCase` noun    | `SpawnOptions`, `Action`             |
+| Constant (module-level) | `UPPER_SNAKE` noun   | `DEFAULT_MARGIN_PERCENT`             |
+| Test-seam object        | leading `_`          | `_internals`                         |
 
-Names should explain themselves — no truncation gymnastics, no magic numbers.
+Names explain themselves — no truncation gymnastics, no magic numbers.
 
-```python
-# Avoid
-DEF_MARG_PERC = 50
-return cost * (1 + 50 / 100)
+```ts
+// Avoid
+const DEF_MARG_PERC = 50;
+return cost * (1 + 50 / 100);
 
-# Prefer
-DEFAULT_MARGIN_PERCENT = 50
-return cost * (1 + DEFAULT_MARGIN_PERCENT / 100)
+// Prefer
+const DEFAULT_MARGIN_PERCENT = 50;
+return cost * (1 + DEFAULT_MARGIN_PERCENT / 100);
 ```
 
-Stay consistent with verbs — `get_name` and `get_cost_price`, not `get_name` and `fetch_cost_price`.
+Stay consistent with verbs — `getName` and `getCostPrice`, not `getName` and `fetchCostPrice`.
+
+The **only** leading underscore we keep is the `_internals` test seam (see [Testing](#testing)). Filenames and private
+helpers do **not** get a `_` prefix — privacy comes from module boundaries, not from a marker (see
+[Modules & imports](#modules--imports)).
 
 ______________________________________________________________________
 
-## Functions: shape and size
+## Modules & imports
 
-- Aim for **under 20 lines**, ideal under 5.
-- **One level of abstraction per function.** High-level code shouldn't mix with low-level details.
-- **Stepdown rule** — the highest-level function lives on top, helpers below it. Read top-down like a newspaper.
+ESM, native, no bundler step. A few hard rules:
 
-```python
-class ElectricCar:
-    def calculate_sale_price(self):           # top: the public intent
-        return (
-            self._price_before_tax()
-            * self._taxes_factor()
-        )
+```ts
+// 1. Relative imports ALWAYS carry the .ts extension (allowImportingTsExtensions).
+import { runCmd } from "../lib/proc.ts";
 
-    def _price_before_tax(self):              # one level down
-        return self.cost_price * (1 + DEFAULT_MARGIN_PERCENT / 100)
+// 2. Node stdlib ALWAYS uses the node: prefix.
+import { parseArgs } from "node:util";
+import { writeFile, rename } from "node:fs/promises";
 
-    def _taxes_factor(self):                  # one level down
-        taxes = DEFAULT_TAX + (DEFAULT_IMPORT_TAX if self.imported else 0)
-        return 1 + taxes / 100
+// 3. Type-only imports say `import type` (verbatimModuleSyntax requires it).
+import type { Action } from "../lib/args.ts";
+
+// 4. Named imports only — never `import * as`.
+import { notifyMacos } from "./os-notify.ts";
 ```
+
+Group imports by origin, blank-line-separated: **stdlib (`node:`/`bun`) → external deps → local (`./`, `../`)**.
+
+**Privacy = the public facade, not a filename marker.** A directory with internals exposes a curated `index.ts` that
+re-exports its public API; everything else is internal and not imported across the boundary.
+
+```
+toolbox/core/
+├── index.ts        # public API — the only entry other dirs import from
+├── launch.ts       # internal — reached only via index.ts within core/
+└── reap.ts         # internal
+```
+
+No barrel files for their own sake — an `index.ts` exists to *mark a boundary*, not to re-export a flat directory.
+
+______________________________________________________________________
+
+## Types
+
+**Use `type` for everything** — object shapes, unions, function signatures, aliases. We don't use `interface`. One
+construct, uniform mental model.
+
+```ts
+// Object shapes
+type SpawnOptions = {
+  cmd: string[];
+  cwd?: string;
+  env?: Record<string, string>;
+};
+
+// Union literals instead of enums
+type Level = "info" | "warning" | "error";
+
+// Function signatures
+type Spawn = (argv: string[]) => Bun.Subprocess;
+
+// Aliases for readable signatures
+type Coordinate = [number, number];
+```
+
+Other rules:
+
+- **`unknown`, never `any`.** Parse into `unknown`, then narrow. `any` is a hole in the type system; if you truly need
+  an escape hatch, comment why.
+- **`| null` vs `?`** — use `?` for "the caller may omit this"; use `| null` when *absence is a real, distinct state*
+  the value can hold and you want it explicit.
+  ```ts
+  type ParsedUrl = {
+    host: string | null;   // genuinely may have no host — explicit
+    port?: number;         // optional input, defaulted downstream
+  };
+  ```
+- **Union literals over `enum`.** They erase cleanly, narrow well, and need no runtime object.
+- **`as const`** for fixed literal tuples/option tables, so they type as their narrow literal form.
+- **Lenient inputs, strict outputs.** Accept `Iterable`/`ReadonlyArray`/`Record` in parameters; return concrete
+  `Array`/`Record`/the exact shape. Don't make callers over-specify; don't make them guess what you hand back.
+
+______________________________________________________________________
+
+## Functions: arrows, shape, size
+
+**Arrow functions, uniformly** — `const fn = (...) => ...`, including top-level exports.
+
+```ts
+export const parseAction = (spec: string): Action => {
+  const [name, arg = ""] = spec.split(":", 2);
+  return { name, arg };
+};
+
+items.map((item) => item.id);
+const run = deps.run ?? runCmd;
+```
+
+**Newspaper / stepdown order still holds.** Put the public entry point on top, helpers below — an arrow's body resolves
+its references at *call* time, so `main` can reference a `helper` defined further down. The one rule: don't *invoke* at
+module-evaluation time before the const is assigned. CLI entry points fire from the `import.meta.main` guard at the very
+bottom of the file, so the order is always safe.
+
+```ts
+export const calculateSalePrice = (car: Car): number =>     // top: public intent
+  priceBeforeTax(car) * taxesFactor(car);
+
+const priceBeforeTax = (car: Car): number =>                // one level down
+  car.costPrice * (1 + DEFAULT_MARGIN_PERCENT / 100);
+
+const taxesFactor = (car: Car): number => {                 // one level down
+  const taxes = DEFAULT_TAX + (car.imported ? DEFAULT_IMPORT_TAX : 0);
+  return 1 + taxes / 100;
+};
+```
+
+**A `never`-returning arrow (`throw`/`process.exit`) needs `=> never` on the binding's *type*, not inline on the
+lambda** — write `const die: (m: string) => never = (m) => {…}`, not `const die = (m): never => {…}`. Only the typed
+binding drives call-site control-flow analysis; the inline form leaves callers seeing phantom fall-through (spurious
+`used before assigned` / `lacks return`). A `function` declaration doesn't have this, so a blind `function`→arrow swap
+can regress it — `bun run typecheck` catches it; Biome and `bun test` don't.
+
+- Aim for **under 20 lines**, ideal under 5. **One level of abstraction per function.**
+- **Dependency injection via an options/deps object** — collaborators come in as parameters (with defaults), not as hard
+  imports. This is what makes units testable without module mocking (see [Testing](#testing)).
+  ```ts
+  export const diffFile = (path: string, deps = { run: runCmd }): Promise<number> =>
+    deps.run(["diff", path]);
+  ```
 
 ### Shrink long conditionals
 
 Extract predicates or name the condition:
 
-```python
-# Avoid
-if (oil > 3 and fuel > 5
-        and right_door == "closed" and left_door == "closed"):
-    ...
+```ts
+// Avoid
+if (oil > 3 && fuel > 5 && rightDoor === "closed" && leftDoor === "closed") { ... }
 
-# Prefer — extracted helpers
-if _levels_ok(oil, fuel) and _doors_closed(right_door, left_door):
-    ...
-
-# Prefer — named booleans
-oil_above_minimum = oil > 3
-fuel_above_minimum = fuel > 5
-if oil_above_minimum and fuel_above_minimum:
-    ...
+// Prefer — named booleans / extracted predicates
+const levelsOk = oil > 3 && fuel > 5;
+const doorsClosed = rightDoor === "closed" && leftDoor === "closed";
+if (levelsOk && doorsClosed) { ... }
 ```
-
-______________________________________________________________________
-
-## Type hints
-
-Public surface is typed. Internal helpers should be too, unless the signature is dead-obvious.
-
-```python
-from collections.abc import Sequence, Callable
-from typing import Protocol, TypeAlias, TypedDict, NotRequired, TypeVar, overload
-
-# Basics — modern syntax, lowercase generics
-def greet(name: str) -> str: ...
-def parse(s: str) -> tuple[int, str]: ...
-
-# Optional — prefer `| None` over `Optional[...]`
-def fetch(url: str, timeout: int | None = None) -> bytes: ...
-
-# Keyword-only after `*`
-def fetch(url: str, *, timeout: int = 30) -> bytes: ...
-
-# Callables
-def apply(func: Callable[[int], str], value: int) -> str: ...
-
-# Generics
-T = TypeVar("T")
-def first(items: Sequence[T]) -> T | None: ...
-
-# Structural typing — duck-typing with a contract
-class Encoder(Protocol):
-    def encode(self, data: bytes) -> str: ...
-
-# Aliases for readable signatures
-Coordinate: TypeAlias = tuple[float, float]
-
-# Shaped dicts
-class Config(TypedDict):
-    name: str
-    debug: NotRequired[bool]
-```
-
-Rule of thumb: **lenient inputs, strict outputs.** Accept `Sequence`/`Mapping`/`Iterable` in parameters, return concrete
-`list`/`dict`.
 
 ______________________________________________________________________
 
 ## Errors & boundaries
 
-**Catch the specific thing.** Never bare `except`.
+**Custom `Error` subclasses for domain errors**, each setting `.name` so callers and logs can identify them precisely.
 
-```python
-# Avoid
-try:
-    parse(payload)
-except:
-    pass
-
-# Prefer
-try:
-    parse(payload)
-except ValueError as exc:
-    logger.error("bad payload: %s", exc)
+```ts
+export class UsageError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "UsageError";
+  }
+}
 ```
 
-**Validate at boundaries** — user input, network, files, env. Trust internal calls; if your own function is wrong,
-that's a bug, not a runtime concern.
+- **Throw, don't return Result types.** Errors propagate; control flow stays clean. Catch with `instanceof` to
+  categorize.
 
-```python
-def transform(number: int) -> int:
-    if number >= 100:
-        raise ValueError(f"{number} must be < 100")
-    return int(number)
-```
+  ```ts
+  try {
+    await launch(target);
+  } catch (err) {
+    if (err instanceof UsageError) return usage(err.message);
+    throw err;                                   // not ours — let it fly
+  }
+  ```
 
-Raise custom exception classes for domain errors so callers can catch them precisely.
+- **Catch the specific thing.** Never a bare `catch` that swallows everything. If you intentionally swallow (best-effort
+  work), say why in a comment.
+
+- **Validate at boundaries** — external input only: CLI args, env, files, network, parsed JSON. Trust internal calls; a
+  wrong internal call is a *bug* to fix, not a runtime branch.
+
+  Manual type guards are the norm — no schema library by default. Reach for `zod`/`valibot` **only** when a boundary is
+  genuinely complex or deeply nested; for the common flat cases, guards are lighter and add no dependency.
+
+  ```ts
+  const raw: unknown = JSON.parse(text);
+  if (typeof raw !== "object" || raw === null) throw new UsageError("expected a JSON object");
+  const obj = raw as Record<string, unknown>;
+  if (!Array.isArray(obj.items)) throw new UsageError("`items` must be a list");
+  ```
 
 ______________________________________________________________________
 
-## Pythonic idioms
+## Async & the Bun runtime
 
-```python
-# Iterate by item, not by index
-for item in items:               # yes
-for i in range(len(items)):      # no
-
-for i, item in enumerate(items): # when you need both
-
-# Dict lookup with default
-value = d.get(key, default)      # not: if key in d: value = d[key]
-
-# Context managers, always
-with open(path) as f:            # not: try / finally / f.close()
-    ...
-
-# Comprehensions — only when simple
-squares = [x ** 2 for x in nums]
-```
-
-### Mutable default arguments — never
-
-They're shared across calls and silently corrupt state.
-
-```python
-# Avoid — `items` is the same list every call
-def process(items: list = []):
-    ...
-
-# Prefer
-def process(items: list[str] | None = None):
-    items = items or []
-    ...
-```
+- **`async`/`await` only** — no raw `.then()` chains.
+- **Prefer Bun's native APIs** over reaching for Node equivalents where Bun has one:
+  | Need             | Use                                 |
+  | ---------------- | ----------------------------------- |
+  | Spawn a process  | `Bun.spawn(...)`                    |
+  | Read a file      | `Bun.file(path).text()` / `.json()` |
+  | Resolve on PATH  | `Bun.which("git")`                  |
+  | CLI args / stdin | `Bun.argv` / `Bun.stdin`            |
+- For filesystem writes and mutations, **`node:fs/promises`** (`writeFile`, `rename`, `readdir`) layered on top is fine.
+- **No synchronous I/O** in normal paths (`*Sync` calls) — async throughout.
 
 ______________________________________________________________________
 
-## Comments & docstrings
+## CLI entry points
 
-**Comments explain WHY, not WHAT.** Code already says what.
+Scripts that run directly follow one shape — testable, with the exit code owned by the caller.
 
-- If a comment describes mechanics, the code probably needs a better name instead.
-- No commented-out code. Git remembers.
-- `TODO:` only if you actually plan to come back. Otherwise — fix it now or file an issue.
+```ts
+#!/usr/bin/env bun
+// `main` returns a number; it does NOT call process.exit itself.
+export const main = async (argv: string[]): Promise<number> => {
+  const action = parseArgs(argv);
+  if (!action) return 1;
+  await run(action);
+  return 0;
+};
 
-**Docstrings** on public modules, classes, functions, methods. Sphinx-style:
-
-```python
-def transform(number: int) -> str:
-    """Transform an int into a string.
-
-    :param number: number to transform
-    :returns: 'The input was <number>'
-    :raises ValueError: if number is negative
-    """
-    if number < 0:
-        raise ValueError(f"{number} must be non-negative")
-    return f"The input was {number}"
+// Only the bottom guard touches the process — and it's the only call at eval time.
+if (import.meta.main) process.exit(await main(Bun.argv.slice(2)));
 ```
+
+- `main` returns the exit code; the `import.meta.main` guard is the single place that calls `process.exit`. This keeps
+  `main` unit-testable (assert the returned code, no process teardown).
+- Shebang `#!/usr/bin/env bun` on every executable script.
 
 ______________________________________________________________________
 
-## SOLID, on one screen
+## Comments & docs
 
-| Letter  | One-liner                                                                |
-| ------- | ------------------------------------------------------------------------ |
-| **S**RP | One class, one reason to change. Don't bundle email-sending into `User`. |
-| **O**CP | Extend by adding classes, not by adding `elif` branches.                 |
-| **L**SP | Subclasses honor the parent's contract — same return type, no surprises. |
-| **I**SP | Many small interfaces beat one fat one. Compose with Protocols / mixins. |
-| **D**IP | Depend on abstractions (`Storage`), not concretions (`MySQLStorage`).    |
+**JSDoc on every public (exported) function and type.** Hover docs everywhere is the bar — even short ones earn their
+keep. Prose blocks with embedded examples; we don't use `@param`/`@returns` tag soup.
 
-OCP in practice — replace the `elif` ladder with polymorphism:
-
-```python
-# Avoid
-def get_interest_rate(category):
-    if category == "standard": return 0.03
-    elif category == "premium": return 0.05
-
-# Prefer
-class InterestRate(ABC):
-    @abstractmethod
-    def get(self) -> float: ...
-
-class StandardRate(InterestRate):
-    def get(self) -> float: return 0.03
-
-class PremiumRate(InterestRate):
-    def get(self) -> float: return 0.05
+```ts
+/**
+ * Transform an int into its labelled string form.
+ * Mirrors the Python `transform()` byte-for-byte (see py-json parity notes).
+ */
+export const transform = (n: number): string => {
+  if (n < 0) throw new UsageError(`${n} must be non-negative`);
+  return `The input was ${n}`;
+};
 ```
 
-DIP in practice — take the abstraction, not the concrete type:
-
-```python
-def run(self, storage: Storage):  # not: storage: MySQLStorage
-    storage.set({"data": "hi"})
-```
+- **Inline comments explain WHY, not WHAT.** If a comment narrates mechanics, the code wants a better name instead.
+- **No commented-out code.** Git remembers.
+- **`TODO:` only if you actually plan to return.** Otherwise fix it now or file an issue.
+- Module-header comments are welcome where a file's purpose or a non-obvious decision (e.g. Python parity) needs
+  stating.
 
 ______________________________________________________________________
 
-## Testing with pytest
+## Design principles, on one screen
 
-```python
-# Plain `assert` — no self.assertEqual
-def test_add():
-    assert add(1, 2) == 3
+Language-agnostic, still load-bearing:
 
-# Parametrize data-driven cases
-@pytest.mark.parametrize("a, b, expected", [
-    (1, 2, 3),
-    (-1, 1, 0),
-    (0, 1, 1),
-])
-def test_add(a, b, expected):
-    assert add(a, b) == expected
+- **Single responsibility.** One module/function, one reason to change. Don't fold notification-sending into a parser.
+- **Validate at the edges, trust the core.** Guard external input once at the boundary; internal calls are trusted.
+- **Lenient in, strict out.** Accept the widest reasonable input type; return the most concrete, predictable shape.
+- **Depend on abstractions.** Take the injected `deps`/options shape (`{ run }`), not a hard-wired concrete import — the
+  same seam that powers DI powers testability.
+- **Extend by adding, not by branching.** A growing `if/else`/`switch` ladder over a "kind" field is a smell; prefer a
+  lookup table of behaviors or small per-case functions.
 
-# Fixtures live in conftest.py; compose them freely
-@pytest.fixture
-def product():
-    return Product(id=uuid.uuid4(), price=1.11, name="t1")
+```ts
+// Avoid — the ladder grows with every new category
+const getRate = (category: string): number => {
+  if (category === "standard") return 0.03;
+  if (category === "premium") return 0.05;
+  throw new UsageError(`unknown category ${category}`);
+};
 
-@pytest.fixture
-def product_list(product, another_product):
-    return [product, another_product]
-
-# stdout / stderr — capsys
-def test_output(capsys):
-    print_hello()
-    assert capsys.readouterr().out == "hello\n"
-
-# Stub input / env / attrs — monkeypatch
-def test_input(monkeypatch):
-    monkeypatch.setattr("builtins.input", lambda _: "yes")
-
-# Mock collaborators, not the unit under test
-@patch("module.random")
-def test_dice(mock_random):
-    mock_random.randint.return_value = 4
-    assert roll() == "Lucky"
-```
-
-Test names describe behavior (`test_returns_lucky_when_dice_above_three`), not implementation.
-
-______________________________________________________________________
-
-## Layout (PEP 8 essentials)
-
-```
-two blank lines    ── before each top-level class or function
-one blank line     ── between methods inside a class
-one blank line     ── optional, to group logic inside a function
-```
-
-Line continuations — align under the open paren, put operators at the **start** of the next line:
-
-```python
-return (first_value
-        + second_value
-        - third_value)
-```
-
-For long signatures, break by argument:
-
-```python
-def long_name(
-    first_argument: str,
-    second_argument: int,
-) -> str:
-    ...
+// Prefer — data-driven, open to extension
+const RATES = { standard: 0.03, premium: 0.05 } as const;
+const getRate = (category: keyof typeof RATES): number => RATES[category];
 ```
 
 ______________________________________________________________________
 
-## Module layout
+## Testing
 
+`bun:test`, files colocated next to source as `*.test.ts`.
+
+```ts
+import { describe, expect, spyOn, test } from "bun:test";
+import { parseAction } from "./args.ts";
+
+// Plain expect — describe groups, test names describe BEHAVIOR.
+describe("parseAction", () => {
+  test("splits name from arg on the first colon", () => {
+    expect(parseAction("open:file.ts")).toEqual({ name: "open", arg: "file.ts" });
+  });
+});
 ```
-src/your_pkg/
-├── __init__.py     # public API exports
-├── _internal.py    # private — leading underscore
-├── exceptions.py   # domain errors
-├── types.py        # shared aliases / TypedDicts
-└── py.typed        # marker so consumers see your hints
-```
+
+**Make units testable by design — two seams, in order of preference:**
+
+1. **Dependency injection (default).** Accept collaborators as optional params with defaults; the test passes fakes. No
+   global state, fully hermetic.
+   ```ts
+   export const diffFile = (path: string, deps = { run: runCmd }) => deps.run(["diff", path]);
+
+   test("invokes diff with the path", async () => {
+     const run = spyOn({ run: async () => 0 }, "run");
+     await diffFile("a.ts", { run });
+     expect(run).toHaveBeenCalledWith(["diff", "a.ts"]);
+   });
+   ```
+2. **`_internals` seam object (fallback).** When DI is awkward — module-level singletons, side-effecting imports —
+   export an `_internals` object holding the overridable functions, and have the module call through it. Tests mutate it
+   and **restore in `afterEach`** (one shared `bun test` process; leaks bleed across files).
+   ```ts
+   export const _internals = { launch, readFile };
+   // module code calls _internals.launch(...), never launch directly
+   ```
+
+Other conventions:
+
+- **Test names describe behavior** (`splits name from arg on the first colon`), not implementation.
+- **Golden-value tests** for parity-critical code — hardcode the expected CPython/reference output and assert byte
+  equality (see the `py-json` suite).
+- **Bump the timeout** for genuinely slow cases: `test("spawns a subprocess", async () => { ... }, 10_000)`.
+- Don't mock the unit under test — only its collaborators.
 
 ______________________________________________________________________
 
 ## Quick checklist
 
 ```
-Naming     ── self-explanatory, no abbreviations, no magic numbers
-Functions  ── small, single responsibility, stepdown order
-Typing     ── public surface typed; `| None` not Optional; Protocols for ducks
-Errors     ── specific exceptions; validate at boundaries; trust the inside
-Idioms     ── enumerate / .get() / with-statements / no mutable defaults
-Comments   ── explain WHY; docstrings on public surface; no zombie code
-Tests      ── plain assert, parametrize, fixtures in conftest
-Layout     ── 2 blanks before top-level, 1 before methods, operators leading
+Tooling    ── Biome-formatted (2sp/120/double-quote/semi); strict tsconfig; bun test
+Naming     ── kebab-case files; camelCase fns; PascalCase types; UPPER_SNAKE consts
+Imports    ── .ts extension always; node: prefix; `import type`; named only; facade index.ts
+Types      ── `type` not `interface`; `unknown` not `any`; union literals not enums; lenient-in/strict-out
+Functions  ── arrows everywhere; stepdown order; small + single-responsibility; deps injected
+Errors     ── custom Error subclasses w/ .name; throw not Result; validate external input only
+Async      ── async/await; Bun.spawn/file/which; node:fs/promises; no *Sync
+CLI        ── shebang; main(): Promise<number>; process.exit only under import.meta.main
+Comments   ── JSDoc on all public exports; WHY not WHAT; no zombie code
+Tests      ── bun:test; colocated *.test.ts; DI-first then _internals; restore in afterEach
 ```

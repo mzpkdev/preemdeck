@@ -12,8 +12,8 @@
  * unsupported OS throws immediately, before any detection function is reachable.
  */
 
-import * as ideaLinux from "./idea_linux.ts";
-import * as ideaMac from "./idea_mac.ts";
+import * as ideaLinux from "./idea-linux.ts";
+import * as ideaMac from "./idea-mac.ts";
 
 type PlatformModule = {
   inIdea: () => boolean;
@@ -21,7 +21,7 @@ type PlatformModule = {
   resolveLogDir: () => string;
 };
 
-function pickPlatform(): PlatformModule {
+const pickPlatform = (): PlatformModule => {
   const platform = process.platform;
   if (platform === "darwin") {
     return ideaMac;
@@ -30,39 +30,41 @@ function pickPlatform(): PlatformModule {
     return ideaLinux;
   }
   throw new Error(`Only macOS and Linux are supported (got '${platform}')`);
-}
+};
 
 const platformModule = pickPlatform();
 
 /** True when this terminal was launched by a JetBrains IDE (per-OS). */
-export function inIdea(): boolean {
+export const inIdea = (): boolean => {
   return platformModule.inIdea();
-}
+};
 
 /** Absolute path to the JetBrains IDE binary this process is running inside (per-OS). */
-export function resolveExecPath(): string {
+export const resolveExecPath = (): string => {
   return platformModule.resolveExecPath();
-}
+};
 
 /** Log dir of the IDE this process is running inside (per-OS). */
-export function resolveLogDir(): string {
+export const resolveLogDir = (): string => {
   return platformModule.resolveLogDir();
-}
+};
 
-// Shared error types.
-export { IdeaError, NotImplementedError } from "./_errors.ts";
-// Shared ideScript bridge.
-export { escapeGroovy, type RunGroovyDeps, runGroovy } from "./_groovy.ts";
-// Cross-platform launch (resolves resolveExecPath lazily at call time — see
-// _launch.ts — so the static import cycle with this module is import-safe).
-export { type LaunchOptions, launch } from "./_launch.ts";
-// Preview helpers (layer on the bridge).
+/** Shared error types callers `catch`/`instanceof` across the toolbox. */
+export { IdeaError, NotImplementedError } from "./errors.ts";
+/** Shared ideScript bridge: escape a Groovy literal + run a one-shot script. */
+export { escapeGroovy, type RunGroovyDeps, runGroovy } from "./groovy.ts";
+/**
+ * Cross-platform launch (resolves resolveExecPath lazily at call time — see
+ * launch.ts — so the static import cycle with this module is import-safe).
+ */
+export { type LaunchOptions, launch } from "./launch.ts";
+/** Preview helpers (layer on the bridge) for forcing a rendered preview / URL tab. */
 export {
   HTML_PREVIEW_EXTS,
   previewUrl,
   setPreview,
   type WebpreviewOpenBodyOptions,
   webpreviewOpenBody,
-} from "./_preview.ts";
-// Deferred temp cleanup.
-export { REAP_DELAY_MS, reapLater } from "./_reap.ts";
+} from "./preview.ts";
+/** Deferred temp cleanup for the toolbox's fire-and-forget (no-wait) modes. */
+export { REAP_DELAY_MS, reapLater } from "./reap.ts";

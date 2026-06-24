@@ -11,7 +11,7 @@
  */
 
 import { afterEach, beforeEach, describe, expect, spyOn, test } from "bun:test";
-import { IdeaError, NotImplementedError } from "./core/_errors.ts";
+import { IdeaError, NotImplementedError } from "./core/errors.ts";
 import { escapeGroovy, webpreviewOpenBody } from "./core/index.ts";
 import { _internals, main, type NotifyOptions, notify } from "./notify.ts";
 
@@ -28,7 +28,7 @@ afterEach(() => {
 
 // --- CLI seam: a recorder standing in for the notify worker ------------------
 
-function captureNotify(): Array<{ message: string; title: string; type: string; actions: unknown }> {
+const captureNotify = (): Array<{ message: string; title: string; type: string; actions: unknown }> => {
   const captured: Array<{ message: string; title: string; type: string; actions: unknown }> = [];
   _internals.notify = async (message: string, options: NotifyOptions = {}) => {
     captured.push({
@@ -39,7 +39,7 @@ function captureNotify(): Array<{ message: string; title: string; type: string; 
     });
   };
   return captured;
-}
+};
 
 describe("main (CLI)", () => {
   test("message only -> defaults, exit 0", async () => {
@@ -183,14 +183,14 @@ describe("main (CLI)", () => {
 
 // --- the rendered Groovy (notify worker end to end, runGroovy seam) ----------
 
-function captureGroovy(): { scripts: string[]; notes: string[] } {
+const captureGroovy = (): { scripts: string[]; notes: string[] } => {
   const captured = { scripts: [] as string[], notes: [] as string[] };
   _internals.runGroovy = async (groovy: string, note: string) => {
     captured.scripts.push(groovy);
     captured.notes.push(note);
   };
   return captured;
-}
+};
 
 describe("notify worker (Groovy render)", () => {
   test("injects message, title, group, and Bus.notify", async () => {

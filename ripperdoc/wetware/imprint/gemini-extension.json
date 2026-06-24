@@ -10,7 +10,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "$HOME/.preemdeck/scripts/preemdeck-bun \"${extensionPath}/scripts/inject_hook.ts\" IMPRINT.md hosts/host_gemini.md --event BeforeAgent",
+            "command": "$HOME/.preemdeck/scripts/preemdeck-bun \"${extensionPath}/scripts/inject-hook.ts\" IMPRINT.md hosts/host_gemini.md --event BeforeAgent",
             "timeout": 5
           }
         ]

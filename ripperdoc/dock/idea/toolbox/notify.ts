@@ -24,19 +24,21 @@
 
 import { parseArgs } from "node:util";
 import type { Action } from "../../../../lib/args.ts";
-import { argparseError, argparseMessage } from "./_cli.ts";
-import { IdeaError, NotImplementedError } from "./core/_errors.ts";
+import { argparseError, argparseMessage } from "./cli.ts";
+import { IdeaError, NotImplementedError } from "./core/errors.ts";
 import { escapeGroovy, inIdea, runGroovy, webpreviewOpenBody } from "./core/index.ts";
 
 const PROG = "notify.py";
 const USAGE =
   "usage: notify.py [-h] [--title TITLE] [--type {info,warning,error}]\n                 [--action NAME[=ARG]]\n                 message";
 
-// The notification group id the balloon registers under.
+/** The notification group id the balloon registers under. */
 export const NOTIFY_GROUP_ID = "idea.toolbox";
 
-// Allowed --type tokens -> the NotificationType enum constant to embed (a bare
-// Groovy token, never raw input).
+/**
+ * Allowed --type tokens -> the NotificationType enum constant to embed (a bare
+ * Groovy token, never raw input).
+ */
 export const NOTIFICATION_TYPES: Record<string, string> = {
   info: "INFORMATION",
   warning: "WARNING",
@@ -68,6 +70,11 @@ ${webpreviewOpenBody("{arg}", "{arg}", { projectVar: "actionProject" })}`;
 // (NOT user input); body's {arg} slot is filled with the escaped CLI arg.
 type ActionEntry = [label: string, needsArg: boolean, body: string];
 
+/**
+ * Vetted registry of clickable balloon actions, keyed by the `--action` name. Each
+ * entry is `[label, needsArg, body]`; only these whitelisted names may run, so a
+ * caller never injects arbitrary Groovy.
+ */
 export const NOTIFICATION_ACTIONS: Record<string, ActionEntry> = {
   "open-url": ["Open in browser", true, 'com.intellij.ide.BrowserUtil.browse("{arg}")'],
   "open-file": ["Open file", true, OPEN_FILE_BODY],
@@ -77,7 +84,7 @@ export const NOTIFICATION_ACTIONS: Record<string, ActionEntry> = {
 // Groovy run on the EDT against the live IntelliJ Platform API. {actions} is
 // zero-or-more rendered n.addAction(...) lines (empty when no --action, leaving
 // the render byte-identical to the action-less path).
-function groovyNotify(group: string, title: string, content: string, type: string, actions: string): string {
+const groovyNotify = (group: string, title: string, content: string, type: string, actions: string): string => {
   return `import com.intellij.notification.Notification
 import com.intellij.notification.NotificationAction
 import com.intellij.notification.NotificationType
@@ -92,10 +99,10 @@ ApplicationManager.getApplication().invokeLater {
     Notifications.Bus.notify(n, project)
 }
 `;
-}
+};
 
 /** Render one vetted action into its n.addAction(...) line, body {arg} slot escaped. */
-function renderAction(name: string, arg: string | null): string {
+const renderAction = (name: string, arg: string | null): string => {
   const entry = NOTIFICATION_ACTIONS[name];
   if (entry === undefined) {
     throw new Error(`unknown action ${name}`); // programming error: CLI only passes whitelisted names
@@ -108,18 +115,18 @@ function renderAction(name: string, arg: string | null): string {
     .map((line) => `        ${line}`)
     .join("\n");
   return `    n.addAction(NotificationAction.createSimple("${label}", {\n${indented}\n    } as Runnable))`;
-}
+};
 
 /** Render the parsed --action list to the {actions} block, in CLI order. */
-function renderActions(actions: Action[]): string {
+const renderActions = (actions: Action[]): string => {
   if (actions.length === 0) {
     return "";
   }
   return `\n${actions.map(({ name, arg }) => renderAction(name, arg)).join("\n")}`;
-}
+};
 
 /** Render the notification Groovy for title/message/typeToken/actions. */
-export function groovyFor(title: string, message: string, typeToken: string, actions: Action[] = []): string {
+export const groovyFor = (title: string, message: string, typeToken: string, actions: Action[] = []): string => {
   const constant = NOTIFICATION_TYPES[typeToken];
   if (constant === undefined) {
     throw new Error(`unknown type ${typeToken}`); // programming error: CLI only passes whitelisted tokens
@@ -131,37 +138,40 @@ export function groovyFor(title: string, message: string, typeToken: string, act
     constant,
     renderActions(actions),
   );
-}
+};
 
-// Engine seam: tests override `_internals.runGroovy` instead of mock.module on
-// ./core (which leaks across the single `bun test` run). Production runs the real
-// ideScript bridge.
-export const _internals = { inIdea, runGroovy, notify };
-
-export interface NotifyOptions {
+/** Options for {@link notify}: balloon title, the --type token (info/warning/error), and the action registry entries. */
+export type NotifyOptions = {
   title?: string;
   typeToken?: string;
   actions?: Action[];
-}
+};
 
 /** Pop an in-IDE notification balloon for `message` in the running IDE (best-effort). */
-export async function notify(message: string, options: NotifyOptions = {}): Promise<void> {
+export const notify = async (message: string, options: NotifyOptions = {}): Promise<void> => {
   const title = options.title ?? "PreemDeck";
   const typeToken = options.typeToken ?? "info";
   const actions = options.actions ?? [];
   await _internals.runGroovy(groovyFor(title, message, typeToken, actions), "notify: could not pop notification");
-}
+};
+
+/**
+ * Engine seam: tests override `_internals.runGroovy` instead of mock.module on
+ * ./core (which leaks across the single `bun test` run). Production runs the real
+ * ideScript bridge.
+ */
+export const _internals = { inIdea, runGroovy, notify };
 
 /** argparse choices=() parity for --type: bad value -> exit 2 with the exact message. */
-function validateType(raw: string): string {
+const validateType = (raw: string): string => {
   if (!(raw in NOTIFICATION_TYPES)) {
     argparseError(USAGE, PROG, `argument --type: invalid choice: '${raw}' (choose from 'info', 'warning', 'error')`);
   }
   return raw;
-}
+};
 
 /** Split + whitelist a --action value, mirroring notify.py _validate_action (exit 2 on bad). */
-function validateAction(value: string): Action {
+const validateAction = (value: string): Action => {
   const eq = value.indexOf("=");
   const name = eq === -1 ? value : value.slice(0, eq);
   const arg = eq === -1 ? null : value.slice(eq + 1);
@@ -174,9 +184,10 @@ function validateAction(value: string): Action {
     argparseError(USAGE, PROG, `argument --action: action '${name}' needs an argument: --action ${name}=<value>`);
   }
   return { name, arg };
-}
+};
 
-export async function main(argv: string[] = Bun.argv.slice(2)): Promise<number> {
+/** CLI entrypoint: parse argv argparse-faithfully (validated --type/--action), gate on a live IDE, run notify, map errors to exit codes. */
+export const main = async (argv: string[] = Bun.argv.slice(2)): Promise<number> => {
   const options = {
     title: { type: "string" },
     type: { type: "string" },
@@ -213,7 +224,7 @@ export async function main(argv: string[] = Bun.argv.slice(2)): Promise<number> 
     throw exc;
   }
   return 0;
-}
+};
 
 if (import.meta.main) {
   process.exit(await main());

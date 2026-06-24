@@ -15,7 +15,7 @@
  */
 
 /** Python `PurePosixPath(value).name`. */
-export function pyName(value: string): string {
+export const pyName = (value: string): string => {
   let s = value;
   // pathlib ignores trailing separators for .name ("a/" -> "a", "//" -> root).
   while (s.length > 1 && s.endsWith("/")) s = s.slice(0, -1);
@@ -24,4 +24,4 @@ export function pyName(value: string): string {
   // The empty path and a lone "." have no name; everything else (incl. "..") does.
   if (last === "" || last === ".") return "";
   return last;
-}
+};

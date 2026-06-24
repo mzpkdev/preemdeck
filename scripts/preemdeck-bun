@@ -9,7 +9,7 @@
 #     $HOME/.preemdeck/scripts/preemdeck-bun
 # (the same ~/.preemdeck root every host's plugin copy nests under). Pass the
 # script and its args through verbatim, e.g.:
-#     "$HOME/.preemdeck/scripts/preemdeck-bun" "$PLUGIN_ROOT/scripts/inject_mode.ts" --event UserPromptSubmit
+#     "$HOME/.preemdeck/scripts/preemdeck-bun" "$PLUGIN_ROOT/scripts/inject-mode.ts" --event UserPromptSubmit
 RUNTIME_BUN="$HOME/.preemdeck/.runtime/bin/bun"
 if [ -x "$RUNTIME_BUN" ]; then
   exec "$RUNTIME_BUN" "$@"

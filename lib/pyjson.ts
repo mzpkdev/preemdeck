@@ -34,7 +34,7 @@ const SHORT_ESCAPES: Record<string, string> = {
  * code units come through as surrogate-pair \uXXXX\uXXXX via charCodeAt). `/` is
  * NOT escaped. Matches CPython byte-for-byte.
  */
-export function pyJsonString(s: string): string {
+export const pyJsonString = (s: string): string => {
   let out = '"';
   for (let i = 0; i < s.length; i++) {
     const ch = s[i] as string;
@@ -49,12 +49,11 @@ export function pyJsonString(s: string): string {
     }
   }
   return `${out}"`;
-}
+};
 
 /**
  * The injection envelope, byte-identical to the Python injectors'
  * `json.dumps({"hookSpecificOutput": {"hookEventName": e, "additionalContext": t}})`.
  */
-export function injectionEnvelope(eventName: string, additionalContext: string): string {
-  return `{"hookSpecificOutput": {"hookEventName": ${pyJsonString(eventName)}, "additionalContext": ${pyJsonString(additionalContext)}}}`;
-}
+export const injectionEnvelope = (eventName: string, additionalContext: string): string =>
+  `{"hookSpecificOutput": {"hookEventName": ${pyJsonString(eventName)}, "additionalContext": ${pyJsonString(additionalContext)}}}`;

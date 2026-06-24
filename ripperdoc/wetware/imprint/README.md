@@ -12,7 +12,7 @@ ______________________________________________________________________
 | ------------------------------------- | ------------------------------------------------------------------------------- |
 | `IMPRINT.md`                          | Prompt template — host-agnostic body with a `{{host_tools}}` placeholder        |
 | `hosts/host_{claude,codex,gemini}.md` | Host-specific tooling guide — each manifest points its hook at one of these     |
-| `scripts/inject_hook.ts`              | Injection hook — substitutes `{{host_tools}}` and emits the cross-host envelope |
+| `scripts/inject-hook.ts`              | Injection hook — substitutes `{{host_tools}}` and emits the cross-host envelope |
 | `.claude-plugin/plugin.json`          | Claude manifest + inline `hooks` block (`UserPromptSubmit`)                     |
 | `.codex-plugin/plugin.json`           | Codex manifest + inline `hooks` block (`UserPromptSubmit`)                      |
 | `gemini-extension.json`               | Gemini manifest + inline `hooks` block (`BeforeAgent`, sets `contextFileName`)  |

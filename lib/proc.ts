@@ -10,7 +10,8 @@
  * exit (check `.exitCode`); only invalid spawn args reject.
  */
 
-export interface SpawnOptions {
+/** Knobs for {@link spawn}: timeout-with-kill, cwd, env overlay, stdin, kill signal — all optional. */
+export type SpawnOptions = {
   /** Kill the child and resolve with `timedOut: true` after this many ms. Omit/0 = no timeout. */
   timeoutMs?: number;
   /** Working directory for the child. */
@@ -21,9 +22,10 @@ export interface SpawnOptions {
   stdin?: string;
   /** Signal used to kill on timeout. Default "SIGTERM". */
   killSignal?: NodeJS.Signals | number;
-}
+};
 
-export interface SpawnResult {
+/** Outcome of a {@link spawn}: exit code, captured stdout/stderr, and whether the timeout killed it. */
+export type SpawnResult = {
   /** Process exit code, or null when the child was killed by a signal. */
   exitCode: number | null;
   /** Captured stdout (UTF-8). */
@@ -32,7 +34,7 @@ export interface SpawnResult {
   stderr: string;
   /** True when `timeoutMs` elapsed and the child was killed. */
   timedOut: boolean;
-}
+};
 
 /**
  * Spawn `cmd` (argv array; cmd[0] is the executable) and await completion.
@@ -41,7 +43,7 @@ export interface SpawnResult {
  * resolves with `timedOut: true`, and the process is awaited so it's reaped — no
  * leak. Callers decide what a timeout means for them.
  */
-export async function spawn(cmd: string[], options: SpawnOptions = {}): Promise<SpawnResult> {
+export const spawn = async (cmd: string[], options: SpawnOptions = {}): Promise<SpawnResult> => {
   if (cmd.length === 0) {
     throw new Error("spawn: cmd must be a non-empty argv array");
   }
@@ -72,4 +74,4 @@ export async function spawn(cmd: string[], options: SpawnOptions = {}): Promise<
   } finally {
     if (timer !== undefined) clearTimeout(timer);
   }
-}
+};

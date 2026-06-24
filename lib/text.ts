@@ -18,16 +18,21 @@
  *   "  -> &quot;
  *   '  -> &#x27;
  */
-export function htmlEscape(s: string): string {
-  return s
+export const htmlEscape = (s: string): string =>
+  s
     .replaceAll("&", "&amp;")
     .replaceAll("<", "&lt;")
     .replaceAll(">", "&gt;")
     .replaceAll('"', "&quot;")
     .replaceAll("'", "&#x27;");
-}
 
-export interface ParsedUrl {
+/**
+ * The fields lifted from a parsed URL, mirroring the subset of
+ * `urllib.parse.urlsplit` that the open_url/preview callers read. `hostname` is
+ * `null` (not "") for host-less input so callers can branch on the urlsplit-style
+ * fallback; `raw` carries the untouched input for that no-host label.
+ */
+export type ParsedUrl = {
   /** The lowercased scheme WITHOUT a trailing colon, e.g. "https" — "" when absent. */
   scheme: string;
   /** Lowercased hostname, or null when the input parsed without a host. */
@@ -36,7 +41,7 @@ export interface ParsedUrl {
   port: number | null;
   /** The original input, unchanged. Use this as the no-host fallback label. */
   raw: string;
-}
+};
 
 /**
  * Parse `url` the forgiving way `urlsplit` does: never throws. WHATWG `new URL`
@@ -47,7 +52,7 @@ export interface ParsedUrl {
  *
  * Validation callers (open_url.py) should check `scheme` is "http"/"https".
  */
-export function parseUrl(url: string): ParsedUrl {
+export const parseUrl = (url: string): ParsedUrl => {
   try {
     const u = new URL(url);
     return {
@@ -60,4 +65,4 @@ export function parseUrl(url: string): ParsedUrl {
   } catch {
     return { scheme: "", hostname: null, port: null, raw: url };
   }
-}
+};

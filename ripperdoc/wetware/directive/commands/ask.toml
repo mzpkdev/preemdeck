@@ -1,4 +1,4 @@
 description = "Show the ask discretion directive — prints skills/ask/directive.md."
 prompt = """
-Run the bundled reader — `"$HOME/.preemdeck/scripts/preemdeck-bun" "${CLAUDE_PLUGIN_ROOT}/scripts/show_mode.ts" ask` — and print its output verbatim. This only displays the directive — it writes nothing. To set a directive, use /directive:default.
+Run the bundled reader — `"$HOME/.preemdeck/scripts/preemdeck-bun" "${CLAUDE_PLUGIN_ROOT}/scripts/show-mode.ts" ask` — and print its output verbatim. This only displays the directive — it writes nothing. To set a directive, use /directive:default.
 """
