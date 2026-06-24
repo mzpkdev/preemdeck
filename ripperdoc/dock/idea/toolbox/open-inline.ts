@@ -9,13 +9,13 @@
  * opens files, so the temp is the bridge.
  */
 
-import { unlinkSync } from "node:fs";
+import { unlink } from "node:fs/promises";
 import { parseArgs } from "node:util";
 import { argparseError, argparseMessage } from "./cli.ts";
 import { IdeaError } from "./core/errors.ts";
 import { inIdea, reapLater } from "./core/index.ts";
 import { openFile } from "./open-file.ts";
-import { mkstempSync, writeTemp } from "./tmp.ts";
+import { mkstemp, writeTemp } from "./tmp.ts";
 
 const PROG = "open-inline";
 const USAGE = "usage: open-inline [-h] [--suffix SUFFIX] [--wait] [--preview] inline";
@@ -52,7 +52,7 @@ export const openInline = async (content: string, options: OpenInlineOptions = {
   } finally {
     // Only the wait=true path is safe to clean up synchronously here.
     if (wait) {
-      unlinkSync(path);
+      await unlink(path);
     }
   }
 };
@@ -109,7 +109,7 @@ export const main = async (argv: string[] = Bun.argv.slice(2)): Promise<number> 
 };
 
 // Re-export so a future caller can mint temps the same way (parity with mkstemp).
-export { mkstempSync };
+export { mkstemp };
 
 if (import.meta.main) {
   process.exit(await main());

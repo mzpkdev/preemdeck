@@ -19,7 +19,7 @@ let errSpy: ReturnType<typeof spyOn>;
 beforeEach(() => {
   previewed = [];
   _internals.inIdea = () => true;
-  _internals.resolveExecPath = () => "/Applications/WebStorm.app/Contents/MacOS/webstorm";
+  _internals.resolveExecPath = async () => "/Applications/WebStorm.app/Contents/MacOS/webstorm";
   _internals.previewUrl = async (url: string, title?: string) => {
     previewed.push({ url, title });
   };
@@ -57,7 +57,7 @@ describe("main", () => {
   });
 
   test("no live IDE (resolveExecPath throws) -> 1, no browser fallback", async () => {
-    _internals.resolveExecPath = () => {
+    _internals.resolveExecPath = async () => {
       throw new IdeaError("no JetBrains IDE in the process ancestry");
     };
     expect(await main(["http://localhost:3000"])).toBe(1);
@@ -66,7 +66,7 @@ describe("main", () => {
   });
 
   test("stub platform (NotImplementedError) -> 1", async () => {
-    _internals.resolveExecPath = () => {
+    _internals.resolveExecPath = async () => {
       throw new NotImplementedError("resolve_exec_path is not implemented for Linux yet");
     };
     expect(await main(["http://localhost:3000"])).toBe(1);

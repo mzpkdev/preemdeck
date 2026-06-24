@@ -8,7 +8,7 @@
  * wait=true blocks on the IDE's native --wait, then reads back the LEFT pane.
  */
 
-import { readFileSync } from "node:fs";
+import { readFile } from "node:fs/promises";
 import { parseArgs } from "node:util";
 import { argparseError, argparseMessage } from "./cli.ts";
 import { IdeaError } from "./core/errors.ts";
@@ -25,7 +25,7 @@ const USAGE = "usage: diff-file [-h] [--wait] target suggestion";
 export const _internals = {
   inIdea,
   launch,
-  readFile: (path: string): string => readFileSync(path, { encoding: "utf8" }),
+  readFile: (path: string): Promise<string> => readFile(path, { encoding: "utf8" }),
 };
 
 /**
@@ -33,12 +33,12 @@ export const _internals = {
  * Returns the LEFT (`target`) pane's text on the wait path, else null.
  */
 export const diffFile = async (target: string, suggestion: string, wait = false): Promise<string | null> => {
-  const targetAbs = resolveStrict(target);
-  const suggestionAbs = resolveStrict(suggestion);
+  const targetAbs = await resolveStrict(target);
+  const suggestionAbs = await resolveStrict(suggestion);
   const args = ["diff", targetAbs, suggestionAbs];
   // 2-way always watches `target` (LEFT). launch() owns the native --wait.
   await _internals.launch(args, { wait });
-  return wait ? _internals.readFile(targetAbs) : null;
+  return wait ? await _internals.readFile(targetAbs) : null;
 };
 
 /** CLI entrypoint: parse argv argparse-faithfully, gate on a live IDE, run diffFile, map errors to exit codes. */

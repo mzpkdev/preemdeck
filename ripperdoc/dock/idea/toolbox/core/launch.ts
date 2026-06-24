@@ -36,8 +36,11 @@ export type LaunchOptions = {
    * edited).
    */
   wait?: boolean;
-  /** IDE-binary resolver, injectable for tests. Default: the platform's resolveExecPath. */
-  resolveExec?: () => string;
+  /**
+   * IDE-binary resolver, injectable for tests. Default: the platform's
+   * (now-async) resolveExecPath. Accepts a sync OR async resolver; it is awaited.
+   */
+  resolveExec?: () => string | Promise<string>;
   /** Spawn primitive, injectable for tests. Default: Bun.spawn with inherited stdio. */
   spawn?: Spawn;
 };
@@ -58,7 +61,7 @@ export const launch = async (args: string[], options: LaunchOptions = {}): Promi
   const resolveExec = options.resolveExec ?? resolveForPlatform;
   const spawn = options.spawn ?? defaultSpawn;
 
-  const execPath = resolveExec();
+  const execPath = await resolveExec();
   const argv = wait ? [execPath, ...args, "--wait"] : [execPath, ...args];
   const child = spawn(argv);
   if (wait) {

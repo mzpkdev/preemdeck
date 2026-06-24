@@ -13,7 +13,7 @@
  * throws: a failure degrades with a stderr note, so the open still succeeds.
  */
 
-import { readFileSync } from "node:fs";
+import { readFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import { parseArgs } from "node:util";
 import { argparseError, argparseMessage } from "./cli.ts";
@@ -39,7 +39,7 @@ export const _internals = {
   inIdea,
   launch,
   setPreview,
-  readFile: (path: string): string => readFileSync(path, { encoding: "utf8" }),
+  readFile: (path: string): Promise<string> => readFile(path, { encoding: "utf8" }),
 };
 
 /** Options for {@link openFile}: 1-based caret line/column, the wait toggle, and the rendered-preview opt-in. */
@@ -70,7 +70,7 @@ export const openFile = async (path: string, options: OpenFileOptions = {}): Pro
   if (preview) {
     await _internals.setPreview(target);
   }
-  return wait ? _internals.readFile(path) : null;
+  return wait ? await _internals.readFile(path) : null;
 };
 
 /** CLI entrypoint: parse argv argparse-faithfully (int line/column), gate on a live IDE, run openFile, map errors to exit codes. */

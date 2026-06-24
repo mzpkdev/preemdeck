@@ -20,30 +20,31 @@ afterEach(async () => {
 const b64 = (s: string) => Buffer.from(s, "utf8").toString("base64");
 
 describe("readSource", () => {
-  test("returns null when both missing", () => {
-    expect(readSource(dir, "pulse.dat", "PULSE.md")).toBeNull();
+  test("returns null when both missing", async () => {
+    expect(await readSource(dir, "pulse.dat", "PULSE.md")).toBeNull();
   });
 
   test("reads the .dat over the .md", async () => {
     await writeFile(join(dir, "pulse.dat"), b64("dat content"));
     await writeFile(join(dir, "PULSE.md"), "md content");
-    expect(readSource(dir, "pulse.dat", "PULSE.md")).toBe("dat content");
+    expect(await readSource(dir, "pulse.dat", "PULSE.md")).toBe("dat content");
   });
 
   test("reads the .md when the .dat is absent", async () => {
     await writeFile(join(dir, "PULSE.md"), "pulse persona");
-    expect(readSource(dir, "pulse.dat", "PULSE.md")).toBe("pulse persona");
+    expect(await readSource(dir, "pulse.dat", "PULSE.md")).toBe("pulse persona");
   });
 
   test("decodes multi-line base64 correctly", async () => {
     await writeFile(join(dir, "pulse.dat"), b64("multi\nline\ncontent"));
-    expect(readSource(dir, "pulse.dat", "PULSE.md")).toBe("multi\nline\ncontent");
+    expect(await readSource(dir, "pulse.dat", "PULSE.md")).toBe("multi\nline\ncontent");
   });
 });
 
 describe("pulse envelope", () => {
   async function emit(stdinText: string): Promise<string> {
     let out = "";
+    const content = await readSource(dir, "pulse.dat", "PULSE.md");
     await runInjectionHook({
       event: "UserPromptSubmit",
       stdin: { text: () => Promise.resolve(stdinText) },
@@ -51,7 +52,6 @@ describe("pulse envelope", () => {
         out = l;
       },
       render: () => {
-        const content = readSource(dir, "pulse.dat", "PULSE.md");
         return content ? content.trim() : null;
       },
     });

@@ -13,8 +13,9 @@
  * <script-dir>/.. (scripts/ -> imprint/).
  */
 
-import { existsSync, readFileSync, statSync } from "node:fs";
+import { readFile, stat } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
+import { exists } from "../../../../lib/fs.ts";
 import { runInjectionHook } from "../../../../lib/inject.ts";
 
 const PLUGIN_ROOT = dirname(import.meta.dir);
@@ -58,8 +59,8 @@ export const resolveTemplateArg = (argv: string[]): [string | null, string[]] =>
   return [argv[0] as string, argv.slice(1)];
 };
 
-const isFile = (path: string): boolean => {
-  return existsSync(path) && statSync(path).isFile();
+const isFile = async (path: string): Promise<boolean> => {
+  return (await exists(path)) && (await stat(path)).isFile();
 };
 
 /**
@@ -67,19 +68,19 @@ const isFile = (path: string): boolean => {
  * text, or null for any no-op (no template arg, missing/empty template, empty
  * after substitution+strip). `pluginRoot` defaults to the real plugin root.
  */
-export const renderTemplate = (argv: string[], pluginRoot: string = PLUGIN_ROOT): string | null => {
+export const renderTemplate = async (argv: string[], pluginRoot: string = PLUGIN_ROOT): Promise<string | null> => {
   const [templateRel, rest] = resolveTemplateArg(argv);
   if (templateRel === null) return null;
 
   const promptPath = resolve(pluginRoot, templateRel);
-  if (!isFile(promptPath)) return null;
-  const template = readFileSync(promptPath, "utf8");
+  if (!(await isFile(promptPath))) return null;
+  const template = await readFile(promptPath, "utf8");
 
   let hostTools = "";
   if (rest.length > 0) {
     const hostPath = resolve(pluginRoot, rest[0] as string);
-    if (isFile(hostPath)) {
-      hostTools = readFileSync(hostPath, "utf8").trim();
+    if (await isFile(hostPath)) {
+      hostTools = (await readFile(hostPath, "utf8")).trim();
     }
   }
 
@@ -89,9 +90,10 @@ export const renderTemplate = (argv: string[], pluginRoot: string = PLUGIN_ROOT)
 
 if (import.meta.main) {
   const [cliEvent, argv] = extractEventArg(Bun.argv.slice(2));
+  const text = await renderTemplate(argv);
   await runInjectionHook({
     event: cliEvent ?? undefined,
-    render: () => renderTemplate(argv),
+    render: () => text,
   });
   process.exit(0);
 }

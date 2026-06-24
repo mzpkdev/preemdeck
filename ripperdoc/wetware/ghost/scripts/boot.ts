@@ -11,8 +11,9 @@
  * the script dir's parent (scripts/ -> ghost/).
  */
 
-import { existsSync, readFileSync } from "node:fs";
+import { readFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
+import { exists } from "../../../../lib/fs.ts";
 import { runInjectionHook } from "../../../../lib/inject.ts";
 
 const DEFAULT_EVENT = "SessionStart";
@@ -26,27 +27,27 @@ export const pluginRoot = (): string => {
  * Read a persona source: the base64 `.dat` if present (decoded), else the plain
  * `.md`, else null.
  */
-export const readSource = (root: string, datName: string, mdName: string): string | null => {
+export const readSource = async (root: string, datName: string, mdName: string): Promise<string | null> => {
   const dat = join(root, datName);
-  if (existsSync(dat)) {
+  if (await exists(dat)) {
     // .dat holds base64 ASCII; decode it to the original UTF-8 text.
-    return Buffer.from(readFileSync(dat).toString("utf8"), "base64").toString("utf8");
+    return Buffer.from((await readFile(dat)).toString("utf8"), "base64").toString("utf8");
   }
   const md = join(root, mdName);
-  if (existsSync(md)) {
-    return readFileSync(md, "utf8");
+  if (await exists(md)) {
+    return await readFile(md, "utf8");
   }
   return null;
 };
 
 /** Build the combined persona text (engram + firmware), or "" when empty. */
-export const combinedPersona = (root: string): string => {
+export const combinedPersona = async (root: string): Promise<string> => {
   const parts: string[] = [];
   for (const [dat, md] of [
     ["engram.dat", "ENGRAM.md"],
     ["firmware.dat", "FIRMWARE.md"],
   ] as const) {
-    const content = readSource(root, dat, md);
+    const content = await readSource(root, dat, md);
     if (content) {
       parts.push(content.trim());
     }
@@ -56,9 +57,10 @@ export const combinedPersona = (root: string): string => {
 
 if (import.meta.main) {
   const root = pluginRoot();
+  const persona = await combinedPersona(root);
   await runInjectionHook({
     event: DEFAULT_EVENT,
-    render: () => combinedPersona(root) || null,
+    render: () => persona || null,
   });
   process.exit(0);
 }

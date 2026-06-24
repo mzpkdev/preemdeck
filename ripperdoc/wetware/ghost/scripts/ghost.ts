@@ -10,8 +10,9 @@
  * missing subcommand prints usage to stderr and exits 1.
  */
 
-import { existsSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
+import { readFile, unlink, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
+import { exists } from "../../../../lib/fs.ts";
 
 /** The <MD> ⇄ <DAT> persona files, in the fixed order every subcommand walks. */
 export const MAPPINGS: ReadonlyArray<readonly [string, string]> = [
@@ -26,39 +27,39 @@ export const pluginRoot = (): string => {
 };
 
 /** base64-encode each present <MD> into <DAT> and remove the <MD>. */
-export const encode = (root: string, log: (line: string) => void = console.log): void => {
+export const encode = async (root: string, log: (line: string) => void = console.log): Promise<void> => {
   for (const [mdName, datName] of MAPPINGS) {
     const md = join(root, mdName);
-    if (!existsSync(md)) continue;
+    if (!(await exists(md))) continue;
     const dat = join(root, datName);
     // b64encode(md bytes) -> ASCII base64 bytes written verbatim to <DAT>.
-    writeFileSync(dat, Buffer.from(readFileSync(md)).toString("base64"));
-    unlinkSync(md);
+    await writeFile(dat, Buffer.from(await readFile(md)).toString("base64"));
+    await unlink(md);
     log(`${mdName} -> ${datName}`);
   }
 };
 
 /** base64-decode each present <DAT> back into <MD> (the <DAT> is left in place). */
-export const decode = (root: string, log: (line: string) => void = console.log): void => {
+export const decode = async (root: string, log: (line: string) => void = console.log): Promise<void> => {
   for (const [mdName, datName] of MAPPINGS) {
     const dat = join(root, datName);
-    if (!existsSync(dat)) continue;
+    if (!(await exists(dat))) continue;
     const md = join(root, mdName);
-    writeFileSync(md, Buffer.from(readFileSync(dat).toString("utf8"), "base64"));
+    await writeFile(md, Buffer.from((await readFile(dat)).toString("utf8"), "base64"));
     log(`${datName} -> ${mdName}`);
   }
 };
 
 /** Restore stock/<MD> over <MD> for each mapping, then encode to scrub the .md. */
-export const flatline = (root: string, log: (line: string) => void = console.log): void => {
+export const flatline = async (root: string, log: (line: string) => void = console.log): Promise<void> => {
   const stockDir = join(root, "stock");
   for (const [mdName] of MAPPINGS) {
     const src = join(stockDir, mdName);
-    if (!existsSync(src)) continue;
+    if (!(await exists(src))) continue;
     const dst = join(root, mdName);
-    writeFileSync(dst, readFileSync(src));
+    await writeFile(dst, await readFile(src));
   }
-  encode(root, log);
+  await encode(root, log);
   log("persona wiped to stock");
 };
 
@@ -68,18 +69,18 @@ export const flatline = (root: string, log: (line: string) => void = console.log
  * printing usage) rather than exiting, so tests can assert on it. `root`/`log`
  * are injectable for the suite.
  */
-export const main = (
+export const main = async (
   argv: string[],
   root: string = pluginRoot(),
   log: (line: string) => void = console.log,
-): number => {
+): Promise<number> => {
   const cmd = argv.length > 0 ? argv[0] : undefined;
   if (cmd === "encode") {
-    encode(root, log);
+    await encode(root, log);
   } else if (cmd === "decode") {
-    decode(root, log);
+    await decode(root, log);
   } else if (cmd === "flatline") {
-    flatline(root, log);
+    await flatline(root, log);
   } else {
     process.stderr.write("Usage: ghost {encode|decode|flatline}\n");
     return 1;
@@ -88,5 +89,5 @@ export const main = (
 };
 
 if (import.meta.main) {
-  process.exit(main(Bun.argv.slice(2)));
+  process.exit(await main(Bun.argv.slice(2)));
 }

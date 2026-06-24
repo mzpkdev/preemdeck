@@ -6,7 +6,8 @@
  */
 
 import { afterEach, beforeEach, describe, expect, spyOn, test } from "bun:test";
-import { existsSync, readFileSync, unlinkSync } from "node:fs";
+import { readFile, unlink } from "node:fs/promises";
+import { exists } from "../../../../lib/fs.ts";
 import { IdeaError } from "./core/errors.ts";
 import { _internals, main, openInline } from "./open-inline.ts";
 
@@ -25,7 +26,7 @@ const recorder = () => {
   return async (path: string, options: { wait?: boolean; preview?: boolean } = {}) => {
     const wait = options.wait ?? false;
     const preview = options.preview ?? false;
-    const seen = readFileSync(path, { encoding: "utf8" });
+    const seen = await readFile(path, { encoding: "utf8" });
     calls.push({ path, wait, preview, seen });
     return wait ? EDITED : null;
   };
@@ -55,7 +56,7 @@ describe("openInline", () => {
     expect(calls[0]?.wait).toBe(true);
     expect(calls[0]?.seen).toBe(content);
     expect(calls[0]?.path.endsWith(".txt")).toBe(true);
-    expect(existsSync(calls[0]?.path as string)).toBe(false);
+    expect(await exists(calls[0]?.path as string)).toBe(false);
   });
 
   test("no-wait returns null and schedules a reap", async () => {
@@ -66,14 +67,14 @@ describe("openInline", () => {
     const path = calls[0]?.path as string;
     expect(reaped).toEqual([[path]]);
     // The reap seam is a spy, so the temp is still on disk; clean it up.
-    expect(existsSync(path)).toBe(true);
-    unlinkSync(path);
+    expect(await exists(path)).toBe(true);
+    await unlink(path);
   });
 
   test("suffix override threads to the temp name", async () => {
     expect(await openInline("print('hi')\n", { suffix: ".py", wait: true })).toBe(EDITED);
     expect(calls[0]?.path.endsWith(".py")).toBe(true);
-    expect(existsSync(calls[0]?.path as string)).toBe(false);
+    expect(await exists(calls[0]?.path as string)).toBe(false);
   });
 
   test("IdeaError propagates and the temp is unlinked on the wait path", async () => {
@@ -83,7 +84,7 @@ describe("openInline", () => {
       throw new IdeaError("no running JetBrains IDE found");
     };
     await expect(openInline("oops\n", { wait: true })).rejects.toThrow(IdeaError);
-    expect(existsSync(seenPaths[0] as string)).toBe(false);
+    expect(await exists(seenPaths[0] as string)).toBe(false);
   });
 
   test("default does not request preview", async () => {

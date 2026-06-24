@@ -6,19 +6,19 @@
  * open_inline / diff_inline / merge_file / merge_inline mint temps identically.
  */
 
-import { closeSync, mkdtempSync, openSync, realpathSync, writeFileSync } from "node:fs";
+import { mkdtemp, open, realpath, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 /**
  * Resolve `path` to an absolute, symlink-resolved path, THROWING when it does not
- * exist — the diff/merge inputs' `Path(p).resolve(strict=True)`. realpathSync
+ * exist — the diff/merge inputs' `Path(p).resolve(strict=True)`. realpath
  * matches both halves (resolves symlinks AND raises ENOENT on a missing path);
  * the thrown error carries a string `.code` ("ENOENT"), so the CLIs' OSError
  * handler catches it and exits 1, like Python's FileNotFoundError.
  */
-export const resolveStrict = (path: string): string => {
-  return realpathSync(path);
+export const resolveStrict = async (path: string): Promise<string> => {
+  return await realpath(path);
 };
 
 /**
@@ -26,11 +26,12 @@ export const resolveStrict = (path: string): string => {
  * is opened and immediately closed, like os.close(fd) after mkstemp). A
  * per-call private dir guarantees uniqueness without racing on the filename.
  */
-export const mkstempSync = (suffix = ".txt"): string => {
-  const dir = mkdtempSync(join(tmpdir(), "idea-tmp-"));
+export const mkstemp = async (suffix = ".txt"): Promise<string> => {
+  const dir = await mkdtemp(join(tmpdir(), "idea-tmp-"));
   const path = join(dir, `${crypto.randomUUID()}${suffix}`);
   // Match mkstemp: the file exists (created) before we hand back the path.
-  closeSync(openSync(path, "w"));
+  const handle = await open(path, "w");
+  await handle.close();
   return path;
 };
 
@@ -40,7 +41,7 @@ export const mkstempSync = (suffix = ".txt"): string => {
  * opens it). Mirrors mkstemp + fdopen(fd,"w").write(content).
  */
 export const writeTemp = async (content: string, suffix = ".txt"): Promise<string> => {
-  const path = mkstempSync(suffix);
-  writeFileSync(path, content);
+  const path = await mkstemp(suffix);
+  await writeFile(path, content);
   return path;
 };

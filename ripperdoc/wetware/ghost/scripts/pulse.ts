@@ -7,8 +7,9 @@
  * silent `{}` no-op. Default event UserPromptSubmit; stdin wins.
  */
 
-import { existsSync, readFileSync } from "node:fs";
+import { readFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
+import { exists } from "../../../../lib/fs.ts";
 import { runInjectionHook } from "../../../../lib/inject.ts";
 
 const DEFAULT_EVENT = "UserPromptSubmit";
@@ -22,24 +23,24 @@ export const pluginRoot = (): string => {
  * Read the pulse source: base64 `.dat` if present (decoded), else the plain
  * `.md`, else null.
  */
-export const readSource = (root: string, datName: string, mdName: string): string | null => {
+export const readSource = async (root: string, datName: string, mdName: string): Promise<string | null> => {
   const dat = join(root, datName);
-  if (existsSync(dat)) {
-    return Buffer.from(readFileSync(dat).toString("utf8"), "base64").toString("utf8");
+  if (await exists(dat)) {
+    return Buffer.from((await readFile(dat)).toString("utf8"), "base64").toString("utf8");
   }
   const md = join(root, mdName);
-  if (existsSync(md)) {
-    return readFileSync(md, "utf8");
+  if (await exists(md)) {
+    return await readFile(md, "utf8");
   }
   return null;
 };
 
 if (import.meta.main) {
   const root = pluginRoot();
+  const content = await readSource(root, "pulse.dat", "PULSE.md");
   await runInjectionHook({
     event: DEFAULT_EVENT,
     render: () => {
-      const content = readSource(root, "pulse.dat", "PULSE.md");
       if (!content) return null;
       return content.trim();
     },

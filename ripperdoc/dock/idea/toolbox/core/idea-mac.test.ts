@@ -5,14 +5,14 @@
  * MOCK PATTERN A — dependency injection: resolveExecPath() takes a `probe` and a
  * `startPid` seam, so the ancestry walk is driven by a canned dict instead of
  * spawning `ps` (the Python suite monkeypatched `idea_mac.subprocess.run` +
- * `os.getpid`). resolveLogDir() takes a `resolveExec` seam and is exercised
- * against a fake JetBrains log tree under a tmp HOME, with mtimes set so the
- * newest matching product dir wins (MOCK PATTERN E — real tmp FS).
+ * `os.getpid`). The probe seam is async (production reads `ps` via `Bun.spawn`),
+ * so the fake returns a resolved Promise. resolveLogDir() takes a `resolveExec`
+ * seam and is exercised against a fake JetBrains log tree under a tmp HOME, with
+ * mtimes set so the newest matching product dir wins (MOCK PATTERN E — real tmp FS).
  */
 
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { mkdirSync, utimesSync } from "node:fs";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, utimes } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { IdeaError } from "./errors.ts";
@@ -39,9 +39,9 @@ const NO_IDE: Record<number, [number, string]> = {
   4241: [1, "/sbin/launchd"],
 };
 
-/** Build a PsProbe keyed off the pid, like the Python `_fake_ps`. */
+/** Build a PsProbe keyed off the pid, like the Python `_fake_ps` (async seam). */
 const fakeProbe = (ancestry: Record<number, [number, string]>): PsProbe => {
-  return (pid) => {
+  return async (pid) => {
     const entry = ancestry[pid];
     if (entry === undefined) {
       return null; // unknown pid -> ps yields <2 fields -> break (Python parity)
@@ -80,21 +80,21 @@ describe("inIdea", () => {
 });
 
 describe("resolveExecPath", () => {
-  test("walks the ancestry to WebStorm", () => {
-    expect(resolveExecPath(fakeProbe(ANCESTRY), 7539)).toBe(WEBSTORM);
+  test("walks the ancestry to WebStorm", async () => {
+    expect(await resolveExecPath(fakeProbe(ANCESTRY), 7539)).toBe(WEBSTORM);
   });
 
-  test("skips the Python.app ancestor", () => {
-    expect(resolveExecPath(fakeProbe(ANCESTRY), 7539)).not.toContain("Python.app");
+  test("skips the Python.app ancestor", async () => {
+    expect(await resolveExecPath(fakeProbe(ANCESTRY), 7539)).not.toContain("Python.app");
   });
 
-  test("throws IdeaError when no JetBrains binary is in the chain", () => {
-    expect(() => resolveExecPath(fakeProbe(NO_IDE), 4242)).toThrow(IdeaError);
+  test("throws IdeaError when no JetBrains binary is in the chain", async () => {
+    await expect(resolveExecPath(fakeProbe(NO_IDE), 4242)).rejects.toThrow(IdeaError);
   });
 
-  test("stops the climb at a dead/exited pid (probe returns null)", () => {
+  test("stops the climb at a dead/exited pid (probe returns null)", async () => {
     // A probe that always reports "no such process" -> no IDE found -> IdeaError.
-    expect(() => resolveExecPath(() => null, 999)).toThrow(IdeaError);
+    await expect(resolveExecPath(async () => null, 999)).rejects.toThrow(IdeaError);
   });
 });
 
@@ -113,30 +113,30 @@ describe("resolveLogDir", () => {
     await rm(home, { recursive: true, force: true });
   });
 
-  test("picks the active product's newest-version dir", () => {
+  test("picks the active product's newest-version dir", async () => {
     const base = join(home, "Library/Logs/JetBrains");
     const newest = join(base, "WebStorm2025.3");
     const older = join(base, "WebStorm2025.1");
     const other = join(base, "PyCharm2024.3");
-    for (const d of [newest, older, other]) mkdirSync(d, { recursive: true });
+    for (const d of [newest, older, other]) await mkdir(d, { recursive: true });
     // mtimes: WebStorm2025.3 newest of its product; PyCharm is newer still but wrong product.
-    utimesSync(older, 1000, 1000);
-    utimesSync(newest, 2000, 2000);
-    utimesSync(other, 3000, 3000);
+    await utimes(older, 1000, 1000);
+    await utimes(newest, 2000, 2000);
+    await utimes(other, 3000, 3000);
 
-    expect(resolveLogDir(() => "/x/WebStorm.app/Contents/MacOS/webstorm")).toBe(newest);
+    expect(await resolveLogDir(() => "/x/WebStorm.app/Contents/MacOS/webstorm")).toBe(newest);
   });
 
-  test("throws IdeaError when no dir matches the running product", () => {
+  test("throws IdeaError when no dir matches the running product", async () => {
     // Running product is GoLand, but the only log dir on disk is PyCharm's.
-    mkdirSync(join(home, "Library/Logs/JetBrains/PyCharm2024.3"), { recursive: true });
-    expect(() => resolveLogDir(() => "/x/GoLand.app/Contents/MacOS/goland")).toThrow(IdeaError);
+    await mkdir(join(home, "Library/Logs/JetBrains/PyCharm2024.3"), { recursive: true });
+    await expect(resolveLogDir(() => "/x/GoLand.app/Contents/MacOS/goland")).rejects.toThrow(IdeaError);
   });
 
-  test("maps the 'idea' binary to the 'intellijidea' log-dir prefix", () => {
+  test("maps the 'idea' binary to the 'intellijidea' log-dir prefix", async () => {
     const base = join(home, "Library/Logs/JetBrains");
     const ij = join(base, "IntelliJIdea2025.2");
-    mkdirSync(ij, { recursive: true });
-    expect(resolveLogDir(() => "/x/IntelliJ IDEA.app/Contents/MacOS/idea")).toBe(ij);
+    await mkdir(ij, { recursive: true });
+    expect(await resolveLogDir(() => "/x/IntelliJ IDEA.app/Contents/MacOS/idea")).toBe(ij);
   });
 });

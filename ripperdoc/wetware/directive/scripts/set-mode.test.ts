@@ -5,8 +5,7 @@
  */
 
 import { afterEach, beforeEach, describe, expect, spyOn, test } from "bun:test";
-import { readFileSync } from "node:fs";
-import { glob, mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { glob, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { availableModes, configSlots, ModesError, main, setDirective, slotFor } from "./set-mode.ts";
@@ -36,16 +35,16 @@ describe("availableModes", () => {
   test("lists skill folders that ship a directive.md (sorted)", async () => {
     const d = join(dir, "skills");
     for (const n of ["swarm", "ask"]) await writeSkill(d, n);
-    expect(availableModes(d)).toEqual(["ask", "swarm"]);
+    expect(await availableModes(d)).toEqual(["ask", "swarm"]);
   });
-  test("empty when the dir is missing", () => {
-    expect(availableModes(join(dir, "nope"))).toEqual([]);
+  test("empty when the dir is missing", async () => {
+    expect(await availableModes(join(dir, "nope"))).toEqual([]);
   });
   test("ignores dirs without a directive.md", async () => {
     const d = join(dir, "skills");
     await writeSkill(d, "swarm");
     await mkdir(join(d, "default"));
-    expect(availableModes(d)).toEqual(["swarm"]);
+    expect(await availableModes(d)).toEqual(["swarm"]);
   });
 });
 
@@ -57,22 +56,22 @@ describe("slotFor", () => {
   }
   test("reads the slot from modes.json", async () => {
     const m = await modes({ swarm: "strategy", ask: "discretion" });
-    expect(slotFor(m, "swarm")).toBe("strategy");
-    expect(slotFor(m, "ask")).toBe("discretion");
+    expect(await slotFor(m, "swarm")).toBe("strategy");
+    expect(await slotFor(m, "ask")).toBe("discretion");
   });
   test("null when the value is absent", async () => {
-    expect(slotFor(await modes({ ask: "discretion" }), "swarm")).toBeNull();
+    expect(await slotFor(await modes({ ask: "discretion" }), "swarm")).toBeNull();
   });
   test("null when the slot is blank", async () => {
-    expect(slotFor(await modes({ swarm: "   " }), "swarm")).toBeNull();
+    expect(await slotFor(await modes({ swarm: "   " }), "swarm")).toBeNull();
   });
-  test("throws when modes.json is missing", () => {
-    expect(() => slotFor(join(dir, "nope.json"), "swarm")).toThrow(ModesError);
+  test("throws when modes.json is missing", async () => {
+    await expect(slotFor(join(dir, "nope.json"), "swarm")).rejects.toThrow(ModesError);
   });
   test("throws when modes.json is malformed", async () => {
     const p = join(dir, "modes.json");
     await writeFile(p, "{bad");
-    expect(() => slotFor(p, "swarm")).toThrow(ModesError);
+    await expect(slotFor(p, "swarm")).rejects.toThrow(ModesError);
   });
 });
 
@@ -83,19 +82,19 @@ describe("configSlots", () => {
     return p;
   }
   test("lists the directive object keys (insertion order)", async () => {
-    expect(configSlots(await cfg('{"directive":{"strategy":"x","discretion":"y"}}'))).toEqual([
+    expect(await configSlots(await cfg('{"directive":{"strategy":"x","discretion":"y"}}'))).toEqual([
       "strategy",
       "discretion",
     ]);
   });
   test("empty when missing", async () => {
-    expect(configSlots(await cfg('{"other":1}'))).toEqual([]);
+    expect(await configSlots(await cfg('{"other":1}'))).toEqual([]);
   });
   test("empty for the legacy string form", async () => {
-    expect(configSlots(await cfg('{"directive":"swarm"}'))).toEqual([]);
+    expect(await configSlots(await cfg('{"directive":"swarm"}'))).toEqual([]);
   });
   test("empty when malformed", async () => {
-    expect(configSlots(await cfg("{bad"))).toEqual([]);
+    expect(await configSlots(await cfg("{bad"))).toEqual([]);
   });
 });
 
@@ -108,7 +107,7 @@ describe("setDirective", () => {
   test("sets the slot and preserves the others + top-level keys", async () => {
     const p = await cfg('{\n  "directive": {"strategy": "", "discretion": "ask"},\n  "other": 1\n}\n');
     await setDirective(p, "strategy", "swarm");
-    expect(JSON.parse(readFileSync(p, "utf8"))).toEqual({
+    expect(JSON.parse(await readFile(p, "utf8"))).toEqual({
       directive: { strategy: "swarm", discretion: "ask" },
       other: 1,
     });
@@ -116,24 +115,24 @@ describe("setDirective", () => {
   test("creates the object when missing", async () => {
     const p = await cfg('{"keep":true}');
     await setDirective(p, "strategy", "swarm");
-    expect(JSON.parse(readFileSync(p, "utf8"))).toEqual({ keep: true, directive: { strategy: "swarm" } });
+    expect(JSON.parse(await readFile(p, "utf8"))).toEqual({ keep: true, directive: { strategy: "swarm" } });
   });
   test("adds a new slot preserving the existing", async () => {
     const p = await cfg('{"directive":{"strategy":"swarm"}}');
     await setDirective(p, "discretion", "auto");
-    expect(JSON.parse(readFileSync(p, "utf8"))).toEqual({ directive: { strategy: "swarm", discretion: "auto" } });
+    expect(JSON.parse(await readFile(p, "utf8"))).toEqual({ directive: { strategy: "swarm", discretion: "auto" } });
   });
   test("fixed 2-space framing with trailing newline", async () => {
     const p = await cfg("{}");
     await setDirective(p, "strategy", "swarm");
-    expect(readFileSync(p, "utf8")).toBe('{\n  "directive": {\n    "strategy": "swarm"\n  }\n}\n');
+    expect(await readFile(p, "utf8")).toBe('{\n  "directive": {\n    "strategy": "swarm"\n  }\n}\n');
   });
   test("idempotent rewrite", async () => {
     const p = await cfg('{"directive":{"strategy":"swarm"}}');
     await setDirective(p, "strategy", "swarm");
-    const first = readFileSync(p, "utf8");
+    const first = await readFile(p, "utf8");
     await setDirective(p, "strategy", "swarm");
-    expect(readFileSync(p, "utf8")).toBe(first);
+    expect(await readFile(p, "utf8")).toBe(first);
   });
   test("leaves no .tmp behind", async () => {
     const p = await cfg("{}");
@@ -166,17 +165,17 @@ describe("main", () => {
   test("a value derives the strategy slot", async () => {
     const s = await setup();
     expect(await main(["swarm"], opts(s))).toBe(0);
-    expect(JSON.parse(readFileSync(s.cfg, "utf8")).directive).toEqual({ strategy: "swarm", discretion: "" });
+    expect(JSON.parse(await readFile(s.cfg, "utf8")).directive).toEqual({ strategy: "swarm", discretion: "" });
   });
   test("a value derives the discretion slot", async () => {
     const s = await setup();
     expect(await main(["ask"], opts(s))).toBe(0);
-    expect(JSON.parse(readFileSync(s.cfg, "utf8")).directive).toEqual({ strategy: "", discretion: "ask" });
+    expect(JSON.parse(await readFile(s.cfg, "utf8")).directive).toEqual({ strategy: "", discretion: "ask" });
   });
   test("preserves the other slot + top-level keys", async () => {
     const s = await setup({ configText: '{"directive": {"strategy": "swarm", "discretion": ""}, "other": 1}' });
     expect(await main(["auto"], opts(s))).toBe(0);
-    expect(JSON.parse(readFileSync(s.cfg, "utf8"))).toEqual({
+    expect(JSON.parse(await readFile(s.cfg, "utf8"))).toEqual({
       directive: { strategy: "swarm", discretion: "auto" },
       other: 1,
     });
@@ -184,9 +183,9 @@ describe("main", () => {
   test("idempotent rewrite", async () => {
     const s = await setup();
     expect(await main(["swarm"], opts(s))).toBe(0);
-    const first = readFileSync(s.cfg, "utf8");
+    const first = await readFile(s.cfg, "utf8");
     expect(await main(["swarm"], opts(s))).toBe(0);
-    expect(readFileSync(s.cfg, "utf8")).toBe(first);
+    expect(await readFile(s.cfg, "utf8")).toBe(first);
   });
   test("unknown value -> 2 without writing", async () => {
     const s = await setup();
@@ -197,7 +196,7 @@ describe("main", () => {
     } finally {
       err.restore();
     }
-    expect(JSON.parse(readFileSync(s.cfg, "utf8")).directive).toEqual({ strategy: "", discretion: "" });
+    expect(JSON.parse(await readFile(s.cfg, "utf8")).directive).toEqual({ strategy: "", discretion: "" });
   });
   test("valid mode missing from modes.json -> 2 without writing", async () => {
     const s = await setup();
@@ -241,7 +240,7 @@ describe("main", () => {
     } finally {
       err.restore();
     }
-    expect(JSON.parse(readFileSync(s.cfg, "utf8")).directive.strategy).toBeUndefined();
+    expect(JSON.parse(await readFile(s.cfg, "utf8")).directive.strategy).toBeUndefined();
   });
   test("wrong arg count -> 2", async () => {
     const s = await setup();

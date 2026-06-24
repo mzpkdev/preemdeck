@@ -14,13 +14,13 @@
  * is joined here via `await child.exited` (Python's proc.wait()).
  */
 
-import { readFileSync, unlinkSync } from "node:fs";
+import { readFile, unlink } from "node:fs/promises";
 import { extname } from "node:path";
 import { parseArgs } from "node:util";
 import { argparseError, argparseMessage } from "./cli.ts";
 import { IdeaError } from "./core/errors.ts";
 import { inIdea, launch, reapLater } from "./core/index.ts";
-import { mkstempSync, resolveStrict } from "./tmp.ts";
+import { mkstemp, resolveStrict } from "./tmp.ts";
 
 const PROG = "merge-file";
 const USAGE = "usage: merge-file [-h] [--wait] target suggestion [base]";
@@ -34,7 +34,7 @@ export const _internals = {
   inIdea,
   launch,
   reapLater,
-  readFile: (path: string): string => readFileSync(path, { encoding: "utf8" }),
+  readFile: (path: string): Promise<string> => readFile(path, { encoding: "utf8" }),
 };
 
 /** Open a 3-way merge of `target`/`suggestion` (optional `base`) in the IDE. */
@@ -44,14 +44,14 @@ export const mergeFile = async (
   base: string | null = null,
   wait = false,
 ): Promise<string | null> => {
-  const targetAbs = resolveStrict(target);
-  const suggestionAbs = resolveStrict(suggestion);
-  const baseAbs = base !== null ? resolveStrict(base) : null;
+  const targetAbs = await resolveStrict(target);
+  const suggestionAbs = await resolveStrict(suggestion);
+  const baseAbs = base !== null ? await resolveStrict(base) : null;
 
   // Internal output temp (not a caller arg). Mirror the target's extension for
   // syntax highlighting when it has one, else a plain default.
   const suffix = extname(targetAbs) || ".txt";
-  const output = mkstempSync(suffix);
+  const output = await mkstemp(suffix);
 
   // Fixed arg order: output LAST, base THIRD when present. No --wait — merge
   // blocks natively; spawn async and join the process below.
@@ -69,9 +69,9 @@ export const mergeFile = async (
   try {
     // merge blocks natively; joining the spawned process waits for Apply.
     await child.exited;
-    return _internals.readFile(output);
+    return await _internals.readFile(output);
   } finally {
-    unlinkSync(output);
+    await unlink(output);
   }
 };
 

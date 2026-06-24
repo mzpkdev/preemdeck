@@ -5,7 +5,8 @@
  */
 
 import { afterEach, beforeEach, describe, expect, spyOn, test } from "bun:test";
-import { existsSync, readFileSync, unlinkSync } from "node:fs";
+import { readFile, unlink } from "node:fs/promises";
+import { exists } from "../../../../lib/fs.ts";
 import { _internals, diffInline, main } from "./diff-inline.ts";
 
 const RECONCILED = "RECONCILED\n";
@@ -25,8 +26,8 @@ const spy = (result: string | null = RECONCILED) => {
     snap.target = target;
     snap.suggestion = suggestion;
     snap.wait = wait;
-    snap.contents[target] = readFileSync(target, { encoding: "utf8" });
-    snap.contents[suggestion] = readFileSync(suggestion, { encoding: "utf8" });
+    snap.contents[target] = await readFile(target, { encoding: "utf8" });
+    snap.contents[suggestion] = await readFile(suggestion, { encoding: "utf8" });
     return result;
   };
 };
@@ -51,8 +52,8 @@ describe("diffInline", () => {
     expect(await diffInline("alpha", "beta", { wait: true })).toBe(RECONCILED);
     expect(snap.contents[snap.target]).toBe("alpha");
     expect(snap.contents[snap.suggestion]).toBe("beta");
-    expect(existsSync(snap.target)).toBe(false);
-    expect(existsSync(snap.suggestion)).toBe(false);
+    expect(await exists(snap.target)).toBe(false);
+    expect(await exists(snap.suggestion)).toBe(false);
   });
 
   test("suffix threads to both temp names", async () => {
@@ -66,7 +67,7 @@ describe("diffInline", () => {
     expect(await diffInline("x", "y")).toBeNull();
     expect(reaped).toEqual([[snap.target, snap.suggestion]]);
     // The reap seam is a spy; clean up the still-present temps.
-    for (const p of [snap.target, snap.suggestion]) if (existsSync(p)) unlinkSync(p);
+    for (const p of [snap.target, snap.suggestion]) if (await exists(p)) await unlink(p);
   });
 });
 

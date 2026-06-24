@@ -9,7 +9,7 @@
  * reap for both temps and return null.
  */
 
-import { unlinkSync } from "node:fs";
+import { unlink } from "node:fs/promises";
 import { parseArgs } from "node:util";
 import { argparseError, argparseMessage } from "./cli.ts";
 import { IdeaError } from "./core/errors.ts";
@@ -50,7 +50,7 @@ export const diffInline = async (
     // wait=true: diffFile already returned, temps are spent — remove now.
     if (wait) {
       for (const path of temps) {
-        unlinkSync(path);
+        await unlink(path);
       }
     }
   }
