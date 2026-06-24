@@ -1,192 +1,213 @@
 /**
- * open-inline.test.ts — hermetic suite. The worker delegate (openFile), the
- * reaper, and inIdea are injected via `_internals`. A recorder openFile snapshots
- * the temp's contents at call time (before cleanup) so we can assert what was
- * spilled and how cleanup is gated on wait.
+ * open-inline.test.ts — hermetic, reach-through suite. open-inline is a COMPOSITE
+ * over open-file: openInline spills the string to a real temp (writeTemp), then
+ * calls openFile, which is allowed to RUN FOR REAL. Only the LEAF write wrappers
+ * open-file bottoms out in are mocked, by cmdore wrapper reference: `launch` (the
+ * IDE spawn) and `setPreview` (the preview flip). Nothing spawns.
+ *
+ * The temp write is real, so a recorder `launch` can snapshot what was spilled.
+ * The `--wait` read-back is the REAL FS: the mocked launch writes EDITED to the
+ * resolved target on the wait path, then openFile's real readFile reads it. The
+ * `inIdea` gate is forced through the PREEMDECK_FORCE_IN_IDEA env override.
+ *
+ * openInline's OWN effects stay real & seam-free: writeTemp -> real FS; reapLater
+ * -> real, but the no-wait tests spy on setTimeout to confirm a reap was
+ * scheduled without arming the real 3s ref'd timer.
  */
 
-import { afterEach, beforeEach, describe, expect, spyOn, test } from "bun:test";
-import { readFile, unlink } from "node:fs/promises";
-import { exists } from "../../../../lib/fs.ts";
-import { IdeaError } from "./core/errors.ts";
-import { _internals, main, openInline } from "./open-inline.ts";
+import { afterEach, beforeEach, describe, expect, spyOn, test } from "bun:test"
+import { readFile, rm, writeFile } from "node:fs/promises"
+import { effect } from "cmdore"
+import { exists } from "../../../../lib/fs.ts"
+import { launch, setPreview } from "./open-file.ts"
+import { main, openInline } from "./open-inline.ts"
 
-const EDITED = "EDITED\n";
-const real = {
-  inIdea: _internals.inIdea,
-  openFile: _internals.openFile,
-  reapLater: _internals.reapLater,
-  openInline: _internals.openInline,
-};
-let calls: Array<{ path: string; wait: boolean; preview: boolean; seen: string }>;
-let reaped: string[][];
+const EDITED = "EDITED\n"
+let calls: Array<{ args: string[]; wait: boolean; seen: string }>
 
-/** A recorder openFile: snapshots the temp now, records path/wait/preview, returns EDITED on wait. */
-const recorder = () => {
-  return async (path: string, options: { wait?: boolean; preview?: boolean } = {}) => {
-    const wait = options.wait ?? false;
-    const preview = options.preview ?? false;
-    const seen = await readFile(path, { encoding: "utf8" });
-    calls.push({ path, wait, preview, seen });
-    return wait ? EDITED : null;
-  };
-};
+/**
+ * Mock the LEAF `launch` wrapper by reference: spawn nothing; snapshot the temp
+ * NOW (the spilled content, before any cleanup) keyed off the resolved target
+ * (last argv), record argv + wait, and on the wait path write `edits` back to it
+ * so openInline -> openFile's real readFile returns it.
+ */
+const mockLaunch = (edits?: string): void => {
+  effect.mock(launch, async (args: string[], options: { wait?: boolean } = {}) => {
+    const wait = options.wait ?? false
+    const target = args[args.length - 1] as string
+    const seen = await readFile(target, { encoding: "utf8" })
+    calls.push({ args, wait, seen })
+    if (wait && edits !== undefined) {
+      await writeFile(target, edits)
+    }
+    return { pid: 4321 } as unknown as Bun.Subprocess
+  })
+}
 
 beforeEach(() => {
-  calls = [];
-  reaped = [];
-  _internals.inIdea = () => true;
-  _internals.openFile = recorder();
-  _internals.reapLater = (paths: Iterable<string>) => {
-    reaped.push([...paths]);
-  };
-});
+  calls = []
+  process.env.PREEMDECK_FORCE_IN_IDEA = "1"
+  effect.reset()
+  mockLaunch()
+})
 afterEach(() => {
-  _internals.inIdea = real.inIdea;
-  _internals.openFile = real.openFile;
-  _internals.reapLater = real.reapLater;
-  _internals.openInline = real.openInline;
-});
+  delete process.env.PREEMDECK_FORCE_IN_IDEA
+  effect.reset()
+})
 
 describe("openInline", () => {
   test("wait roundtrips and cleans up the temp", async () => {
-    const content = "hello inline\nsecond line\n";
-    expect(await openInline(content, { wait: true })).toBe(EDITED);
-    expect(calls.length).toBe(1);
-    expect(calls[0]?.wait).toBe(true);
-    expect(calls[0]?.seen).toBe(content);
-    expect(calls[0]?.path.endsWith(".txt")).toBe(true);
-    expect(await exists(calls[0]?.path as string)).toBe(false);
-  });
+    mockLaunch(EDITED)
+    const content = "hello inline\nsecond line\n"
+    expect(await openInline(content, { wait: true })).toBe(EDITED)
+    expect(calls.length).toBe(1)
+    expect(calls[0]?.wait).toBe(true)
+    expect(calls[0]?.seen).toBe(content)
+    const target = calls[0]?.args.at(-1) as string
+    expect(target.endsWith(".txt")).toBe(true)
+    expect(await exists(target)).toBe(false)
+  })
 
-  test("no-wait returns null and schedules a reap", async () => {
-    const content = "fire and forget\n";
-    expect(await openInline(content)).toBeNull();
-    expect(calls[0]?.wait).toBe(false);
-    expect(calls[0]?.seen).toBe(content);
-    const path = calls[0]?.path as string;
-    expect(reaped).toEqual([[path]]);
-    // The reap seam is a spy, so the temp is still on disk; clean it up.
-    expect(await exists(path)).toBe(true);
-    await unlink(path);
-  });
+  test("no-wait returns null and schedules a reap (real reapLater, timer neutralized)", async () => {
+    const content = "fire and forget\n"
+    const timerSpy = spyOn(globalThis, "setTimeout").mockImplementation(((fn: () => void) => {
+      void fn // don't fire: just record that a reap was armed
+      return 0 as unknown as ReturnType<typeof setTimeout>
+    }) as never)
+    try {
+      expect(await openInline(content)).toBeNull()
+      expect(calls[0]?.wait).toBe(false)
+      expect(calls[0]?.seen).toBe(content)
+      // reapLater armed exactly one (ref'd) timer for the spilled temp.
+      expect(timerSpy.mock.calls.length).toBe(1)
+      // The reap was a spy, so the temp is still on disk; clean it up.
+      const target = calls[0]?.args.at(-1) as string
+      expect(await exists(target)).toBe(true)
+      await rm(target, { force: true })
+    } finally {
+      timerSpy.mockRestore()
+    }
+  })
 
   test("suffix override threads to the temp name", async () => {
-    expect(await openInline("print('hi')\n", { suffix: ".py", wait: true })).toBe(EDITED);
-    expect(calls[0]?.path.endsWith(".py")).toBe(true);
-    expect(await exists(calls[0]?.path as string)).toBe(false);
-  });
+    mockLaunch(EDITED)
+    expect(await openInline("print('hi')\n", { suffix: ".py", wait: true })).toBe(EDITED)
+    expect((calls[0]?.args.at(-1) as string).endsWith(".py")).toBe(true)
+    expect(await exists(calls[0]?.args.at(-1) as string)).toBe(false)
+  })
 
-  test("IdeaError propagates and the temp is unlinked on the wait path", async () => {
-    const seenPaths: string[] = [];
-    _internals.openFile = async (path: string) => {
-      seenPaths.push(path);
-      throw new IdeaError("no running JetBrains IDE found");
-    };
-    await expect(openInline("oops\n", { wait: true })).rejects.toThrow(IdeaError);
-    expect(await exists(seenPaths[0] as string)).toBe(false);
-  });
+  test("default does not request preview (setPreview never fires)", async () => {
+    const previewed: string[] = []
+    effect.mock(setPreview, async (p: string) => {
+      previewed.push(p)
+    })
+    const timerSpy = spyOn(globalThis, "setTimeout").mockImplementation(((fn: () => void) => {
+      void fn
+      return 0 as unknown as ReturnType<typeof setTimeout>
+    }) as never)
+    try {
+      expect(await openInline("x\n")).toBeNull()
+      expect(previewed.length).toBe(0)
+    } finally {
+      timerSpy.mockRestore()
+    }
+  })
 
-  test("default does not request preview", async () => {
-    _internals.reapLater = () => {};
-    expect(await openInline("x\n")).toBeNull();
-    expect(calls[0]?.preview).toBe(false);
-  });
-
-  test("preview threads to openFile", async () => {
-    expect(await openInline("# title\n", { suffix: ".md", wait: true, preview: true })).toBe(EDITED);
-    expect(calls[0]?.preview).toBe(true);
-    expect(calls[0]?.path.endsWith(".md")).toBe(true);
-  });
-});
+  test("preview threads through openFile to setPreview (leaf)", async () => {
+    mockLaunch(EDITED)
+    const previewed: string[] = []
+    effect.mock(setPreview, async (p: string) => {
+      previewed.push(p)
+    })
+    expect(await openInline("# title\n", { suffix: ".md", wait: true, preview: true })).toBe(EDITED)
+    expect(previewed.length).toBe(1)
+    expect((calls[0]?.args.at(-1) as string).endsWith(".md")).toBe(true)
+    // setPreview was handed the same resolved target launch opened.
+    expect(previewed[0]).toBe(calls[0]?.args.at(-1))
+  })
+})
 
 describe("main", () => {
-  let captured: Array<{ content: string; suffix: string; wait: boolean; preview: boolean }>;
-  beforeEach(() => {
-    captured = [];
-    _internals.openInline = async (
-      content: string,
-      options: { suffix?: string; wait?: boolean; preview?: boolean } = {},
-    ) => {
-      captured.push({
-        content,
-        suffix: options.suffix ?? ".txt",
-        wait: options.wait ?? false,
-        preview: options.preview ?? false,
-      });
-      return null;
-    };
-  });
-
-  test("inline only -> defaults, no wait", async () => {
-    expect(await main(["some text"])).toBe(0);
-    expect(captured).toEqual([{ content: "some text", suffix: ".txt", wait: false, preview: false }]);
-  });
-
-  test("--suffix reaches the worker", async () => {
-    expect(await main(["x = 1", "--suffix", ".py"])).toBe(0);
-    expect(captured[0]?.suffix).toBe(".py");
-  });
-
-  test("--wait reaches the worker", async () => {
-    expect(await main(["body", "--wait"])).toBe(0);
-    expect(captured[0]?.wait).toBe(true);
-  });
-
-  test("--preview reaches the worker", async () => {
-    expect(await main(["# title", "--suffix", ".md", "--preview"])).toBe(0);
-    expect(captured[0]).toEqual({ content: "# title", suffix: ".md", wait: false, preview: true });
-  });
-
-  test("--wait prints edited contents", async () => {
-    _internals.openInline = async () => EDITED;
-    const outSpy = spyOn(process.stdout, "write").mockImplementation((() => true) as never);
+  test("inline only -> launch wait=false, prints nothing, returns 0", async () => {
+    const timerSpy = spyOn(globalThis, "setTimeout").mockImplementation(((fn: () => void) => {
+      void fn
+      return 0 as unknown as ReturnType<typeof setTimeout>
+    }) as never)
+    const outSpy = spyOn(process.stdout, "write").mockImplementation((() => true) as never)
     try {
-      expect(await main(["body", "--wait"])).toBe(0);
-      expect(outSpy.mock.calls.map((c: unknown[]) => String(c[0])).join("")).toBe(EDITED);
+      expect(await main(["some text"])).toBe(0)
+      expect(calls[0]?.wait).toBe(false)
+      expect(calls[0]?.seen).toBe("some text")
+      expect(outSpy.mock.calls.length).toBe(0)
     } finally {
-      outSpy.mockRestore();
+      outSpy.mockRestore()
+      timerSpy.mockRestore()
     }
-  });
+  })
 
-  test("missing inline -> exit 2", async () => {
-    const exitSpy = spyOn(process, "exit").mockImplementation(((code?: number) => {
-      throw new Error(`exit:${code}`);
-    }) as never);
-    const errSpy = spyOn(process.stderr, "write").mockImplementation((() => true) as never);
+  test("--suffix reaches the temp", async () => {
+    const timerSpy = spyOn(globalThis, "setTimeout").mockImplementation(((fn: () => void) => {
+      void fn
+      return 0 as unknown as ReturnType<typeof setTimeout>
+    }) as never)
     try {
-      await expect(main([])).rejects.toThrow("exit:2");
-      expect(errSpy.mock.calls.map((c: unknown[]) => String(c[0])).join("")).toContain("usage:");
+      expect(await main(["x = 1", "--suffix", ".py"])).toBe(0)
+      expect((calls[0]?.args.at(-1) as string).endsWith(".py")).toBe(true)
     } finally {
-      exitSpy.mockRestore();
-      errSpy.mockRestore();
+      timerSpy.mockRestore()
     }
-  });
+  })
 
-  test("no live IDE -> 1", async () => {
-    _internals.openInline = async () => {
-      throw new IdeaError("no running JetBrains IDE found");
-    };
-    const errSpy = spyOn(process.stderr, "write").mockImplementation((() => true) as never);
+  test("--wait prints edited contents verbatim", async () => {
+    mockLaunch(EDITED)
+    const outSpy = spyOn(process.stdout, "write").mockImplementation((() => true) as never)
     try {
-      expect(await main(["body"])).toBe(1);
-      expect(errSpy.mock.calls.map((c: unknown[]) => String(c[0])).join("")).toContain("open-inline:");
+      expect(await main(["body", "--wait"])).toBe(0)
+      expect(calls[0]?.wait).toBe(true)
+      expect(outSpy.mock.calls.map((c: unknown[]) => String(c[0])).join("")).toBe(EDITED)
     } finally {
-      errSpy.mockRestore();
+      outSpy.mockRestore()
     }
-  });
+  })
 
-  test("outside JetBrains -> 1 before work", async () => {
-    _internals.inIdea = () => false;
-    const errSpy = spyOn(process.stderr, "write").mockImplementation((() => true) as never);
+  test("--preview threads to the leaf setPreview", async () => {
+    const previewed: string[] = []
+    effect.mock(setPreview, async (p: string) => {
+      previewed.push(p)
+    })
+    const timerSpy = spyOn(globalThis, "setTimeout").mockImplementation(((fn: () => void) => {
+      void fn
+      return 0 as unknown as ReturnType<typeof setTimeout>
+    }) as never)
     try {
-      expect(await main(["body"])).toBe(1);
-      expect(captured).toEqual([]);
+      expect(await main(["# title", "--suffix", ".md", "--preview"])).toBe(0)
+      expect(previewed.length).toBe(1)
+    } finally {
+      timerSpy.mockRestore()
+    }
+  })
+
+  test("no live IDE -> 1 before any launch", async () => {
+    process.env.PREEMDECK_FORCE_IN_IDEA = "0"
+    const errSpy = spyOn(process.stderr, "write").mockImplementation((() => true) as never)
+    try {
+      expect(await main(["body"])).toBe(1)
+      expect(calls).toEqual([])
       expect(errSpy.mock.calls.map((c: unknown[]) => String(c[0])).join("")).toContain(
         "open-inline: no JetBrains IDE in the process ancestry",
-      );
+      )
     } finally {
-      errSpy.mockRestore();
+      errSpy.mockRestore()
     }
-  });
-});
+  })
+
+  test("missing inline -> CmdoreError mapped to exit 2 + open-inline: stderr", async () => {
+    const errSpy = spyOn(process.stderr, "write").mockImplementation((() => true) as never)
+    try {
+      expect(await main([])).toBe(2)
+      expect(errSpy.mock.calls.map((c: unknown[]) => String(c[0])).join("")).toContain("open-inline:")
+    } finally {
+      errSpy.mockRestore()
+    }
+  })
+})

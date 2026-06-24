@@ -16,23 +16,33 @@
  * the label is a static registry string. title/content/each action arg are
  * embedded as escaped Groovy string literals via escapeGroovy.
  *
- * Execution rides core's runGroovy scaffolding. Like its siblings it NEVER
- * throws: a missing live IDE / unimplemented platform / spawn error is swallowed
- * with a short stderr note. The CLI guards a live IDE up front (the inIdea gate).
+ * Execution rides core's runGroovy scaffolding, which NEVER rejects: a missing
+ * live IDE / unimplemented platform / spawn error is swallowed with a short
+ * stderr note. The CLI is a cmdore commandless command: cmdore owns parsing,
+ * help, the global flags, and exit codes. The whitelisted --type/--action are
+ * validated by Standard Schemas (a bad value -> CmdoreError). main() wraps
+ * execute() with onError:"throw" so it keeps the repo CLI shape (return a number;
+ * process.exit only under the import.meta.main guard), gates a live IDE up front
+ * (the inIdea gate), and maps IdeaError / CmdoreError to the notify: stderr line.
  */
 
-import { parseArgs } from "node:util";
-import type { Action } from "../../../../lib/args.ts";
-import { argparseError, argparseMessage } from "./cli.ts";
-import { IdeaError, NotImplementedError } from "./core/errors.ts";
-import { escapeGroovy, inIdea, runGroovy, webpreviewOpenBody } from "./core/index.ts";
+import type { StandardSchemaV1 } from "cmdore"
+import { CmdoreError, defineCommand, effect, execute } from "cmdore"
+import type { Action } from "../../../../lib/args.ts"
+import { IdeaError } from "./core/errors.ts"
+import { escapeGroovy, inIdea, runGroovy as rawRunGroovy, webpreviewOpenBody } from "./core/index.ts"
 
-const PROG = "notify";
-const USAGE =
-  "usage: notify [-h] [--title TITLE] [--type {info,warning,error}]\n              [--action NAME[=ARG]]\n              message";
+const PROG = "notify"
+
+/** cmdore metadata for the commandless CLI; version mirrors the idea plugin manifest. */
+const METADATA = {
+  name: PROG,
+  version: "0.1.0",
+  description: "Pop an in-IDE notification balloon in the running JetBrains IDE.",
+} as const
 
 /** The notification group id the balloon registers under. */
-export const NOTIFY_GROUP_ID = "idea.toolbox";
+export const NOTIFY_GROUP_ID = "idea.toolbox"
 
 /**
  * Allowed --type tokens -> the NotificationType enum constant to embed (a bare
@@ -42,7 +52,7 @@ export const NOTIFICATION_TYPES: Record<string, string> = {
   info: "INFORMATION",
   warning: "WARNING",
   error: "ERROR",
-};
+}
 
 // Closure-body locals are prefixed `action*` so re-fetching the project INSIDE
 // the closure does not re-declare `projects`/`project` from the enclosing
@@ -52,7 +62,7 @@ if (actionProjects.length == 0) return
 def actionProject = actionProjects[0]
 def vf = com.intellij.openapi.vfs.LocalFileSystem.getInstance().findFileByPath("{arg}")
 if (vf == null) return
-com.intellij.openapi.fileEditor.FileEditorManager.getInstance(actionProject).openFile(vf, true)`;
+com.intellij.openapi.fileEditor.FileEditorManager.getInstance(actionProject).openFile(vf, true)`
 
 // The "open-preview" closure body: fetch the project under action*-prefixed names
 // (so it doesn't shadow the enclosing invokeLater scope), then splice in the
@@ -63,11 +73,11 @@ com.intellij.openapi.fileEditor.FileEditorManager.getInstance(actionProject).ope
 const OPEN_PREVIEW_BODY = `def actionProjects = com.intellij.openapi.project.ProjectManager.getInstance().getOpenProjects()
 if (actionProjects.length == 0) return
 def actionProject = actionProjects[0]
-${webpreviewOpenBody("{arg}", "{arg}", { projectVar: "actionProject" })}`;
+${webpreviewOpenBody("{arg}", "{arg}", { projectVar: "actionProject" })}`
 
 // Registry entry: [label, needsArg, body]. label is a static registry string
 // (NOT user input); body's {arg} slot is filled with the escaped CLI arg.
-type ActionEntry = [label: string, needsArg: boolean, body: string];
+type ActionEntry = [label: string, needsArg: boolean, body: string]
 
 /**
  * Vetted registry of clickable balloon actions, keyed by the `--action` name. Each
@@ -78,7 +88,7 @@ export const NOTIFICATION_ACTIONS: Record<string, ActionEntry> = {
   "open-url": ["Open in browser", true, 'com.intellij.ide.BrowserUtil.browse("{arg}")'],
   "open-file": ["Open file", true, OPEN_FILE_BODY],
   "open-preview": ["Open preview", true, OPEN_PREVIEW_BODY],
-};
+}
 
 // Groovy run on the EDT against the live IntelliJ Platform API. {actions} is
 // zero-or-more rendered n.addAction(...) lines (empty when no --action, leaving
@@ -97,38 +107,38 @@ ApplicationManager.getApplication().invokeLater {
     def n = new Notification("${group}", "${title}", "${content}", NotificationType.${type})${actions}
     Notifications.Bus.notify(n, project)
 }
-`;
-};
+`
+}
 
 /** Render one vetted action into its n.addAction(...) line, body {arg} slot escaped. */
 const renderAction = (name: string, arg: string | null): string => {
-  const entry = NOTIFICATION_ACTIONS[name];
+  const entry = NOTIFICATION_ACTIONS[name]
   if (entry === undefined) {
-    throw new Error(`unknown action ${name}`); // programming error: CLI only passes whitelisted names
+    throw new Error(`unknown action ${name}`) // programming error: CLI only passes whitelisted names
   }
-  const [label, , bodyTemplate] = entry;
-  const body = bodyTemplate.replaceAll("{arg}", escapeGroovy(arg ?? ""));
+  const [label, , bodyTemplate] = entry
+  const body = bodyTemplate.replaceAll("{arg}", escapeGroovy(arg ?? ""))
   // Indent a multi-line body so every statement sits inside the closure braces.
   const indented = body
     .split("\n")
     .map((line) => `        ${line}`)
-    .join("\n");
-  return `    n.addAction(NotificationAction.createSimple("${label}", {\n${indented}\n    } as Runnable))`;
-};
+    .join("\n")
+  return `    n.addAction(NotificationAction.createSimple("${label}", {\n${indented}\n    } as Runnable))`
+}
 
 /** Render the parsed --action list to the {actions} block, in CLI order. */
 const renderActions = (actions: Action[]): string => {
   if (actions.length === 0) {
-    return "";
+    return ""
   }
-  return `\n${actions.map(({ name, arg }) => renderAction(name, arg)).join("\n")}`;
-};
+  return `\n${actions.map(({ name, arg }) => renderAction(name, arg)).join("\n")}`
+}
 
 /** Render the notification Groovy for title/message/typeToken/actions. */
 export const groovyFor = (title: string, message: string, typeToken: string, actions: Action[] = []): string => {
-  const constant = NOTIFICATION_TYPES[typeToken];
+  const constant = NOTIFICATION_TYPES[typeToken]
   if (constant === undefined) {
-    throw new Error(`unknown type ${typeToken}`); // programming error: CLI only passes whitelisted tokens
+    throw new Error(`unknown type ${typeToken}`) // programming error: CLI only passes whitelisted tokens
   }
   return groovyNotify(
     escapeGroovy(NOTIFY_GROUP_ID),
@@ -136,95 +146,158 @@ export const groovyFor = (title: string, message: string, typeToken: string, act
     escapeGroovy(message),
     constant,
     renderActions(actions),
-  );
-};
+  )
+}
+
+/**
+ * The write side-effect, wrapped as a cmdore `effect.fn` so it is skipped on
+ * `--dry-run` (when cmdore flips `effect.enabled` off) and mockable in tests by
+ * the WRAPPER REFERENCE (`effect.mock(runGroovy, …)`) — no per-file mutable seam.
+ * runGroovy itself NEVER rejects: it degrades a missing IDE / spawn error to a
+ * stderr note. The IDE Groovy bridge is the toolbox's one pure write.
+ */
+export const runGroovy = effect.fn(rawRunGroovy, "ide.runGroovy")
 
 /** Options for {@link notify}: balloon title, the --type token (info/warning/error), and the action registry entries. */
 export type NotifyOptions = {
-  title?: string;
-  typeToken?: string;
-  actions?: Action[];
-};
+  title?: string
+  typeToken?: string
+  actions?: Action[]
+}
 
 /** Pop an in-IDE notification balloon for `message` in the running IDE (best-effort). */
 export const notify = async (message: string, options: NotifyOptions = {}): Promise<void> => {
-  const title = options.title ?? "PreemDeck";
-  const typeToken = options.typeToken ?? "info";
-  const actions = options.actions ?? [];
-  await _internals.runGroovy(groovyFor(title, message, typeToken, actions), "notify: could not pop notification");
-};
+  const title = options.title ?? "PreemDeck"
+  const typeToken = options.typeToken ?? "info"
+  const actions = options.actions ?? []
+  await runGroovy(groovyFor(title, message, typeToken, actions), "notify: could not pop notification")
+}
 
 /**
- * Engine seam: tests override `_internals.runGroovy` instead of mock.module on
- * ./core (which leaks across the single `bun test` run). Production runs the real
- * ideScript bridge.
+ * A Standard Schema for the whitelisted `--type` token. cmdore hands it the raw
+ * arity-1 string; an off-whitelist value fails validation, which cmdore surfaces
+ * as a CmdoreError carrying this message.
  */
-export const _internals = { inIdea, runGroovy, notify };
+const typeSchema: StandardSchemaV1<string> = {
+  "~standard": {
+    version: 1,
+    vendor: "preemdeck",
+    validate: (value: unknown) => {
+      const raw = String(value)
+      if (raw in NOTIFICATION_TYPES) {
+        return { value: raw }
+      }
+      const allowed = Object.keys(NOTIFICATION_TYPES)
+        .map((token) => `'${token}'`)
+        .join(", ")
+      return { issues: [{ message: `--type: invalid choice: '${raw}' (choose from ${allowed})` }] }
+    },
+  },
+}
 
-/** argparse choices=() parity for --type: bad value -> exit 2 with the exact message. */
-const validateType = (raw: string): string => {
-  if (!(raw in NOTIFICATION_TYPES)) {
-    argparseError(USAGE, PROG, `argument --type: invalid choice: '${raw}' (choose from 'info', 'warning', 'error')`);
-  }
-  return raw;
-};
-
-/** Split + whitelist a --action value (exit 2 on bad). */
-const validateAction = (value: string): Action => {
-  const eq = value.indexOf("=");
-  const name = eq === -1 ? value : value.slice(0, eq);
-  const arg = eq === -1 ? null : value.slice(eq + 1);
-  const entry = NOTIFICATION_ACTIONS[name];
+/**
+ * Split + whitelist a single `--action` value into a vetted {@link Action}. The
+ * value splits on the FIRST `=` only (so `=` inside a URL/path query survives);
+ * an unknown name or a missing required arg yields an issue message.
+ */
+const parseAction = (value: string): { value: Action } | { message: string } => {
+  const eq = value.indexOf("=")
+  const name = eq === -1 ? value : value.slice(0, eq)
+  const arg = eq === -1 ? null : value.slice(eq + 1)
+  const entry = NOTIFICATION_ACTIONS[name]
   if (entry === undefined) {
-    const allowed = Object.keys(NOTIFICATION_ACTIONS).sort().join(", ");
-    argparseError(USAGE, PROG, `argument --action: unknown action '${name}' (choose from ${allowed})`);
+    const allowed = Object.keys(NOTIFICATION_ACTIONS).sort().join(", ")
+    return { message: `--action: unknown action '${name}' (choose from ${allowed})` }
   }
   if (entry[1] && (arg === null || arg.length === 0)) {
-    argparseError(USAGE, PROG, `argument --action: action '${name}' needs an argument: --action ${name}=<value>`);
+    return { message: `--action: action '${name}' needs an argument: --action ${name}=<value>` }
   }
-  return { name, arg };
-};
+  return { value: { name, arg } }
+}
 
-/** CLI entrypoint: parse argv argparse-faithfully (validated --type/--action), gate on a live IDE, run notify, map errors to exit codes. */
+/**
+ * A Standard Schema for the repeatable `--action` flag. cmdore accumulates the
+ * repeated occurrences into a `string[]` (in CLI order); this validates + splits
+ * each, short-circuiting to a CmdoreError on the first bad entry.
+ */
+const actionsSchema: StandardSchemaV1<Action[]> = {
+  "~standard": {
+    version: 1,
+    vendor: "preemdeck",
+    validate: (value: unknown) => {
+      const raw = Array.isArray(value) ? (value as string[]) : []
+      const out: Action[] = []
+      for (const entry of raw) {
+        const parsed = parseAction(entry)
+        if ("message" in parsed) {
+          return { issues: [{ message: parsed.message }] }
+        }
+        out.push(parsed.value)
+      }
+      return { value: out }
+    },
+  },
+}
+
+/**
+ * The cmdore command behind the CLI. Gates on a live IDE (cheap fail-fast before
+ * runGroovy's deeper launcher resolution), then pops the balloon for `message`
+ * with the validated title/type/actions.
+ */
+const notifyCommand = defineCommand({
+  name: PROG,
+  description: METADATA.description,
+  arguments: [{ name: "message", description: "the balloon message", required: true }],
+  options: [
+    { name: "title", arity: 1, hint: "title", description: "balloon title", defaultValue: () => "PreemDeck" },
+    {
+      name: "type",
+      arity: 1,
+      hint: "info|warning|error",
+      description: "notification type",
+      defaultValue: () => "info",
+      schema: typeSchema,
+    },
+    {
+      name: "action",
+      hint: "name[=arg]",
+      description: "add a clickable balloon action (repeatable)",
+      defaultValue: () => [] as Action[],
+      schema: actionsSchema,
+    },
+  ],
+  run: async ({ message, title, type, action }) => {
+    if (!inIdea()) {
+      throw new IdeaError("no JetBrains IDE in the process ancestry")
+    }
+    await notify(message, { title, typeToken: type, actions: action })
+  },
+})
+
+/**
+ * CLI entrypoint. Hands argv to cmdore (parsing, help, global flags), then maps
+ * the two domain failures to the notify: stderr line and their exit codes:
+ * IdeaError -> 1, CmdoreError (bad flag / missing message / off-whitelist
+ * --type/--action) -> its own exitCode. Anything else is a bug and rethrown.
+ */
 export const main = async (argv: string[] = Bun.argv.slice(2)): Promise<number> => {
-  const options = {
-    title: { type: "string" },
-    type: { type: "string" },
-    action: { type: "string", multiple: true },
-  } as const;
-  let parsed: ReturnType<typeof parseArgs<{ options: typeof options; allowPositionals: true }>>;
   try {
-    parsed = parseArgs({ args: argv, options, allowPositionals: true });
-  } catch (err) {
-    argparseError(USAGE, PROG, argparseMessage(err));
-  }
-  const message = parsed.positionals[0];
-  if (message === undefined) {
-    argparseError(USAGE, PROG, "the following arguments are required: message");
-  }
-  if (parsed.positionals.length > 1) {
-    argparseError(USAGE, PROG, `unrecognized arguments: ${parsed.positionals.slice(1).join(" ")}`);
-  }
-  const title = parsed.values.title ?? "PreemDeck";
-  const typeToken = parsed.values.type !== undefined ? validateType(parsed.values.type) : "info";
-  const actions = (parsed.values.action ?? []).map(validateAction);
-
-  try {
-    // Cheap CLI gate: fail fast/clean outside a JetBrains terminal.
-    if (!_internals.inIdea()) {
-      throw new IdeaError("no JetBrains IDE in the process ancestry");
+    await execute(notifyCommand, { argv, metadata: METADATA, onError: "throw" })
+  } catch (error) {
+    if (error instanceof IdeaError) {
+      process.stderr.write(`${PROG}: ${error.message}\n`)
+      return 1
     }
-    await _internals.notify(message, { title, typeToken, actions });
-  } catch (exc) {
-    if (exc instanceof IdeaError || exc instanceof NotImplementedError) {
-      process.stderr.write(`notify: ${exc.message}\n`);
-      return 1;
+    if (error instanceof CmdoreError) {
+      process.stderr.write(`${PROG}: ${error.message}\n`)
+      return error.exitCode
     }
-    throw exc;
+    throw error
   }
-  return 0;
-};
+  return 0
+}
 
 if (import.meta.main) {
-  process.exit(await main());
+  const code = await main(Bun.argv.slice(2))
+  process.exit(code)
 }

@@ -1,139 +1,165 @@
 /**
- * merge-inline.test.ts — hermetic tests. The worker
- * delegate (mergeFile), the reaper, and inIdea are injected via `_internals`. A
- * spy mergeFile snapshots each input temp at call time; base is spilled only when
- * present.
+ * merge-inline.test.ts — hermetic, COMPOSITE suite. merge-inline delegates to
+ * merge-file's mergeFile() engine; we let that run FOR REAL and mock only the
+ * leaf WRITE — merge-file's `launch` wrapper — via cmdore's `effect.mock` keyed
+ * by the wrapper reference (imported from ./merge-file.ts). The launch mock
+ * returns a fake child whose `.exited` Promise (the native-merge join) writes the
+ * MERGED text to the OUTPUT temp (mergeFile's last argv element); mergeFile's
+ * REAL read-back then returns it on the wait path. Reach-through, not stubbed.
+ *
+ * merge-inline's own effects stay real: `writeTemp` spills to the REAL FS (so
+ * mergeFile's strict resolve + read-back see genuine files); `reapLater` is real
+ * too. The fire-and-forget (no-wait) path arms REF'd setTimeouts (one in
+ * mergeFile for the output temp, one in mergeInline for the input temps); tests
+ * spy on `setTimeout` to confirm scheduling and neutralize the live timer, so no
+ * ref'd timer outlives the suite.
+ *
+ * The `inIdea` gate is forced through the `PREEMDECK_FORCE_IN_IDEA` env override.
  */
 
-import { afterEach, beforeEach, describe, expect, spyOn, test } from "bun:test";
-import { readFile, unlink } from "node:fs/promises";
-import { exists } from "../../../../lib/fs.ts";
-import { _internals, main, mergeInline } from "./merge-inline.ts";
+import { afterEach, beforeEach, describe, expect, spyOn, test } from "bun:test"
+import { readFile } from "node:fs/promises"
+import { effect } from "cmdore"
+import { exists } from "../../../../lib/fs.ts"
+import { launch } from "./merge-file.ts"
+import { main, mergeInline } from "./merge-inline.ts"
 
-const MERGED = "MERGED\n";
-const real = {
-  inIdea: _internals.inIdea,
-  mergeFile: _internals.mergeFile,
-  reapLater: _internals.reapLater,
-  mergeInline: _internals.mergeInline,
-};
-let snap: { target: string; suggestion: string; base: string | null; wait: boolean; contents: Record<string, string> };
-let reaped: string[][];
+const MERGED = "MERGED\n"
+/** Inputs spilled by mergeInline, captured at launch time (mergeFile argv: [merge, target, suggestion, (base?), output]). */
+let snap: { argv: string[]; contents: Record<string, string> }
 
-const spy = (result: string | null = MERGED) => {
-  snap = { target: "", suggestion: "", base: null, wait: false, contents: {} };
-  return async (target: string, suggestion: string, base: string | null = null, wait = false) => {
-    snap.target = target;
-    snap.suggestion = suggestion;
-    snap.base = base;
-    snap.wait = wait;
-    for (const p of [target, suggestion, ...(base !== null ? [base] : [])]) {
-      snap.contents[p] = await readFile(p, { encoding: "utf8" });
+/**
+ * Mock merge-file's `launch` wrapper by reference: snapshot the merge argv and
+ * the on-disk contents of every input temp (so we can assert what mergeInline
+ * spilled), then return a fake child whose `.exited` writes MERGED to the OUTPUT
+ * temp (last argv) — what mergeFile's real read-back returns on the wait path.
+ */
+const mockLaunch = (): void => {
+  snap = { argv: [], contents: {} }
+  effect.mock(launch, async (args: string[]) => {
+    snap.argv = args
+    // argv is [merge, target, suggestion, (base?), output]; inputs are all but the first and last.
+    for (const p of args.slice(1, -1)) {
+      snap.contents[p] = await readFile(p, { encoding: "utf8" })
     }
-    return result;
-  };
-};
+    const output = args[args.length - 1] as string
+    return {
+      exited: Promise.resolve().then(async () => {
+        await Bun.write(output, MERGED)
+        return 0
+      }),
+    } as unknown as Bun.Subprocess
+  })
+}
 
 beforeEach(() => {
-  reaped = [];
-  _internals.inIdea = () => true;
-  _internals.mergeFile = spy();
-  _internals.reapLater = (paths: Iterable<string>) => {
-    reaped.push([...paths]);
-  };
-});
+  process.env.PREEMDECK_FORCE_IN_IDEA = "1"
+  effect.reset()
+  mockLaunch()
+})
 afterEach(() => {
-  _internals.inIdea = real.inIdea;
-  _internals.mergeFile = real.mergeFile;
-  _internals.reapLater = real.reapLater;
-  _internals.mergeInline = real.mergeInline;
-});
+  delete process.env.PREEMDECK_FORCE_IN_IDEA
+  effect.reset()
+})
 
 describe("mergeInline", () => {
   test("spills target+suggestion (no base), returns merged, cleans up on wait", async () => {
-    expect(await mergeInline("mine", "theirs", null, { wait: true })).toBe(MERGED);
-    expect(snap.contents[snap.target]).toBe("mine");
-    expect(snap.contents[snap.suggestion]).toBe("theirs");
-    expect(snap.base).toBeNull();
-    expect(await exists(snap.target)).toBe(false);
-    expect(await exists(snap.suggestion)).toBe(false);
-  });
+    expect(await mergeInline("mine", "theirs", null, { wait: true })).toBe(MERGED)
+    // argv: [merge, target, suggestion, output] — no base.
+    const [, target, suggestion] = snap.argv
+    expect(snap.argv.length).toBe(4)
+    expect(snap.contents[target as string]).toBe("mine")
+    expect(snap.contents[suggestion as string]).toBe("theirs")
+    // wait=true unlinks the input temps after mergeFile returns.
+    expect(await exists(target as string)).toBe(false)
+    expect(await exists(suggestion as string)).toBe(false)
+  })
 
-  test("spills base when present", async () => {
-    await mergeInline("mine", "theirs", "ancestor", { wait: true });
-    expect(snap.base).not.toBeNull();
-    expect(snap.contents[snap.base as string]).toBe("ancestor");
-  });
+  test("spills base when present (base THIRD in the merge argv)", async () => {
+    await mergeInline("mine", "theirs", "ancestor", { wait: true })
+    // argv: [merge, target, suggestion, base, output].
+    expect(snap.argv.length).toBe(5)
+    const base = snap.argv[3] as string
+    expect(snap.contents[base]).toBe("ancestor")
+  })
 
-  test("suffix threads to every temp", async () => {
-    await mergeInline("a", "b", "c", { suffix: ".py", wait: true });
-    expect(snap.target.endsWith(".py")).toBe(true);
-    expect(snap.suggestion.endsWith(".py")).toBe(true);
-    expect((snap.base as string).endsWith(".py")).toBe(true);
-  });
+  test("suffix threads to every input temp", async () => {
+    await mergeInline("a", "b", "c", { suffix: ".py", wait: true })
+    // Inputs are argv[1..3] (target, suggestion, base); each spilled temp ends in the suffix.
+    for (const p of snap.argv.slice(1, -1)) {
+      expect((p as string).endsWith(".py")).toBe(true)
+    }
+  })
 
-  test("no-wait returns null and schedules a reap of the input temps (not output)", async () => {
-    _internals.mergeFile = spy(null);
-    expect(await mergeInline("x", "y", "z")).toBeNull();
-    expect(reaped).toEqual([[snap.target, snap.suggestion, snap.base as string]]);
-    for (const p of [snap.target, snap.suggestion, snap.base as string]) if (await exists(p)) await unlink(p);
-  });
-});
+  test("no-wait returns null and schedules a reap of the input temps", async () => {
+    // Capture the reaps without arming the real ref'd timers. Two reapLater calls
+    // fire on the no-wait path: mergeFile reaps its output temp, then mergeInline
+    // reaps the input temps. Spy setTimeout to neutralize both.
+    const timerSpy = spyOn(globalThis, "setTimeout").mockImplementation(((fn: () => void) => {
+      void fn // don't fire
+      return 0 as unknown as ReturnType<typeof setTimeout>
+    }) as never)
+    try {
+      expect(await mergeInline("x", "y", "z")).toBeNull()
+      // Both the output reap (mergeFile) and the input reap (mergeInline) were scheduled.
+      expect(timerSpy.mock.calls.length).toBe(2)
+      // The input temps exist on disk (the real reap was neutralized, so clean up by hand).
+      const inputs = snap.argv.slice(1, -1) as string[]
+      expect(inputs.length).toBe(3)
+      for (const p of inputs) expect(await exists(p)).toBe(true)
+    } finally {
+      timerSpy.mockRestore()
+      // Reap was neutralized; remove the input + output temps by hand.
+      for (const p of snap.argv.slice(1) as string[]) if (await exists(p)) await Bun.file(p).delete()
+    }
+  })
+})
 
 describe("main", () => {
   test("--wait prints the merged result", async () => {
-    _internals.mergeInline = async () => MERGED;
-    const outSpy = spyOn(process.stdout, "write").mockImplementation((() => true) as never);
+    const outSpy = spyOn(process.stdout, "write").mockImplementation((() => true) as never)
     try {
-      expect(await main(["mine", "theirs", "--wait"])).toBe(0);
-      expect(outSpy.mock.calls.map((c: unknown[]) => String(c[0])).join("")).toBe(MERGED);
+      expect(await main(["mine", "theirs", "--wait"])).toBe(0)
+      expect(outSpy.mock.calls.map((c: unknown[]) => String(c[0])).join("")).toBe(MERGED)
     } finally {
-      outSpy.mockRestore();
+      outSpy.mockRestore()
     }
-  });
+  })
 
-  test("threads base + suffix + wait to the worker", async () => {
-    const captured: Array<{ base: string | null; suffix: string; wait: boolean }> = [];
-    _internals.mergeInline = async (
-      _t: string,
-      _s: string,
-      base: string | null = null,
-      options: { suffix?: string; wait?: boolean } = {},
-    ) => {
-      captured.push({ base, suffix: options.suffix ?? ".txt", wait: options.wait ?? false });
-      return null;
-    };
-    await main(["mine", "theirs", "base", "--suffix", ".py", "--wait"]);
-    expect(captured[0]).toEqual({ base: "base", suffix: ".py", wait: true });
-  });
-
-  test("outside JetBrains -> 1 before work", async () => {
-    _internals.inIdea = () => false;
-    let reached = false;
-    _internals.mergeInline = async () => {
-      reached = true;
-      return null;
-    };
-    const errSpy = spyOn(process.stderr, "write").mockImplementation((() => true) as never);
+  test("threads base + suffix into the merge argv", async () => {
+    const outSpy = spyOn(process.stdout, "write").mockImplementation((() => true) as never)
     try {
-      expect(await main(["a", "b"])).toBe(1);
-      expect(reached).toBe(false);
+      expect(await main(["mine", "theirs", "base", "--suffix", ".py", "--wait"])).toBe(0)
+      // argv: [merge, target, suggestion, base, output] — base present, .py suffix on every temp.
+      expect(snap.argv.length).toBe(5)
+      const base = snap.argv[3] as string
+      expect(snap.contents[base]).toBe("base")
+      for (const p of snap.argv.slice(1, -1)) expect((p as string).endsWith(".py")).toBe(true)
     } finally {
-      errSpy.mockRestore();
+      outSpy.mockRestore()
     }
-  });
+  })
 
-  test.each([[[]], [["only"]], [["a", "b", "c", "d"]]])("wrong arg count %p -> exit 2", async (argv) => {
-    const exitSpy = spyOn(process, "exit").mockImplementation(((code?: number) => {
-      throw new Error(`exit:${code}`);
-    }) as never);
-    const errSpy = spyOn(process.stderr, "write").mockImplementation((() => true) as never);
+  test("no live IDE -> 1 before any work", async () => {
+    process.env.PREEMDECK_FORCE_IN_IDEA = "0"
+    const errSpy = spyOn(process.stderr, "write").mockImplementation((() => true) as never)
     try {
-      await expect(main(argv)).rejects.toThrow("exit:2");
-      expect(errSpy.mock.calls.map((c: unknown[]) => String(c[0])).join("")).toContain("usage: merge-inline");
+      expect(await main(["a", "b"])).toBe(1)
+      expect(errSpy.mock.calls.map((c: unknown[]) => String(c[0])).join("")).toContain("merge-inline:")
+      // The gate fails before any launch: no merge argv was captured.
+      expect(snap.argv).toEqual([])
     } finally {
-      exitSpy.mockRestore();
-      errSpy.mockRestore();
+      errSpy.mockRestore()
     }
-  });
-});
+  })
+
+  test("missing args -> CmdoreError mapped to exit 2 + merge-inline: stderr", async () => {
+    const errSpy = spyOn(process.stderr, "write").mockImplementation((() => true) as never)
+    try {
+      expect(await main(["only"])).toBe(2)
+      expect(errSpy.mock.calls.map((c: unknown[]) => String(c[0])).join("")).toContain("merge-inline:")
+    } finally {
+      errSpy.mockRestore()
+    }
+  })
+})

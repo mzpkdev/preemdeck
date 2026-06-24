@@ -48,7 +48,7 @@ non-fatal (fetch is best-effort; install handoff still runs). The existing uv bo
   `lint`=`biome check .`. devDeps: `@biomejs/biome` (resolved **2.5.1**), `@types/bun`. `bun.lock` committed.
 - `tsconfig.json`: `moduleResolution:"bundler"`, `types:["bun"]`, `strict`, `noUncheckedIndexedAccess`, `noEmit`,
   `allowImportingTsExtensions`, `verbatimModuleSyntax`.
-- `biome.json`: 2-space, lineWidth 120, double quotes, semicolons always, trailing commas all. **Biome formats
+- `biome.json`: 2-space, lineWidth 120, double quotes, semicolons as-needed, trailing commas all. **Biome formats
   `.ts`/`.json`; ruff + mdformat (via uv) stay for `.py`/`.md`.**
 - Everything else is **Bun built-in** — no new deps: `node:util` `parseArgs`, `Bun.spawn`, `Bun.file`/`Bun.write`,
   `node:fs/promises`, `bun:test`. Import sibling modules **with the `.ts` extension** (e.g. `from "./hook.ts"`).
@@ -58,14 +58,14 @@ non-fatal (fetch is best-effort; install handoff still runs). The existing uv bo
 ### `lib/hook.ts` — injection-hook envelope (matches `inject_mode.py` / `inject_hook.py` byte-for-byte)
 
 ```ts
-type HookPayload = Record<string, unknown>;
+type HookPayload = Record<string, unknown>
 interface RunHookOptions {
-  event?: string;                                   // --event fallback; default "UserPromptSubmit"
-  render: (payload: HookPayload) => string | null;  // non-empty string => inject; null/"" => no-op
-  stdin?: { text(): Promise<string> };              // DI for tests; default Bun.stdin
-  write?: (line: string) => void;                   // DI for tests; default console.log
+  event?: string                                   // --event fallback; default "UserPromptSubmit"
+  render: (payload: HookPayload) => string | null  // non-empty string => inject; null/"" => no-op
+  stdin?: { text(): Promise<string> }              // DI for tests; default Bun.stdin
+  write?: (line: string) => void                   // DI for tests; default console.log
 }
-function runHook(options: RunHookOptions): Promise<void>;
+function runHook(options: RunHookOptions): Promise<void>
 ```
 
 - stdin → `JSON.parse` (empty/invalid/array/non-object → `{}`). Event precedence: **payload.hook_event_name (non-empty
@@ -79,14 +79,14 @@ function runHook(options: RunHookOptions): Promise<void>;
 
 ```ts
 interface SpawnOptions {
-  timeoutMs?: number;                       // omit/0 = no timeout
-  cwd?: string;
-  env?: Record<string, string | undefined>; // merged over process.env
-  stdin?: string;
-  killSignal?: NodeJS.Signals | number;     // default "SIGTERM"
+  timeoutMs?: number                       // omit/0 = no timeout
+  cwd?: string
+  env?: Record<string, string | undefined> // merged over process.env
+  stdin?: string
+  killSignal?: NodeJS.Signals | number     // default "SIGTERM"
 }
-interface SpawnResult { exitCode: number | null; stdout: string; stderr: string; timedOut: boolean; }
-function spawn(cmd: string[], options?: SpawnOptions): Promise<SpawnResult>;
+interface SpawnResult { exitCode: number | null; stdout: string; stderr: string; timedOut: boolean }
+function spawn(cmd: string[], options?: SpawnOptions): Promise<SpawnResult>
 ```
 
 - On timeout: `child.kill(killSignal)` **then `await child.exited`** → child is reaped, not leaked; resolves
@@ -96,8 +96,8 @@ function spawn(cmd: string[], options?: SpawnOptions): Promise<SpawnResult>;
 ### `lib/json-store.ts` — atomic `preemdeck.json` read/write (matches `set_mode.py`)
 
 ```ts
-function readJson<T = unknown>(path: string, fallback?: T): Promise<T>;   // missing/invalid → fallback (default {})
-function writeJson(path: string, data: unknown): Promise<void>;           // atomic
+function readJson<T = unknown>(path: string, fallback?: T): Promise<T>   // missing/invalid → fallback (default {})
+function writeJson(path: string, data: unknown): Promise<void>           // atomic
 ```
 
 - `writeJson` serializes `JSON.stringify(data, null, 2) + "\n"`, writes `<path>.tmp`, then `rename` over the target —
@@ -106,9 +106,9 @@ function writeJson(path: string, data: unknown): Promise<void>;           // ato
 ### `lib/text.ts` — html escape + forgiving URL parse
 
 ```ts
-function htmlEscape(s: string): string;   // == Python html.escape(quote=True)
-interface ParsedUrl { scheme: string; hostname: string | null; port: number | null; raw: string; }
-function parseUrl(url: string): ParsedUrl; // never throws
+function htmlEscape(s: string): string   // == Python html.escape(quote=True)
+interface ParsedUrl { scheme: string; hostname: string | null; port: number | null; raw: string }
+function parseUrl(url: string): ParsedUrl // never throws
 ```
 
 - `htmlEscape`: `&`→`&amp;` (first), `<`→`&lt;`, `>`→`&gt;`, `"`→`&quot;`, `'`→`&#x27;`.
@@ -120,13 +120,13 @@ function parseUrl(url: string): ParsedUrl; // never throws
 
 ```ts
 class UsageError extends Error {}
-function usageError(prog: string, message: string): never;                              // "prog: msg\n" + exit 2
-function parseOrExit<T>(prog: string, config: T): ReturnType<typeof parseArgs<T>>;       // parseArgs throw → exit 2
-function parseIntArg(prog: string, name: string, raw: string): number;                  // argparse type=int; bad → exit 2
-type Action = { name: string; arg: string | null };
-type ActionSpec = Record<string, { needsArg: boolean }>;
-function parseAction(value: string): Action;                                            // split on FIRST "=" only
-function validateActions(prog: string, raw: string[] | undefined, spec: ActionSpec): Action[]; // whitelist; bad → exit 2
+function usageError(prog: string, message: string): never                              // "prog: msg\n" + exit 2
+function parseOrExit<T>(prog: string, config: T): ReturnType<typeof parseArgs<T>>       // parseArgs throw → exit 2
+function parseIntArg(prog: string, name: string, raw: string): number                  // argparse type=int; bad → exit 2
+type Action = { name: string; arg: string | null }
+type ActionSpec = Record<string, { needsArg: boolean }>
+function parseAction(value: string): Action                                            // split on FIRST "=" only
+function validateActions(prog: string, raw: string[] | undefined, spec: ActionSpec): Action[] // whitelist; bad → exit 2
 ```
 
 - Convention: positionals via `allowPositionals:true` → `result.positionals`; boolean flags `{type:"boolean"}`; int via

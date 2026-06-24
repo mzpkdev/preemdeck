@@ -11,8 +11,8 @@
 /** No running JetBrains IDE could be resolved. */
 export class IdeaError extends Error {
   constructor(message: string) {
-    super(message);
-    this.name = "IdeaError";
+    super(message)
+    this.name = "IdeaError"
   }
 }
 
@@ -24,7 +24,7 @@ export class IdeaError extends Error {
  */
 export class NotImplementedError extends Error {
   constructor(message: string) {
-    super(message);
-    this.name = "NotImplementedError";
+    super(message)
+    this.name = "NotImplementedError"
   }
 }

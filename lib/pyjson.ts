@@ -24,7 +24,7 @@ const SHORT_ESCAPES: Record<string, string> = {
   "\n": "\\n",
   "\r": "\\r",
   "\t": "\\t",
-};
+}
 
 /**
  * Serialize a string exactly like CPython `json.dumps(s)` with ensure_ascii=True:
@@ -34,25 +34,25 @@ const SHORT_ESCAPES: Record<string, string> = {
  * NOT escaped. Matches CPython byte-for-byte.
  */
 export const pyJsonString = (s: string): string => {
-  let out = '"';
+  let out = '"'
   for (let i = 0; i < s.length; i++) {
-    const ch = s[i] as string;
-    const code = s.charCodeAt(i);
-    const short = SHORT_ESCAPES[ch];
+    const ch = s[i] as string
+    const code = s.charCodeAt(i)
+    const short = SHORT_ESCAPES[ch]
     if (short !== undefined) {
-      out += short;
+      out += short
     } else if (code < 0x20 || code > 0x7e) {
-      out += `\\u${code.toString(16).padStart(4, "0")}`;
+      out += `\\u${code.toString(16).padStart(4, "0")}`
     } else {
-      out += ch;
+      out += ch
     }
   }
-  return `${out}"`;
-};
+  return `${out}"`
+}
 
 /**
  * The injection envelope, byte-identical to the Python injectors'
  * `json.dumps({"hookSpecificOutput": {"hookEventName": e, "additionalContext": t}})`.
  */
 export const injectionEnvelope = (eventName: string, additionalContext: string): string =>
-  `{"hookSpecificOutput": {"hookEventName": ${pyJsonString(eventName)}, "additionalContext": ${pyJsonString(additionalContext)}}}`;
+  `{"hookSpecificOutput": {"hookEventName": ${pyJsonString(eventName)}, "additionalContext": ${pyJsonString(additionalContext)}}}`

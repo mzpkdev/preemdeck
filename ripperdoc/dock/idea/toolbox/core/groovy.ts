@@ -11,12 +11,12 @@
  * templates on this bridge.
  */
 
-import { mkdtemp, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
-import { IdeaError, NotImplementedError } from "./errors.ts";
-import { launch as defaultLaunch, type LaunchOptions } from "./launch.ts";
-import { reapLater as defaultReapLater } from "./reap.ts";
+import { mkdtemp, writeFile } from "node:fs/promises"
+import { tmpdir } from "node:os"
+import { join } from "node:path"
+import { IdeaError, NotImplementedError } from "./errors.ts"
+import { launch as defaultLaunch, type LaunchOptions } from "./launch.ts"
+import { reapLater as defaultReapLater } from "./reap.ts"
 
 /**
  * Escape `literal` for safe embedding inside a Groovy double-quoted string.
@@ -26,25 +26,25 @@ import { reapLater as defaultReapLater } from "./reap.ts";
  * and tab-title templates share one escaper.
  */
 export const escapeGroovy = (literal: string): string => {
-  return literal.replaceAll("\\", "\\\\").replaceAll('"', '\\"');
-};
+  return literal.replaceAll("\\", "\\\\").replaceAll('"', '\\"')
+}
 
 /** Seams for hermetic tests; production uses the real launch/reaper/FS. */
 export type RunGroovyDeps = {
-  launch?: (args: string[], options?: LaunchOptions) => Promise<Bun.Subprocess>;
-  reapLater?: (paths: Iterable<string>) => void;
+  launch?: (args: string[], options?: LaunchOptions) => Promise<Bun.Subprocess>
+  reapLater?: (paths: Iterable<string>) => void
   /** Spill `groovy` to a temp `.groovy` and return its path. */
-  writeTemp?: (groovy: string) => Promise<string>;
+  writeTemp?: (groovy: string) => Promise<string>
   /** stderr sink for the swallowed-failure note. Default: process.stderr.write. */
-  warn?: (line: string) => void;
-};
+  warn?: (line: string) => void
+}
 
 const defaultWriteTemp = async (groovy: string): Promise<string> => {
-  const dir = await mkdtemp(join(tmpdir(), "idea-groovy-"));
-  const script = join(dir, `${crypto.randomUUID()}.groovy`);
-  await writeFile(script, groovy);
-  return script;
-};
+  const dir = await mkdtemp(join(tmpdir(), "idea-groovy-"))
+  const script = join(dir, `${crypto.randomUUID()}.groovy`)
+  await writeFile(script, groovy)
+  return script
+}
 
 /**
  * The error categories run_groovy swallows: a missing live IDE (IdeaError), an
@@ -54,10 +54,10 @@ const defaultWriteTemp = async (groovy: string): Promise<string> => {
  */
 const isSwallowable = (err: unknown): boolean => {
   if (err instanceof IdeaError || err instanceof NotImplementedError) {
-    return true;
+    return true
   }
-  return err instanceof Error && typeof (err as NodeJS.ErrnoException).code === "string";
-};
+  return err instanceof Error && typeof (err as NodeJS.ErrnoException).code === "string"
+}
 
 /**
  * Run a one-shot `groovy` script in the live IDE; never reject.
@@ -74,26 +74,26 @@ const isSwallowable = (err: unknown): boolean => {
  * open_url) treat the note as a hard failure at the CLI boundary.
  */
 export const runGroovy = async (groovy: string, note: string, deps: RunGroovyDeps = {}): Promise<void> => {
-  const launch = deps.launch ?? defaultLaunch;
-  const reapLater = deps.reapLater ?? defaultReapLater;
-  const writeTemp = deps.writeTemp ?? defaultWriteTemp;
-  const warn = deps.warn ?? ((line: string) => process.stderr.write(line));
+  const launch = deps.launch ?? defaultLaunch
+  const reapLater = deps.reapLater ?? defaultReapLater
+  const writeTemp = deps.writeTemp ?? defaultWriteTemp
+  const warn = deps.warn ?? ((line: string) => process.stderr.write(line))
 
-  const script = await writeTemp(groovy);
+  const script = await writeTemp(groovy)
   try {
     try {
-      await launch(["ideScript", script], { wait: true });
+      await launch(["ideScript", script], { wait: true })
     } catch (err) {
       if (isSwallowable(err)) {
-        const message = err instanceof Error ? err.message : String(err);
-        warn(`${note} (${message})\n`);
+        const message = err instanceof Error ? err.message : String(err)
+        warn(`${note} (${message})\n`)
       } else {
-        throw err;
+        throw err
       }
     }
   } finally {
     // ideScript forwards to the running IDE async; hand the temp to the
     // deferred reaper rather than racing the read (mirrors open_inline).
-    reapLater([script]);
+    reapLater([script])
   }
-};
+}

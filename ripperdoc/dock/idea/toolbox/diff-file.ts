@@ -6,79 +6,100 @@
  * — `target` LEFT, `suggestion` RIGHT. Both inputs are resolved strictly, so a
  * missing path throws before anything launches. FIRE-AND-FORGET by default;
  * wait=true blocks on the IDE's native --wait, then reads back the LEFT pane.
+ *
+ * The CLI is a cmdore commandless command: cmdore owns parsing, help, the global
+ * flags (--quiet/--verbose/--json/--dry-run/--help/--version), and exit codes.
+ * main() wraps execute() with onError:"throw" so it can keep the repo CLI shape
+ * (return a number; process.exit only under the import.meta.main guard) and map
+ * IdeaError / a strict-resolve ENOENT / CmdoreError to the diff-file: stderr line.
  */
 
-import { readFile } from "node:fs/promises";
-import { parseArgs } from "node:util";
-import { argparseError, argparseMessage } from "./cli.ts";
-import { IdeaError } from "./core/errors.ts";
-import { inIdea, launch } from "./core/index.ts";
-import { resolveStrict } from "./tmp.ts";
+import { readFile } from "node:fs/promises"
+import { CmdoreError, defineCommand, effect, execute } from "cmdore"
+import { IdeaError } from "./core/errors.ts"
+import { inIdea, launch as rawLaunch } from "./core/index.ts"
+import { resolveStrict } from "./tmp.ts"
 
-const PROG = "diff-file";
-const USAGE = "usage: diff-file [-h] [--wait] target suggestion";
+const PROG = "diff-file"
+
+/** cmdore metadata for the commandless CLI; version mirrors the idea plugin manifest. */
+const METADATA = {
+  name: PROG,
+  version: "0.1.0",
+  description: "Diff two files in the running JetBrains IDE.",
+} as const
 
 /**
- * Engine seam: tests override these instead of mock.module on ./core (which
- * leaks across the single `bun test` run).
+ * The write side-effect, wrapped as cmdore `effect.fn` so it is skipped on
+ * `--dry-run` (when cmdore flips `effect.enabled` off) and mockable in tests by
+ * the WRAPPER REFERENCE (`effect.mock(launch, …)`) — no per-file mutable seam.
+ * The `--wait` read-back is a READ and stays unwrapped (real `node:fs/promises`).
  */
-export const _internals = {
-  inIdea,
-  launch,
-  readFile: (path: string): Promise<string> => readFile(path, { encoding: "utf8" }),
-};
+export const launch = effect.fn(rawLaunch, "ide.launch")
 
 /**
  * Open a 2-way (`target` vs `suggestion`) diff in the running JetBrains IDE.
  * Returns the LEFT (`target`) pane's text on the wait path, else null.
  */
 export const diffFile = async (target: string, suggestion: string, wait = false): Promise<string | null> => {
-  const targetAbs = await resolveStrict(target);
-  const suggestionAbs = await resolveStrict(suggestion);
-  const args = ["diff", targetAbs, suggestionAbs];
+  const targetAbs = await resolveStrict(target)
+  const suggestionAbs = await resolveStrict(suggestion)
+  const args = ["diff", targetAbs, suggestionAbs]
   // 2-way always watches `target` (LEFT). launch() owns the native --wait.
-  await _internals.launch(args, { wait });
-  return wait ? await _internals.readFile(targetAbs) : null;
-};
+  await launch(args, { wait })
+  return wait ? await readFile(targetAbs, { encoding: "utf8" }) : null
+}
 
-/** CLI entrypoint: parse argv argparse-faithfully, gate on a live IDE, run diffFile, map errors to exit codes. */
-export const main = async (argv: string[] = Bun.argv.slice(2)): Promise<number> => {
-  let parsed: ReturnType<typeof parseArgs<{ options: { wait: { type: "boolean" } }; allowPositionals: true }>>;
-  try {
-    parsed = parseArgs({ args: argv, options: { wait: { type: "boolean" } }, allowPositionals: true });
-  } catch (err) {
-    argparseError(USAGE, PROG, argparseMessage(err));
-  }
-  const positionals = parsed.positionals;
-  if (positionals.length < 2) {
-    const missing = ["target", "suggestion"].slice(positionals.length).join(", ");
-    argparseError(USAGE, PROG, `the following arguments are required: ${missing}`);
-  }
-  if (positionals.length > 2) {
-    argparseError(USAGE, PROG, `unrecognized arguments: ${positionals.slice(2).join(" ")}`);
-  }
-  const wait = parsed.values.wait === true;
-
-  let contents: string | null;
-  try {
+/**
+ * The cmdore command behind the CLI. Gates on a live IDE, runs diffFile, and on
+ * the --wait path writes the LEFT pane's text to stdout verbatim.
+ */
+const diffFileCommand = defineCommand({
+  name: PROG,
+  description: METADATA.description,
+  arguments: [
+    { name: "target", description: "LEFT pane file", required: true },
+    { name: "suggestion", description: "RIGHT pane file", required: true },
+  ],
+  options: [{ name: "wait", arity: 0, description: "block until the tab closes, then print the LEFT pane back" }],
+  run: async ({ target, suggestion, wait }) => {
     // Cheap CLI gate: fail fast/clean outside a JetBrains terminal.
-    if (!_internals.inIdea()) {
-      throw new IdeaError("no JetBrains IDE in the process ancestry");
+    if (!inIdea()) {
+      throw new IdeaError("no JetBrains IDE in the process ancestry")
     }
-    contents = await diffFile(positionals[0] as string, positionals[1] as string, wait);
-  } catch (exc) {
-    if (exc instanceof IdeaError || (exc instanceof Error && typeof (exc as NodeJS.ErrnoException).code === "string")) {
-      process.stderr.write(`diff-file: ${exc.message}\n`);
-      return 1;
+    const contents = await diffFile(target, suggestion, wait)
+    if (contents !== null) {
+      process.stdout.write(contents)
     }
-    throw exc;
+  },
+})
+
+/**
+ * CLI entrypoint. Hands argv to cmdore (parsing, help, global flags), then maps
+ * the domain failures to the diff-file: stderr line and their exit codes:
+ * IdeaError -> 1, a strict-resolve ENOENT (Error with a string `.code`) -> 1,
+ * CmdoreError (missing/unknown arg) -> its own exitCode. Else rethrow.
+ */
+export const main = async (argv: string[] = Bun.argv.slice(2)): Promise<number> => {
+  try {
+    await execute(diffFileCommand, { argv, metadata: METADATA, onError: "throw" })
+  } catch (error) {
+    if (error instanceof CmdoreError) {
+      process.stderr.write(`${PROG}: ${error.message}\n`)
+      return error.exitCode
+    }
+    if (
+      error instanceof IdeaError ||
+      (error instanceof Error && typeof (error as NodeJS.ErrnoException).code === "string")
+    ) {
+      process.stderr.write(`${PROG}: ${error.message}\n`)
+      return 1
+    }
+    throw error
   }
-  if (contents !== null) {
-    process.stdout.write(contents);
-  }
-  return 0;
-};
+  return 0
+}
 
 if (import.meta.main) {
-  process.exit(await main());
+  process.exit(await main())
 }

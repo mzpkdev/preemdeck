@@ -11,56 +11,56 @@
  * the script dir's parent (scripts/ -> ghost/).
  */
 
-import { readFile } from "node:fs/promises";
-import { dirname, join } from "node:path";
-import { exists } from "../../../../lib/fs.ts";
-import { runInjectionHook } from "../../../../lib/inject.ts";
+import { readFile } from "node:fs/promises"
+import { dirname, join } from "node:path"
+import { exists } from "../../../../lib/fs.ts"
+import { runInjectionHook } from "../../../../lib/inject.ts"
 
-const DEFAULT_EVENT = "SessionStart";
+const DEFAULT_EVENT = "SessionStart"
 
 /** The plugin root: CLAUDE_PLUGIN_ROOT || PLUGIN_ROOT || the script dir's parent. */
 export const pluginRoot = (): string => {
-  return process.env.CLAUDE_PLUGIN_ROOT || process.env.PLUGIN_ROOT || dirname(import.meta.dir);
-};
+  return process.env.CLAUDE_PLUGIN_ROOT || process.env.PLUGIN_ROOT || dirname(import.meta.dir)
+}
 
 /**
  * Read a persona source: the base64 `.dat` if present (decoded), else the plain
  * `.md`, else null.
  */
 export const readSource = async (root: string, datName: string, mdName: string): Promise<string | null> => {
-  const dat = join(root, datName);
+  const dat = join(root, datName)
   if (await exists(dat)) {
     // .dat holds base64 ASCII; decode it to the original UTF-8 text.
-    return Buffer.from((await readFile(dat)).toString("utf8"), "base64").toString("utf8");
+    return Buffer.from((await readFile(dat)).toString("utf8"), "base64").toString("utf8")
   }
-  const md = join(root, mdName);
+  const md = join(root, mdName)
   if (await exists(md)) {
-    return await readFile(md, "utf8");
+    return await readFile(md, "utf8")
   }
-  return null;
-};
+  return null
+}
 
 /** Build the combined persona text (engram + firmware), or "" when empty. */
 export const combinedPersona = async (root: string): Promise<string> => {
-  const parts: string[] = [];
+  const parts: string[] = []
   for (const [dat, md] of [
     ["engram.dat", "ENGRAM.md"],
     ["firmware.dat", "FIRMWARE.md"],
   ] as const) {
-    const content = await readSource(root, dat, md);
+    const content = await readSource(root, dat, md)
     if (content) {
-      parts.push(content.trim());
+      parts.push(content.trim())
     }
   }
-  return parts.join("\n\n").trim();
-};
+  return parts.join("\n\n").trim()
+}
 
 if (import.meta.main) {
-  const root = pluginRoot();
-  const persona = await combinedPersona(root);
+  const root = pluginRoot()
+  const persona = await combinedPersona(root)
   await runInjectionHook({
     event: DEFAULT_EVENT,
     render: () => persona || null,
-  });
-  process.exit(0);
+  })
+  process.exit(0)
 }

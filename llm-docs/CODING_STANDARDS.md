@@ -18,8 +18,8 @@ The repo settles these for you. State them, don't argue them.
 | Tests         | `bun test` — `bun:test` API, files colocated as `*.test.ts`.                                   |
 | Type-check    | `tsgo` (`@typescript/native-preview`, pinned) — `bun run typecheck` (`--noEmit`). CI enforces. |
 
-**Biome formatting** (don't hand-format against it): 2-space indent, 120-column lines, double quotes, semicolons always,
-trailing commas everywhere, `recommended` lint rules on.
+**Biome formatting** (don't hand-format against it): 2-space indent, 120-column lines, double quotes, semicolons
+as-needed (omitted where optional), trailing commas everywhere, `recommended` lint rules on.
 
 **tsconfig is `strict`** plus extras that change how you write code:
 
@@ -47,12 +47,12 @@ Names explain themselves — no truncation gymnastics, no magic numbers.
 
 ```ts
 // Avoid
-const DEF_MARG_PERC = 50;
-return cost * (1 + 50 / 100);
+const DEF_MARG_PERC = 50
+return cost * (1 + 50 / 100)
 
 // Prefer
-const DEFAULT_MARGIN_PERCENT = 50;
-return cost * (1 + DEFAULT_MARGIN_PERCENT / 100);
+const DEFAULT_MARGIN_PERCENT = 50
+return cost * (1 + DEFAULT_MARGIN_PERCENT / 100)
 ```
 
 Stay consistent with verbs — `getName` and `getCostPrice`, not `getName` and `fetchCostPrice`.
@@ -69,17 +69,17 @@ ESM, native, no bundler step. A few hard rules:
 
 ```ts
 // 1. Relative imports ALWAYS carry the .ts extension (allowImportingTsExtensions).
-import { runCmd } from "../lib/proc.ts";
+import { runCmd } from "../lib/proc.ts"
 
 // 2. Node stdlib ALWAYS uses the node: prefix.
-import { parseArgs } from "node:util";
-import { writeFile, rename } from "node:fs/promises";
+import { parseArgs } from "node:util"
+import { writeFile, rename } from "node:fs/promises"
 
 // 3. Type-only imports say `import type` (verbatimModuleSyntax requires it).
-import type { Action } from "../lib/args.ts";
+import type { Action } from "../lib/args.ts"
 
 // 4. Named imports only — never `import * as`.
-import { notifyMacos } from "./os-notify.ts";
+import { notifyMacos } from "./os-notify.ts"
 ```
 
 Group imports by origin, blank-line-separated: **stdlib (`node:`/`bun`) → external deps → local (`./`, `../`)**.
@@ -106,19 +106,19 @@ construct, uniform mental model.
 ```ts
 // Object shapes
 type SpawnOptions = {
-  cmd: string[];
-  cwd?: string;
-  env?: Record<string, string>;
-};
+  cmd: string[]
+  cwd?: string
+  env?: Record<string, string>
+}
 
 // Union literals instead of enums
-type Level = "info" | "warning" | "error";
+type Level = "info" | "warning" | "error"
 
 // Function signatures
-type Spawn = (argv: string[]) => Bun.Subprocess;
+type Spawn = (argv: string[]) => Bun.Subprocess
 
 // Aliases for readable signatures
-type Coordinate = [number, number];
+type Coordinate = [number, number]
 ```
 
 Other rules:
@@ -129,9 +129,9 @@ Other rules:
   the value can hold and you want it explicit.
   ```ts
   type ParsedUrl = {
-    host: string | null;   // genuinely may have no host — explicit
-    port?: number;         // optional input, defaulted downstream
-  };
+    host: string | null   // genuinely may have no host — explicit
+    port?: number         // optional input, defaulted downstream
+  }
   ```
 - **Union literals over `enum`.** They erase cleanly, narrow well, and need no runtime object.
 - **`as const`** for fixed literal tuples/option tables, so they type as their narrow literal form.
@@ -146,12 +146,12 @@ ______________________________________________________________________
 
 ```ts
 export const parseAction = (spec: string): Action => {
-  const [name, arg = ""] = spec.split(":", 2);
-  return { name, arg };
-};
+  const [name, arg = ""] = spec.split(":", 2)
+  return { name, arg }
+}
 
-items.map((item) => item.id);
-const run = deps.run ?? runCmd;
+items.map((item) => item.id)
+const run = deps.run ?? runCmd
 ```
 
 **Newspaper / stepdown order still holds.** Put the public entry point on top, helpers below — an arrow's body resolves
@@ -161,15 +161,15 @@ bottom of the file, so the order is always safe.
 
 ```ts
 export const calculateSalePrice = (car: Car): number =>     // top: public intent
-  priceBeforeTax(car) * taxesFactor(car);
+  priceBeforeTax(car) * taxesFactor(car)
 
 const priceBeforeTax = (car: Car): number =>                // one level down
-  car.costPrice * (1 + DEFAULT_MARGIN_PERCENT / 100);
+  car.costPrice * (1 + DEFAULT_MARGIN_PERCENT / 100)
 
 const taxesFactor = (car: Car): number => {                 // one level down
-  const taxes = DEFAULT_TAX + (car.imported ? DEFAULT_IMPORT_TAX : 0);
-  return 1 + taxes / 100;
-};
+  const taxes = DEFAULT_TAX + (car.imported ? DEFAULT_IMPORT_TAX : 0)
+  return 1 + taxes / 100
+}
 ```
 
 **A `never`-returning arrow (`throw`/`process.exit`) needs `=> never` on the binding's *type*, not inline on the
@@ -183,7 +183,7 @@ can regress it — `bun run typecheck` catches it; Biome and `bun test` don't.
   imports. This is what makes units testable without module mocking (see [Testing](#testing)).
   ```ts
   export const diffFile = (path: string, deps = { run: runCmd }): Promise<number> =>
-    deps.run(["diff", path]);
+    deps.run(["diff", path])
   ```
 
 ### Shrink long conditionals
@@ -195,8 +195,8 @@ Extract predicates or name the condition:
 if (oil > 3 && fuel > 5 && rightDoor === "closed" && leftDoor === "closed") { ... }
 
 // Prefer — named booleans / extracted predicates
-const levelsOk = oil > 3 && fuel > 5;
-const doorsClosed = rightDoor === "closed" && leftDoor === "closed";
+const levelsOk = oil > 3 && fuel > 5
+const doorsClosed = rightDoor === "closed" && leftDoor === "closed"
 if (levelsOk && doorsClosed) { ... }
 ```
 
@@ -209,8 +209,8 @@ ______________________________________________________________________
 ```ts
 export class UsageError extends Error {
   constructor(message: string) {
-    super(message);
-    this.name = "UsageError";
+    super(message)
+    this.name = "UsageError"
   }
 }
 ```
@@ -220,10 +220,10 @@ export class UsageError extends Error {
 
   ```ts
   try {
-    await launch(target);
+    await launch(target)
   } catch (err) {
-    if (err instanceof UsageError) return usage(err.message);
-    throw err;                                   // not ours — let it fly
+    if (err instanceof UsageError) return usage(err.message)
+    throw err                                   // not ours — let it fly
   }
   ```
 
@@ -237,10 +237,10 @@ export class UsageError extends Error {
   genuinely complex or deeply nested; for the common flat cases, guards are lighter and add no dependency.
 
   ```ts
-  const raw: unknown = JSON.parse(text);
-  if (typeof raw !== "object" || raw === null) throw new UsageError("expected a JSON object");
-  const obj = raw as Record<string, unknown>;
-  if (!Array.isArray(obj.items)) throw new UsageError("`items` must be a list");
+  const raw: unknown = JSON.parse(text)
+  if (typeof raw !== "object" || raw === null) throw new UsageError("expected a JSON object")
+  const obj = raw as Record<string, unknown>
+  if (!Array.isArray(obj.items)) throw new UsageError("`items` must be a list")
   ```
 
 ______________________________________________________________________
@@ -268,14 +268,14 @@ Scripts that run directly follow one shape — testable, with the exit code owne
 #!/usr/bin/env bun
 // `main` returns a number; it does NOT call process.exit itself.
 export const main = async (argv: string[]): Promise<number> => {
-  const action = parseArgs(argv);
-  if (!action) return 1;
-  await run(action);
-  return 0;
-};
+  const action = parseArgs(argv)
+  if (!action) return 1
+  await run(action)
+  return 0
+}
 
 // Only the bottom guard touches the process — and it's the only call at eval time.
-if (import.meta.main) process.exit(await main(Bun.argv.slice(2)));
+if (import.meta.main) process.exit(await main(Bun.argv.slice(2)))
 ```
 
 - `main` returns the exit code; the `import.meta.main` guard is the single place that calls `process.exit`. This keeps
@@ -295,9 +295,9 @@ keep. Prose blocks with embedded examples; we don't use `@param`/`@returns` tag 
  * Mirrors the Python `transform()` byte-for-byte (see py-json parity notes).
  */
 export const transform = (n: number): string => {
-  if (n < 0) throw new UsageError(`${n} must be non-negative`);
-  return `The input was ${n}`;
-};
+  if (n < 0) throw new UsageError(`${n} must be non-negative`)
+  return `The input was ${n}`
+}
 ```
 
 - **Inline comments explain WHY, not WHAT.** If a comment narrates mechanics, the code wants a better name instead.
@@ -323,14 +323,14 @@ Language-agnostic, still load-bearing:
 ```ts
 // Avoid — the ladder grows with every new category
 const getRate = (category: string): number => {
-  if (category === "standard") return 0.03;
-  if (category === "premium") return 0.05;
-  throw new UsageError(`unknown category ${category}`);
-};
+  if (category === "standard") return 0.03
+  if (category === "premium") return 0.05
+  throw new UsageError(`unknown category ${category}`)
+}
 
 // Prefer — data-driven, open to extension
-const RATES = { standard: 0.03, premium: 0.05 } as const;
-const getRate = (category: keyof typeof RATES): number => RATES[category];
+const RATES = { standard: 0.03, premium: 0.05 } as const
+const getRate = (category: keyof typeof RATES): number => RATES[category]
 ```
 
 ______________________________________________________________________
@@ -340,15 +340,15 @@ ______________________________________________________________________
 `bun:test`, files colocated next to source as `*.test.ts`.
 
 ```ts
-import { describe, expect, spyOn, test } from "bun:test";
-import { parseAction } from "./args.ts";
+import { describe, expect, spyOn, test } from "bun:test"
+import { parseAction } from "./args.ts"
 
 // Plain expect — describe groups, test names describe BEHAVIOR.
 describe("parseAction", () => {
   test("splits name from arg on the first colon", () => {
-    expect(parseAction("open:file.ts")).toEqual({ name: "open", arg: "file.ts" });
-  });
-});
+    expect(parseAction("open:file.ts")).toEqual({ name: "open", arg: "file.ts" })
+  })
+})
 ```
 
 **Make units testable by design — two seams, in order of preference:**
@@ -356,19 +356,19 @@ describe("parseAction", () => {
 1. **Dependency injection (default).** Accept collaborators as optional params with defaults; the test passes fakes. No
    global state, fully hermetic.
    ```ts
-   export const diffFile = (path: string, deps = { run: runCmd }) => deps.run(["diff", path]);
+   export const diffFile = (path: string, deps = { run: runCmd }) => deps.run(["diff", path])
 
    test("invokes diff with the path", async () => {
-     const run = spyOn({ run: async () => 0 }, "run");
-     await diffFile("a.ts", { run });
-     expect(run).toHaveBeenCalledWith(["diff", "a.ts"]);
-   });
+     const run = spyOn({ run: async () => 0 }, "run")
+     await diffFile("a.ts", { run })
+     expect(run).toHaveBeenCalledWith(["diff", "a.ts"])
+   })
    ```
 2. **`_internals` seam object (fallback).** When DI is awkward — module-level singletons, side-effecting imports —
    export an `_internals` object holding the overridable functions, and have the module call through it. Tests mutate it
    and **restore in `afterEach`** (one shared `bun test` process; leaks bleed across files).
    ```ts
-   export const _internals = { launch, readFile };
+   export const _internals = { launch, readFile }
    // module code calls _internals.launch(...), never launch directly
    ```
 
@@ -385,7 +385,7 @@ ______________________________________________________________________
 ## Quick checklist
 
 ```
-Tooling    ── Biome-formatted (2sp/120/double-quote/semi); strict tsconfig; bun test
+Tooling    ── Biome-formatted (2sp/120/double-quote/no-semi); strict tsconfig; bun test
 Naming     ── kebab-case files; camelCase fns; PascalCase types; UPPER_SNAKE consts
 Imports    ── .ts extension always; node: prefix; `import type`; named only; facade index.ts
 Types      ── `type` not `interface`; `unknown` not `any`; union literals not enums; lenient-in/strict-out

@@ -11,17 +11,17 @@
  * rather than having its output captured/swallowed.
  */
 
-import { resolveExecPath as resolveForPlatform } from "./index.ts";
+import { resolveExecPath as resolveForPlatform } from "./index.ts"
 
 /** The spawn primitive, injectable for hermetic tests (default: Bun.spawn). */
-export type Spawn = (argv: string[]) => Bun.Subprocess;
+export type Spawn = (argv: string[]) => Bun.Subprocess
 
 const defaultSpawn: Spawn = (argv) =>
   Bun.spawn(argv, {
     stdin: "inherit",
     stdout: "inherit",
     stderr: "inherit",
-  });
+  })
 
 /**
  * Knobs for {@link launch}: how to block (`wait`) and the injectable seams
@@ -35,15 +35,15 @@ export type LaunchOptions = {
    * exit, returning once the IDE tab/window CLOSES (whether or not it was
    * edited).
    */
-  wait?: boolean;
+  wait?: boolean
   /**
    * IDE-binary resolver, injectable for tests. Default: the platform's
    * (now-async) resolveExecPath. Accepts a sync OR async resolver; it is awaited.
    */
-  resolveExec?: () => string | Promise<string>;
+  resolveExec?: () => string | Promise<string>
   /** Spawn primitive, injectable for tests. Default: Bun.spawn with inherited stdio. */
-  spawn?: Spawn;
-};
+  spawn?: Spawn
+}
 
 /**
  * Spawn the running JetBrains IDE with `args`; resolve to the child handle.
@@ -57,15 +57,15 @@ export type LaunchOptions = {
  * the child is spawned, leaving it running.
  */
 export const launch = async (args: string[], options: LaunchOptions = {}): Promise<Bun.Subprocess> => {
-  const wait = options.wait ?? false;
-  const resolveExec = options.resolveExec ?? resolveForPlatform;
-  const spawn = options.spawn ?? defaultSpawn;
+  const wait = options.wait ?? false
+  const resolveExec = options.resolveExec ?? resolveForPlatform
+  const spawn = options.spawn ?? defaultSpawn
 
-  const execPath = await resolveExec();
-  const argv = wait ? [execPath, ...args, "--wait"] : [execPath, ...args];
-  const child = spawn(argv);
+  const execPath = await resolveExec()
+  const argv = wait ? [execPath, ...args, "--wait"] : [execPath, ...args]
+  const child = spawn(argv)
   if (wait) {
-    await child.exited;
+    await child.exited
   }
-  return child;
-};
+  return child
+}
