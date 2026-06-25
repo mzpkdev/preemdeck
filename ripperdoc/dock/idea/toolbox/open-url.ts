@@ -5,8 +5,17 @@ import { assertIdea } from "./assert-idea.ts"
 import { IdeaError, previewUrl, resolveExecPath } from "./core"
 
 /**
- * Open `url` in the running IDE's embedded JCEF web-preview tab. resolveExecPath()
- * is the single guard for a live IDE; then previewUrl() fires the ideScript.
+ * Open `url` in the running IDE's embedded JCEF web-preview tab. `resolveExecPath()`
+ * is the single guard for a live IDE; the `previewUrl()` launch is wrapped in
+ * `effect()` so `--dry-run` skips the real ideScript call.
+ *
+ * @param url - the http/https URL to load in the preview tab.
+ * @param title - optional title for the preview tab.
+ * @returns nothing; the side effect is the opened preview tab.
+ *
+ * @example
+ * await openUrl("http://localhost:3000") // preview the dev server
+ * await openUrl("https://example.com", "Docs") // preview with a titled tab
  */
 export const openUrl = async (url: string, title?: string): Promise<void> => {
     await resolveExecPath()

@@ -7,7 +7,22 @@ import { launch, reapLater } from "./core"
 import { boolean } from "./core/coercers.ts"
 import { mkstemp, resolveStrict } from "./tmp.ts"
 
-/** Open a 3-way merge of `target`/`suggestion` (optional `base`) in the IDE. */
+/**
+ * Open a 3-way merge of `target`/`suggestion` (optional common-ancestor `base`)
+ * into an internal output temp in the running JetBrains IDE. The launch is wrapped
+ * in `effect()` so `--dry-run` skips the real IDE call; on the `wait` path the
+ * spawned merge process is joined to block until Apply, then the output is read back.
+ *
+ * @param target - local / LEFT file; resolved to an absolute path before launching.
+ * @param suggestion - remote / RIGHT file; resolved to an absolute path before launching.
+ * @param base - optional common ancestor (BASE); resolved when provided, else omitted.
+ * @param wait - join the native merge and read the merged output back.
+ * @returns the merged output's utf8 contents on the `wait` path, else null.
+ *
+ * @example
+ * await mergeFile("local.ts", "remote.ts") // open the merge, fire-and-forget
+ * const merged = await mergeFile("local.ts", "remote.ts", "base.ts", true) // block until Apply, then read the result
+ */
 export const mergeFile = async (
     target: string,
     suggestion: string,

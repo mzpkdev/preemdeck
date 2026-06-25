@@ -13,6 +13,19 @@ export type OpenOptions = {
     preview?: boolean
 }
 
+/**
+ * Open `file` in the running JetBrains IDE at an optional caret position. The
+ * launch is wrapped in `effect()` so `--dry-run` skips the real IDE call; the
+ * `--wait` read-back is a plain read and stays unwrapped.
+ *
+ * @param file - path to open; resolved to an absolute path before launching.
+ * @param options - caret position and wait/preview behavior; see {@link OpenOptions}.
+ * @returns the file's utf8 contents on the `wait` path, else null.
+ *
+ * @example
+ * await openFile("src/app.ts", { line: 42 }) // jump to the line, fire-and-forget
+ * const text = await openFile("notes.md", { wait: true }) // block until closed, then read back
+ */
 export const openFile = async (file: string, options?: OpenOptions): Promise<string | null> => {
     const { line = 1, column = null, wait = false, preview = false } = options ?? {}
     const target = path.resolve(file)

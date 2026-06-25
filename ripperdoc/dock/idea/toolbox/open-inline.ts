@@ -15,9 +15,16 @@ export type OpenInlineOptions = {
 
 /**
  * Open `content` in the running JetBrains IDE by routing it through a temp file.
+ * On `wait` the open blocks, returns the edited text, then unlinks the temp; on
+ * fire-and-forget the open is launched async and the temp is reaped later.
  *
- * wait=true  -> open blocks and returns the edited text; unlink the temp, return
- *   it. wait=false -> open launched async; schedule a deferred reap and return null.
+ * @param content - the inline string to drop into a temp file and open.
+ * @param options - temp-file suffix and wait/preview behavior; see {@link OpenInlineOptions}.
+ * @returns the edited utf8 contents on the `wait` path, else null.
+ *
+ * @example
+ * await openInline("draft note", { suffix: ".md" }) // open a scratch buffer, fire-and-forget
+ * const edited = await openInline("TODO", { wait: true }) // block until closed, then read back
  */
 export const openInline = async (content: string, options: OpenInlineOptions = {}): Promise<string | null> => {
     const suffix = options.suffix ?? ".txt"

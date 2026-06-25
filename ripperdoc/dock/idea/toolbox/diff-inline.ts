@@ -13,7 +13,21 @@ export type DiffInlineOptions = {
     wait?: boolean
 }
 
-/** Diff inline strings by spilling each to a temp file, then delegating to diffFile. */
+/**
+ * Diff the inline strings `target` vs `suggestion` by spilling each to a temp
+ * file, then delegating to {@link diffFile}. On the `wait` path the input temps
+ * are removed once the diff returns; otherwise the reap is deferred while the IDE
+ * still holds them open.
+ *
+ * @param target - LEFT pane string; written to a temp file before diffing.
+ * @param suggestion - RIGHT pane string; written to a temp file before diffing.
+ * @param options - temp-file suffix and wait behavior; see {@link DiffInlineOptions}.
+ * @returns the LEFT (`target`) pane's utf8 contents on the `wait` path, else null.
+ *
+ * @example
+ * await diffInline(before, after, { suffix: ".ts" }) // show the diff, fire-and-forget
+ * const left = await diffInline(before, after, { wait: true }) // block until closed, then read the LEFT pane
+ */
 export const diffInline = async (
     target: string,
     suggestion: string,

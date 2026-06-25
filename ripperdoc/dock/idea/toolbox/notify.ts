@@ -120,7 +120,20 @@ export type NotifyOptions = {
     actions?: Action[]
 }
 
-/** Pop an in-IDE notification balloon for `message` in the running IDE (best-effort). */
+/**
+ * Pop an in-IDE notification balloon for `message` in the running JetBrains IDE.
+ * The Groovy write is wrapped in `effect()` so `--dry-run` skips the real IDE
+ * call; it is best-effort and never rejects (a missing IDE or spawn error degrades
+ * to a stderr note).
+ *
+ * @param message - the balloon body text.
+ * @param options - title, the `--type` token, and clickable actions; see {@link NotifyOptions}.
+ * @returns nothing; resolves once the balloon Groovy has been dispatched.
+ *
+ * @example
+ * await notify("Build finished") // plain info balloon titled "PreemDeck"
+ * await notify("Tests failed", { typeToken: "error", actions: [{ name: "open-file", arg: "log.txt" }] }) // error balloon with a clickable action
+ */
 export const notify = async (message: string, options: NotifyOptions = {}): Promise<void> => {
     const title = options.title ?? "PreemDeck"
     const typeToken = options.typeToken ?? "info"

@@ -13,7 +13,22 @@ export type MergeInlineOptions = {
     wait?: boolean
 }
 
-/** Merge inline strings by spilling each to a temp file, then delegating to mergeFile. */
+/**
+ * Merge the inline strings `target`/`suggestion` (optional common-ancestor `base`)
+ * by spilling each to a temp file, then delegating to {@link mergeFile}. On the
+ * `wait` path the input temps are removed once the merge returns; otherwise the
+ * reap is deferred while the IDE still holds them open (the output temp is mergeFile's to reap).
+ *
+ * @param target - local / LEFT text; written to a temp file before merging.
+ * @param suggestion - remote / RIGHT text; written to a temp file before merging.
+ * @param base - optional common ancestor (BASE) text; written to a temp file when provided.
+ * @param options - temp-file suffix and wait behavior; see {@link MergeInlineOptions}.
+ * @returns the merged output's utf8 contents on the `wait` path, else null.
+ *
+ * @example
+ * await mergeInline(local, remote) // open the merge, fire-and-forget
+ * const merged = await mergeInline(local, remote, base, { wait: true }) // block until Apply, then read the result
+ */
 export const mergeInline = async (
     target: string,
     suggestion: string,

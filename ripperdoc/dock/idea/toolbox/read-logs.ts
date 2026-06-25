@@ -23,8 +23,14 @@ const splitLines = (text: string): string[] => {
 
 /**
  * Last `n` lines of the active IDE's idea.log. Read as latin1 so every byte
- * decodes without throwing. Slice semantics: n>0 -> last n; n==0 -> all; n<0 ->
- * drop the first |n|.
+ * decodes without throwing.
+ *
+ * @param n - line count: n>0 -> last n; n==0 -> all; n<0 -> drop the first |n|.
+ * @returns the selected log lines, terminators stripped.
+ *
+ * @example
+ * const tail = await readLogs() // last 50 lines
+ * const all = await readLogs(0) // the whole log
  */
 export const readLogs = async (n = 50): Promise<string[]> => {
     const log = path.join(await resolveLogDir(), "idea.log")
