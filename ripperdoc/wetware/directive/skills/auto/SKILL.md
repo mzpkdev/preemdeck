@@ -1,5 +1,7 @@
 ---
-description: Show the auto discretion directive — prints skills/auto/directive.md. Trigger ONLY when the user types /auto. NEVER auto-invoke.
+description:
+  Show the auto discretion directive — prints skills/auto/directive.md. Trigger ONLY when the user types /auto. NEVER
+  auto-invoke.
 user-invocable: true
 disable-model-invocation: true
 ---

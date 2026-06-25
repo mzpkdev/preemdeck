@@ -15,7 +15,7 @@ allowed-tools: [Bash]
 
 # idea:using
 
-A manual for the **idea toolbox** — a set of small CLIs that drive the *currently running* JetBrains IDE from the
+A manual for the **idea toolbox** — a set of small CLIs that drive the _currently running_ JetBrains IDE from the
 terminal: open files/URLs, show diffs, present code suggestions, run 3-way merges, tail the IDE log, and pop
 notification balloons.
 
@@ -32,7 +32,7 @@ browser/editor fallback**: if the terminal is not running inside a JetBrains IDE
   flag, missing required argument, non-integer `--line`, bad `notify --type`/`--action`) is a **usage** error and exits
   `2`. Runtime failures stay `1`: the diff/merge tools resolve their paths strictly and exit `1` on a missing input
   before launch; `read-logs` exits `1` if the log dir can't be resolved.
-- The IDE is the one that *launched* the process, not whichever is focused. Switching focus does not retarget it;
+- The IDE is the one that _launched_ the process, not whichever is focused. Switching focus does not retarget it;
   quitting the launching IDE makes the tools fail rather than hit a different IDE.
 
 So before relying on these, confirm you're in a JetBrains terminal with `in-idea.ts` (exit `0` inside, `1` outside):
@@ -47,7 +47,7 @@ So before relying on these, confirm you're in a JetBrains terminal with `in-idea
 The tools live in the plugin's `toolbox/` dir and are run through the **preemdeck-bun shim** by **absolute path**. The
 shim (`$HOME/.preemdeck/scripts/preemdeck-bun`) runs the bundled Bun runtime against the `.ts` tool. Anchor on
 `${CLAUDE_PLUGIN_ROOT}` (this plugin's root) so it works from any working directory — the run is **cwd-independent**
-(you do *not* need to `cd` into the toolbox):
+(you do _not_ need to `cd` into the toolbox):
 
 ```bash
 "$HOME/.preemdeck/scripts/preemdeck-bun" "${CLAUDE_PLUGIN_ROOT}/toolbox/<tool>.ts" [args…]
@@ -75,7 +75,7 @@ temps are removed synchronously; on fire-and-forget they're handed to a deferred
 
 Every tool also takes the standard set: `-h/--help` (the `USAGE` / `ARGUMENTS` / `OPTIONS` block shown per tool below),
 `-v/--version`, `--quiet` (mute output), `--verbose`, `--json`, `--no-colors`, and `--dry-run`. **`--dry-run` skips the
-IDE side-effect** — for the write tools (`open-*`, `diff-*`, `merge-*`, `notify`) it records the action but does *not*
+IDE side-effect** — for the write tools (`open-*`, `diff-*`, `merge-*`, `notify`) it records the action but does _not_
 launch the IDE / run the groovy, so use it to rehearse an invocation without popping anything in the editor. (Note
 `--quiet` only mutes output; on `in-idea` it does **not** affect the exit-code gate — use `-q/--silent` for that.)
 
@@ -99,11 +99,11 @@ Rules of thumb:
 
 - A **file on disk** → the `_file` variants. A **string you already hold** (a snippet, generated text, a draft) → the
   `_inline` variants.
-- Just *showing* a suggestion read-only → `open-inline`/`diff-inline`. Letting the user *accept it into* a file →
+- Just _showing_ a suggestion read-only → `open-inline`/`diff-inline`. Letting the user _accept it into_ a file →
   `merge-inline` (or `diff_*` `--wait`, where the user pulls chunks into the LEFT pane and you read it back).
 - Need to **read back** the user's edits/decision → add `--wait`.
 
-______________________________________________________________________
+---
 
 ## open-file.ts — open a file in the IDE
 
@@ -141,7 +141,7 @@ Open `url` in the IDE's embedded JCEF web-preview tab. Fire-and-forget (there's 
 - `url` — must be a non-empty **http/https** URL (anything else → usage note, exit 1).
 - `--title TITLE` — tab label (the tab shows `Preview of <title>`); defaults to the URL's host[:port].
 
-**When to use:** the user wants to view a page/dev-server *inside* the IDE.
+**When to use:** the user wants to view a page/dev-server _inside_ the IDE.
 
 ```bash
 "$HOME/.preemdeck/scripts/preemdeck-bun" "$TB/open-url.ts" http://localhost:3000              # preview a local dev server

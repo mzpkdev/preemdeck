@@ -52,7 +52,7 @@ Lookups are pure `pathlib` (OS-agnostic): `preemdeck.json` is found by walking u
 plugin. Value-validity stays folder-based — a mode is a folder with `directive.md`; `modes.json` only supplies the slot.
 An unset slot, an empty value, or a value with no matching `directive.md` is a silent no-op.
 
-______________________________________________________________________
+---
 
 ## What ships
 
@@ -73,7 +73,7 @@ ______________________________________________________________________
 
 Modes shipped: `swarm` (strategy), `ask` / `auto` (discretion).
 
-______________________________________________________________________
+---
 
 ## Notes
 

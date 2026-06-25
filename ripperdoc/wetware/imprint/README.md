@@ -4,7 +4,7 @@ Per-prompt hook that injects `IMPRINT.md` as `additionalContext` on every user p
 substituted into a `{{host_tools}}` placeholder. Wired to `UserPromptSubmit` on Claude/Codex and `BeforeAgent` on Gemini
 — one envelope shape works on all three.
 
-______________________________________________________________________
+---
 
 ## What ships
 
@@ -17,7 +17,7 @@ ______________________________________________________________________
 | `.codex-plugin/plugin.json`           | Codex manifest + inline `hooks` block (`UserPromptSubmit`)                      |
 | `gemini-extension.json`               | Gemini manifest + inline `hooks` block (`BeforeAgent`, sets `contextFileName`)  |
 
-______________________________________________________________________
+---
 
 ## Codex needs an extra opt-in
 
@@ -33,7 +33,7 @@ plugin_hooks = true
 After install, run `/hooks` inside Codex to review and trust the imprint hook. This is a **separate** gate from the
 project-trust mechanism — installing the plugin and trusting the project does not auto-trust the hooks inside.
 
-______________________________________________________________________
+---
 
 ## Customize
 

@@ -1,6 +1,8 @@
 ---
 name: fixer
-description: General-purpose worker subagent. Takes open-ended jobs handed off by the main agent — research, exploration, multi-step work — and reports clean. Inherits the parent session's toolset.
+description:
+  General-purpose worker subagent. Takes open-ended jobs handed off by the main agent — research, exploration,
+  multi-step work — and reports clean. Inherits the parent session's toolset.
 ---
 
 # fixer
