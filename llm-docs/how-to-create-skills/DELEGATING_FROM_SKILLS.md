@@ -4,7 +4,7 @@ How to phrase a skill body so the same delegation produces correct behavior on C
 invocation surface diverges by host; the body shape stays the same when you phrase intent instead of naming the tool.
 Worker file skeleton in [how-to-create-agents/TEMPLATE.md](../how-to-create-agents/TEMPLATE.md).
 
-______________________________________________________________________
+---
 
 ## The fundamental split
 
@@ -20,7 +20,7 @@ On all three hosts the main/parent agent can fire the worker mid-turn — the us
 they explicitly invoked it. What Gemini blocks is **subagent→subagent** recursion: a worker can't call another worker. A
 skill body that designs a tree of workers breaks on Gemini; a body that fans out from the parent ports.
 
-______________________________________________________________________
+---
 
 ## Where the worker file lives
 
@@ -38,7 +38,7 @@ Codex distribution workaround: ship the `.toml` in the plugin's `assets/` and ei
 the plugin README, or wire a `SessionStart` hook that copies/symlinks from `${CLAUDE_PLUGIN_ROOT}/assets/<worker>.toml`
 to `~/.codex/agents/<worker>.toml` on first run. (Or skip registration entirely — see the next section.)
 
-______________________________________________________________________
+---
 
 ## Generic worker — inline brief, no registered persona
 
@@ -63,11 +63,10 @@ name: worker
 description: |
   Generic worker. Accepts a self-contained brief and executes it cold-open.
   The brief carries the persona; this file is intentionally empty.
-tools: [Read, Grep, Glob, Write, Edit, Bash]   # Claude — Gemini ships its own with [read_file, grep_search, write_file, replace, run_shell_command]
+tools: [Read, Grep, Glob, Write, Edit, Bash] # Claude — Gemini ships its own with [read_file, grep_search, write_file, replace, run_shell_command]
 ---
-
-You are a worker. Execute the brief in your input verbatim. Trust the brief
-literally; don't infer additional context. Return exactly what the brief asks for.
+You are a worker. Execute the brief in your input verbatim. Trust the brief literally; don't infer additional context.
+Return exactly what the brief asks for.
 ```
 
 Skill body stays the same prose on every host:
@@ -77,9 +76,8 @@ Skill body stays the same prose on every host:
 
 Delegate to the `worker` subagent with this brief:
 
-  You are an adversarial security reviewer. Read the staged diff at
-  /tmp/staged.diff. For each changed function, list one risk in the form
-  `<file>:<line> — <issue>`. Stop at ten findings. If clean, return `OK.`
+You are an adversarial security reviewer. Read the staged diff at /tmp/staged.diff. For each changed function, list one
+risk in the form `<file>:<line> — <issue>`. Stop at ten findings. If clean, return `OK.`
 ```
 
 Host resolutions:
@@ -93,11 +91,11 @@ pattern when calls per session are low and the persona is small. For high-freque
 custom file per host (see [Where the worker file lives](#where-the-worker-file-lives) above) — accepting that the Codex
 distribution story is more involved.
 
-______________________________________________________________________
+---
 
 ## When to delegate at all
 
-Reach for a worker when the skill needs a *different mind on the same problem* — adversarial review, deeper reasoning,
+Reach for a worker when the skill needs a _different mind on the same problem_ — adversarial review, deeper reasoning,
 isolated tool scope, parallel fan-out. Skip it when the work is small or shares context the parent already has;
 invocation cost outweighs the benefit.
 
@@ -111,7 +109,7 @@ invocation cost outweighs the benefit.
 A skill that delegates everything is a skill that shouldn't exist — collapse it back into the worker, or make the worker
 the skill.
 
-______________________________________________________________________
+---
 
 ## Phrase intent, never the tool
 
@@ -120,14 +118,17 @@ Hard-coding `Agent(…)` makes the skill Claude-only; hard-coding `@worker` make
 
 ```markdown
 # Avoid — Claude-only literal
+
 "Use the Agent tool: Agent({ subagent_type: 'payments-reviewer', ... })"
 
 # Avoid — Gemini-only literal
+
 "Tell the user to type @payments-reviewer."
 
 # Prefer — intent, the host picks the call
-"Delegate the security review to the `payments-reviewer` worker.
- Brief: <self-contained instruction>. Expect: numbered findings."
+
+"Delegate the security review to the `payments-reviewer` worker. Brief: <self-contained instruction>. Expect: numbered
+findings."
 ```
 
 Same body, three behaviors:
@@ -141,7 +142,7 @@ Same body, three behaviors:
 Never name the host's primitive in the skill body. The verb is `delegate`; the noun is the worker name. The host fills
 in the rest.
 
-______________________________________________________________________
+---
 
 ## Brief like a cold caller
 
@@ -149,16 +150,18 @@ The worker has no memory of the skill's turn. Pass file paths; the worker reads 
 
 ```markdown
 # Avoid — inlines the file body into the brief
+
 "Review this code:\n<4000 lines of source>"
 
 # Prefer — pass the path; the worker reads what it needs
-"Review src/payments.py:14-180. Focus on parse_amount and apply_discount."
+
+"Review src/payments.ts:14-180. Focus on parseAmount and applyDiscount."
 ```
 
 A 4000-line file in a brief costs twice — once in the skill's context, once in the worker's input tokens. Worse on
 Gemini: the user types or pastes the brief, and a brief stuffed with inlined source becomes unreadable.
 
-______________________________________________________________________
+---
 
 ## The skill ↔ worker contract
 
@@ -167,20 +170,19 @@ to expect.
 
 ```markdown
 # In SKILL.md
+
 ## Step 3 — Security review
 
 Delegate to the `payments-reviewer` worker with this brief:
 
-  Review the staged diff at /tmp/staged.diff. Focus on amount-overflow
-  and rounding bugs in functions tagged `// money`. Return numbered
-  findings in the shape `<n>. <file>:<line> — <issue>`. If clean,
-  return the single line `OK.`
+Review the staged diff at /tmp/staged.diff. Focus on amount-overflow and rounding bugs in functions tagged `// money`.
+Return numbered findings in the shape `<n>. <file>:<line> — <issue>`. If clean, return the single line `OK.`
 ```
 
-The skill describes the *intent and the expected output shape*; the host decides the call. The worker's file body
+The skill describes the _intent and the expected output shape_; the host decides the call. The worker's file body
 specifies how to produce that shape (see [how-to-create-agents/TEMPLATE.md](../how-to-create-agents/TEMPLATE.md)).
 
-______________________________________________________________________
+---
 
 ## Tool scoping the worker
 
@@ -196,7 +198,7 @@ brief — prompt-only constraints leak.
 A reviewer worker never needs `Write`. A gatherer never needs `Edit`. The skill body should not try to constrain the
 worker's tools at call time; that belongs in the worker file.
 
-______________________________________________________________________
+---
 
 ## Consuming the worker's reply
 
@@ -207,13 +209,13 @@ for the merge contract when N workers were invoked in parallel.
 
 ```markdown
 # In SKILL.md — after N parallel worker invocations (Parent Fan-Out)
+
 ## Step 5 — Merge findings
 
-Parse each worker reply as the declared JSON shape. Merge by `target`
-(every reply carries the input it processed — see [Stamped Results](../COMMON_PATTERNS.md#stamped-results)).
-Quote the top three findings in the assistant reply; write the full
-merged set to `${ROOT}/.preemdeck/<skill>/findings.md`.
-If any worker returned `verdict: "FAIL"`, the skill verdict is FAIL.
+Parse each worker reply as the declared JSON shape. Merge by `target` (every reply carries the input it processed — see
+[Stamped Results](../COMMON_PATTERNS.md#stamped-results)). Quote the top three findings in the assistant reply; write
+the full merged set to `${ROOT}/.preemdeck/<skill>/findings.md`. If any worker returned `verdict: "FAIL"`, the skill
+verdict is FAIL.
 ```
 
 Don't trust the worker's prose summary — parse the declared shape. A worker that says "looks good" without findings
@@ -230,7 +232,7 @@ Gemini has two invocation paths and the merge step depends on which fired:
 Default to the main-agent path; reach for `@worker` only when the user must consciously trigger the worker (e.g. an
 expensive review they should opt into).
 
-______________________________________________________________________
+---
 
 ## Quick checklist
 

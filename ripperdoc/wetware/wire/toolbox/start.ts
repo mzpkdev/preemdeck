@@ -1,7 +1,7 @@
 #!/usr/bin/env bun
 /**
- * start.ts — the detached ORCHESTRATOR. Port of `wire start` in
- * server/src/wire/cli.py.
+ * start.ts — the detached ORCHESTRATOR. Port of the original `wire start`
+ * command.
  *
  * Idempotent: if a room is already on disk AND /health answers, re-print its
  * handoff and exit 0 — never a second server. Otherwise spawn `serve` DETACHED

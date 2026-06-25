@@ -3,7 +3,7 @@
 Fillable skeleton for a new subagent. Three host variants — only `name` and `description` port unchanged. Cross-host
 details in [CLAUDE_CODEX_GEMINI.md](../CLAUDE_CODEX_GEMINI.md).
 
-______________________________________________________________________
+---
 
 ## Where the file lives
 
@@ -26,7 +26,7 @@ Alternative: skip the per-host registered file entirely and use the built-in gen
 Claude, `worker` on Codex, a thin shim on Gemini) — the persona lives in the brief instead of the file. See
 [DELEGATING_FROM_SKILLS.md — Generic worker](../how-to-create-skills/DELEGATING_FROM_SKILLS.md#generic-worker--inline-brief-no-registered-persona).
 
-______________________________________________________________________
+---
 
 ## Frontmatter — what ports
 
@@ -45,7 +45,7 @@ Two universal fields. Everything else is host-specific.
 
 Fields not in this list either belong on the parent skill or do not exist for subagents.
 
-______________________________________________________________________
+---
 
 ## Claude — `agents/<name>.md`
 
@@ -78,7 +78,7 @@ Numbered findings, one per line: `<n>. <file>:<line> — <issue>`.
 If nothing found: the single line `OK.`
 ```
 
-______________________________________________________________________
+---
 
 ## Codex — `~/.codex/agents/<name>.toml` (user) or `.codex/agents/<name>.toml` (project)
 
@@ -110,7 +110,7 @@ If nothing found: the single line `OK.`
 """
 ```
 
-______________________________________________________________________
+---
 
 ## Gemini — `<plugin>/agents/<name>.md` (or `.gemini/agents/<name>.md` standalone)
 
@@ -147,7 +147,7 @@ Numbered findings, one per line: `<n>. <file>:<line> — <issue>`.
 If nothing found: the single line `OK.`
 ```
 
-______________________________________________________________________
+---
 
 ## System-prompt skeleton
 
@@ -157,23 +157,27 @@ Five sections, same order on every host. Drop in, fill the angle brackets.
 You are a <role>. <One-sentence purpose.>
 
 ## Inputs
+
 - <thing the parent will hand in (path, not contents)>
 - <surrounding context the agent needs to judge>
 
 ## What to do
+
 1. <first concrete step>
 2. <second concrete step>
 3. <third concrete step>
 
 ## What NOT to do
+
 - <known failure mode>
 - <out-of-scope behavior>
 
 ## What to return
+
 <exact output shape — format, sections, length budget>
 ```
 
-______________________________________________________________________
+---
 
 ## Invocation by host
 
@@ -189,7 +193,7 @@ Gemini.
 A skill that hard-codes `Agent(...)` is Claude-only. On Gemini the subagent is never invoked by another agent — design
 for direct user invocation.
 
-______________________________________________________________________
+---
 
 ## Quick checklist
 

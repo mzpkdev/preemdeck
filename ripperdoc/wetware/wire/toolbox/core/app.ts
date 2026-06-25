@@ -1,5 +1,5 @@
 /**
- * app.ts — the Hono app factory and routes. Port of server/src/wire/app.py.
+ * app.ts — the Hono app factory and routes. Port of the original wire's app layer.
  *
  * {@link createApp} builds the app, constructs the one {@link Room}, wires the
  * eight endpoints, and hands back the room plus a {@link startReaper} the CLI
@@ -123,12 +123,12 @@ const SSE_EVENT_NAME: Record<LogEntry["type"], string> = {
 }
 
 /**
- * Build one SSE frame, byte-identical to the Python `_sse_frame`: an optional
+ * Build one SSE frame, byte-identical to the original's `_sse_frame`: an optional
  * `id:` line FIRST, then `event:`, then `data:`, terminated by the blank line
  * that delimits SSE events. Written raw via `stream.write` rather than Hono's
  * `writeSSE` because that helper emits `event:`/`data:`/`id:` in a fixed order
  * (id LAST) — the wire contract puts `id:` first, so a reconnecting client and
- * the Python framing stay identical. `data` is one already-serialized compact
+ * the original framing stay identical. `data` is one already-serialized compact
  * JSON line (every payload is a single line, so each `data:` is one JSON.parse).
  */
 const sseFrame = (event: string, data: string, eventId?: number): string => {
@@ -173,7 +173,7 @@ const resolveBase = (config: Config, requestUrl: string): string => {
 }
 
 // -- /schema doc post-processing -----------------------------------------
-// The Python keeps secret/token OPTIONAL in the signatures (so a missing one
+// The original keeps secret/token OPTIONAL in the signatures (so a missing one
 // 401s, not 422) but marks them required in the DOC only. These tables drive the
 // same post-process here over the generated OpenAPI document.
 
@@ -266,7 +266,7 @@ const SEND_DESCRIPTION =
  * generator never saw them, so it emitted no success response). `/send` returns
  * JSON shaped by `SendResponse` (registered as a component below, so this is a
  * `$ref`); `/shard` returns markdown; `/spectate` an SSE stream. The
- * `Successful Response` summary mirrors the Python's autogen default.
+ * `Successful Response` summary mirrors the original's autogen default.
  */
 const SEND_200 = {
     description: "Successful Response",
@@ -294,7 +294,7 @@ const SPECTATE_DESCRIPTION =
     "in the `Last-Event-ID` request header."
 
 /**
- * Mutate the generated OpenAPI document to match the Python's honest /schema:
+ * Mutate the generated OpenAPI document to match the original's honest /schema:
  * inject the cred + wait + name query params (read raw at runtime, so the
  * generator never saw them), the raw-text /send body, the hand-documented plain
  * routes (/shard, /send, /spectate — not registered via .openapi(), so the
@@ -409,7 +409,7 @@ export const createApp = (config: Config, now?: Clock): WireApp => {
     // /send is a PLAIN route (raw-text body), so the generator never sees its
     // SendResponse body and would drop it from `components`. Register it on the
     // registry directly so the schema lands in the doc — decorateDoc then $refs
-    // it from /send's hand-added 200, matching the Python's component + ref.
+    // it from /send's hand-added 200, matching the original's component + ref.
     app.openAPIRegistry.register("SendResponse", SendResponse)
 
     // The one-status-401 error handler: a WireAuthError renders {detail, code}.
@@ -593,7 +593,7 @@ export const createApp = (config: Config, now?: Clock): WireApp => {
                 }
                 const batch = room.eventsSince(cursor)
                 for (const entry of batch) {
-                    // id: -> event: -> data:, byte-identical to the Python framing.
+                    // id: -> event: -> data:, byte-identical to the original framing.
                     await stream.write(
                         sseFrame(SSE_EVENT_NAME[entry.type], JSON.stringify(eventToModel(entry)), entry.id)
                     )

@@ -1,18 +1,18 @@
 /**
- * preview.test.ts — hermetic: no real IDE, no ideScript, no polling. Port of
- * test_preview.py, PLUS a byte-for-byte golden diff against the Python engine's
+ * preview.test.ts — hermetic: no real IDE, no ideScript, no polling. Includes
+ * a byte-for-byte golden diff against the reference engine's
  * output for representative inputs.
  *
  * setPreview/previewUrl drive a rendered preview through an ideScript run. The
  * IDE-facing seams are injected via runGroovy's `deps`: `launch` is a recording
  * spy (spawns nothing, reads the generated temp groovy back) and `reapLater` is a
  * spy that records + unlinks. We assert the spawned argv, the Groovy injected
- * into the temp (byte-identical to Python's, captured as GOLDEN_* below), the
+ * into the temp (byte-identical to the reference, captured as GOLDEN_* below), the
  * deferred reap, and the never-throw graceful-degrade contract.
  *
- * The GOLDEN_* constants are the EXACT bytes the Python `_preview`/`_groovy`
+ * The GOLDEN_* constants are the EXACT bytes the reference `_preview`/`_groovy`
  * emit (verified byte-identical via a standalone diff). They lock the
- * string-gen parity into the committed suite, no Python at test time.
+ * string-gen parity into the committed suite, no reference engine at test time.
  */
 
 import { describe, expect, test } from "bun:test"
@@ -20,7 +20,7 @@ import { IdeaError, NotImplementedError } from "./errors.ts"
 import type { RunGroovyDeps } from "./groovy.ts"
 import { previewUrl, setPreview, webpreviewOpenBody } from "./preview.ts"
 
-// --- GOLDEN OUTPUTS (byte-identical to the Python engine) --------------------
+// --- GOLDEN OUTPUTS (byte-identical to the reference engine) --------------------
 
 const GOLDEN_SETLAYOUT_MD = `import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.fileEditor.FileEditorManager
@@ -186,19 +186,19 @@ describe("setPreview", () => {
         expect(cap.calls[0]?.args[1]?.endsWith(".groovy")).toBe(true)
     })
 
-    test("GOLDEN: markdown route is byte-identical to Python", async () => {
+    test("GOLDEN: markdown route is byte-identical to the reference", async () => {
         const cap = captureDeps()
         await setPreview("/Users/me/notes.md", cap.deps)
         expect(cap.scripts[0]).toBe(GOLDEN_SETLAYOUT_MD)
     })
 
-    test("GOLDEN: HTML route is byte-identical to Python", async () => {
+    test("GOLDEN: HTML route is byte-identical to the reference", async () => {
         const cap = captureDeps()
         await setPreview("/Users/me/page.html", cap.deps)
         expect(cap.scripts[0]).toBe(GOLDEN_WEBPREVIEW_HTML)
     })
 
-    test("GOLDEN: escaped path (quote + backslash) is byte-identical to Python", async () => {
+    test("GOLDEN: escaped path (quote + backslash) is byte-identical to the reference", async () => {
         const cap = captureDeps()
         await setPreview('/tmp/we"ird\\name.md', cap.deps)
         expect(cap.scripts[0]).toBe(GOLDEN_SETLAYOUT_ESCAPED)
@@ -206,7 +206,7 @@ describe("setPreview", () => {
 
     test("non-HTML, non-previewable type still takes the setLayout route", async () => {
         const cap = captureDeps()
-        await setPreview("/Users/me/snippet.py", cap.deps)
+        await setPreview("/Users/me/snippet.ts", cap.deps)
         const g = cap.scripts[0] ?? ""
         expect(g).toContain("SHOW_PREVIEW")
         expect(g).toContain("TextEditorWithPreview")
@@ -257,13 +257,13 @@ describe("previewUrl", () => {
         expect(cap.calls[0]?.args[1]?.endsWith(".groovy")).toBe(true)
     })
 
-    test("GOLDEN: host:port default title is byte-identical to Python", async () => {
+    test("GOLDEN: host:port default title is byte-identical to the reference", async () => {
         const cap = captureDeps()
         await previewUrl("http://localhost:3000", undefined, cap.deps)
         expect(cap.scripts[0]).toBe(GOLDEN_URL_HOSTPORT)
     })
 
-    test("GOLDEN: query string + quote/backslash escaping is byte-identical to Python", async () => {
+    test("GOLDEN: query string + quote/backslash escaping is byte-identical to the reference", async () => {
         const cap = captureDeps()
         await previewUrl('http://localhost:3000/search?a=1&b=2&q="x\\y"', undefined, cap.deps)
         expect(cap.scripts[0]).toBe(GOLDEN_URL_QUERY_SPECIALS)
@@ -313,7 +313,7 @@ describe("previewUrl", () => {
 // --- the shared fragment (single source of truth) ---------------------------
 
 describe("webpreviewOpenBody", () => {
-    test("GOLDEN: default (no indent, project var) is byte-identical to Python", () => {
+    test("GOLDEN: default (no indent, project var) is byte-identical to the reference", () => {
         expect(webpreviewOpenBody("http://h:1/x", "h:1")).toBe(GOLDEN_FRAG_DEFAULT)
     })
 

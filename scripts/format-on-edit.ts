@@ -16,11 +16,9 @@
  *      i.e. the `parents[2]` of the script). Outside -> no-op.
  *   4. map suffix -> formatter and run it (timeout, errors swallowed to stderr).
  *
- * Formatter map (this is the Bun/TS-era map; ruff + mdformat stay because
- * `.py`/`.md` persist in wire + docs):
- *   .ts / .json        -> the shipped Biome from the JS scaffold (`biome format --write`)
- *   .py                -> `uv run ruff format`
- *   .md / .markdown     -> `uv run mdformat`
+ * Formatter map:
+ *   .ts / .json                    -> the shipped Biome from the JS scaffold (`biome format --write`)
+ *   .md / .markdown / .yml / .yaml -> Prettier (`prettier --write`)
  *
  * JSON key order: Biome preserves object key order and reproduces the existing
  * `json.dumps(indent=2)` framing byte-for-byte across all tracked manifests, so
@@ -39,11 +37,12 @@ import { spawn } from "../lib/proc.ts"
 //   CONTAINMENT_ROOT — the file-safety boundary. An edited file must live under
 //     it or we skip it. The boundary is `parents[2]` ($HOME in the decoupled
 //     ~/.preemdeck layout, where the script lives at ~/.preemdeck/scripts/).
-//   REPO_ROOT — the cwd the formatters run in, so Biome finds `biome.json` and
-//     `uv` finds `pyproject.toml`. The Python ran formatters in `parents[2]`
-//     ($HOME); that's latently wrong for tool config discovery (Biome makes it a
-//     hard error when $HOME has its own biome.json — "nested root configuration"),
-//     so we deliberately run from the repo root where the project config lives.
+//   REPO_ROOT — the cwd the formatters run in, so Prettier finds
+//     `.prettierrc.json`/`.prettierignore` and Biome finds `biome.json`. Running
+//     from `parents[2]` ($HOME) is latently wrong for tool config discovery (Biome
+//     makes it a hard error when $HOME has its own biome.json — "nested root
+//     configuration"), so we deliberately run from the repo root where the project
+//     config lives.
 const SCRIPT_DIR = dirname(fileURLToPath(import.meta.url))
 const REPO_ROOT = dirname(SCRIPT_DIR)
 const CONTAINMENT_ROOT = dirname(REPO_ROOT)
@@ -57,15 +56,19 @@ const BIOME_BIN = resolve(REPO_ROOT, "node_modules", ".bin", "biome")
 const biomeCmd = async (): Promise<string[]> =>
     (await exists(BIOME_BIN)) ? [BIOME_BIN, "format", "--write"] : ["bun", "x", "@biomejs/biome", "format", "--write"]
 
-// Suffixes routed to Biome; resolved via `biomeCmd()` at format time (the others
-// are static, so they live in FORMATTERS directly).
+// Suffixes routed to Biome; resolved via `biomeCmd()` at format time.
 const BIOME_SUFFIXES = new Set([".ts", ".json"])
 
-const FORMATTERS: Record<string, string[]> = {
-    ".py": ["uv", "run", "--quiet", "ruff", "format"],
-    ".md": ["uv", "run", "--quiet", "mdformat"],
-    ".markdown": ["uv", "run", "--quiet", "mdformat"]
-}
+// The scaffold's Prettier binary, resolved relative to the script's own location.
+// Falls back to `bun x prettier` when node_modules isn't shipped alongside.
+const PRETTIER_BIN = resolve(REPO_ROOT, "node_modules", ".bin", "prettier")
+// Lazy-init for the same reason as `biomeCmd` — the binary probe is async and a
+// top-level await at module load is disallowed.
+const prettierCmd = async (): Promise<string[]> =>
+    (await exists(PRETTIER_BIN)) ? [PRETTIER_BIN, "--write"] : ["bun", "x", "prettier", "--write"]
+
+// Suffixes routed to Prettier; resolved via `prettierCmd()` at format time.
+const PRETTIER_SUFFIXES = new Set([".md", ".markdown", ".yml", ".yaml"])
 
 const FORMAT_TIMEOUT_MS = 30_000
 
@@ -107,7 +110,7 @@ const resolveInsideRoot = async (filePath: string): Promise<string | null> => {
         return null
     }
     // relative(root, abs) escaping the root starts with ".." (or is absolute on a
-    // different drive) — mirrors Python's path.relative_to(root) ValueError guard.
+    // different drive) — mirrors the reference path.relative_to(root) ValueError guard.
     const rel = relative(CONTAINMENT_ROOT, abs)
     if (rel === "" || rel.startsWith("..") || resolve(CONTAINMENT_ROOT, rel) !== abs) {
         return null
@@ -128,7 +131,12 @@ const suffix = (path: string): string => {
 /** Run the suffix-matched formatter on `path`. Errors warn on stderr; never throws. */
 const format = async (path: string): Promise<void> => {
     const sfx = suffix(path)
-    const cmd = BIOME_SUFFIXES.has(sfx) ? await biomeCmd() : FORMATTERS[sfx]
+    let cmd: string[] | undefined
+    if (BIOME_SUFFIXES.has(sfx)) {
+        cmd = await biomeCmd()
+    } else if (PRETTIER_SUFFIXES.has(sfx)) {
+        cmd = await prettierCmd()
+    }
     if (cmd === undefined) {
         return
     }
@@ -161,7 +169,7 @@ export const main = async (stdin: { text(): Promise<string> } = Bun.stdin): Prom
 }
 
 /**
- * Test surface — the containment root, suffix→formatter map, and the internal
+ * Test surface — the containment root, suffix→formatter maps, and the internal
  * helpers are re-exported so the unit tests can exercise them directly without
  * shelling out to a real formatter.
  */
@@ -170,8 +178,9 @@ export {
     biomeCmd,
     CONTAINMENT_ROOT,
     extractFilePath,
-    FORMATTERS,
     format,
+    PRETTIER_SUFFIXES,
+    prettierCmd,
     readPayload,
     resolveInsideRoot,
     suffix

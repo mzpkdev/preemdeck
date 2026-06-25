@@ -1,5 +1,5 @@
 /**
- * pyname.test.ts — pin pyName() to CPython `PurePosixPath(value).name`, the
+ * pyname.test.ts — pin pyName() to the reference `PurePosixPath(value).name`, the
  * anti-traversal guard for inject_mode/show_mode. The expected column was
  * captured from the interpreter, so any drift in the guard is caught here.
  */
@@ -7,8 +7,8 @@
 import { describe, expect, test } from "bun:test"
 import { pyName } from "./pyname.ts"
 
-describe("pyName matches CPython PurePosixPath(value).name", () => {
-    // [input, expected] — verified against python3.
+describe("pyName matches the reference PurePosixPath(value).name", () => {
+    // [input, expected] — verified against the reference.
     const cases: Array<[string, string]> = [
         ["..", ".."],
         [".", ""],

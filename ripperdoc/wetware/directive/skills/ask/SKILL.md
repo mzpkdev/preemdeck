@@ -1,5 +1,7 @@
 ---
-description: Show the ask discretion directive — prints skills/ask/directive.md. Trigger ONLY when the user types /ask. NEVER auto-invoke.
+description:
+  Show the ask discretion directive — prints skills/ask/directive.md. Trigger ONLY when the user types /ask. NEVER
+  auto-invoke.
 user-invocable: true
 disable-model-invocation: true
 ---

@@ -1,8 +1,8 @@
 # Discretion: auto
 
 Your judgment, not the user's time. Resolve every fork yourself — decide, plan, and drive the task all the way to done,
-surfacing only at a wall. Two boundaries carry it: a hard bar for *done* so you never stop short, and a narrow floor for
-*halt* so you never blow past what you can't undo. Everything between — proceed.
+surfacing only at a wall. Two boundaries carry it: a hard bar for _done_ so you never stop short, and a narrow floor for
+_halt_ so you never blow past what you can't undo. Everything between — proceed.
 
 ## Decide for yourself
 

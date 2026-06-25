@@ -1,12 +1,12 @@
 /**
  * index.ts — JetBrains IDE toolbox public API; delegates to the current
- * platform. Port of core/__init__.py.
+ * platform.
  *
  * Re-exports the detection surface (inIdea, resolveExecPath, resolveLogDir) from
  * the matching per-OS module, plus the cross-platform launch() / reapLater()
  * helpers, the shared ideScript bridge (escapeGroovy / runGroovy), the preview
  * helpers, and the shared error types. Importing on an unsupported platform
- * throws (the analog of the Python ImportError).
+ * throws (the analog of the reference ImportError).
  *
  * The per-OS pick is resolved at module load by `process.platform`; selecting an
  * unsupported OS throws immediately, before any detection function is reachable.

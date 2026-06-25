@@ -1,14 +1,14 @@
 /**
- * pyjson.test.ts — pin pyJsonString/injectionEnvelope to CPython's default
+ * pyjson.test.ts — pin pyJsonString/injectionEnvelope to the reference default
  * json.dumps (ensure_ascii=True, ", "/": " separators). Expected values captured
- * from the interpreter; these guard the byte-parity of every injection hook.
+ * from the reference; these guard the byte-parity of every injection hook.
  */
 
 import { describe, expect, test } from "bun:test"
 import { injectionEnvelope, pyJsonString } from "./pyjson.ts"
 
-describe("pyJsonString matches CPython json.dumps(s)", () => {
-    // [input, expected json.dumps output] — captured from python3.
+describe("pyJsonString matches the reference json.dumps(s)", () => {
+    // [input, expected json.dumps output] — captured from the reference.
     const cases: Array<[string, string]> = [
         ["a\tb\nc\r", '"a\\tb\\nc\\r"'],
         ['q"q', '"q\\"q"'],
@@ -32,7 +32,7 @@ describe("pyJsonString matches CPython json.dumps(s)", () => {
 })
 
 describe("injectionEnvelope", () => {
-    test("matches the Python json.dumps envelope shape (spaced separators)", () => {
+    test("matches the reference json.dumps envelope shape (spaced separators)", () => {
         expect(injectionEnvelope("UserPromptSubmit", "hello — world")).toBe(
             '{"hookSpecificOutput": {"hookEventName": "UserPromptSubmit", "additionalContext": "hello \\u2014 world"}}'
         )

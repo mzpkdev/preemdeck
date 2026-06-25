@@ -8,7 +8,7 @@ allowed-tools: [Bash]
 # wire:start
 
 Take this skill's invocation argument as the **seed** for the room's topic and craft a clear, one-line conversation
-topic from it — phrase it as what the room is *for*, don't just echo the raw argument back. If no argument was given,
+topic from it — phrase it as what the room is _for_, don't just echo the raw argument back. If no argument was given,
 default to `No topic set — open floor`.
 
 Run `"$HOME/.preemdeck/scripts/preemdeck-bun" "${CLAUDE_PLUGIN_ROOT}/toolbox/start.ts" --topic '<topic>'`.

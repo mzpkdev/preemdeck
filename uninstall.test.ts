@@ -1,11 +1,11 @@
 /**
- * uninstall.test.ts — bun-test port of tests/test_uninstall.py.
+ * uninstall.test.ts — bun-test suite for uninstall.ts.
  *
  * spawn seam — override install's `_internals.spawn` (runCli/unregister route
  *   through it) — NOT mock.module on the shared ./lib/proc.ts, which leaks into
  *   lib/proc.test.ts. Captures the exact argv and scripts exit codes/stderr.
- *   Faithful TS equivalent of the Python `patch("install.run_cli")`.
- * MOCK PATTERN E — tmp fixture for manifest + overlay FS (Python monkeypatches
+ *   Faithful TS equivalent of the original `patch("install.run_cli")`.
+ * MOCK PATTERN E — tmp fixture for manifest + overlay FS (the original monkeypatches
  *   uninstall.REPO_ROOT; the TS port threads repoRoot into loadManifestOrExit /
  *   writeManifest / main, so we point those at an mkdtemp dir).
  * MOCK PATTERN F — spyOn(process,"exit") for the bail-out exit codes.

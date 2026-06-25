@@ -1,11 +1,11 @@
 /**
  * app.test.ts — the HTTP layer over the frozen room core. Port of the
- * load-bearing cases in server/tests/test_api.py + server/tests/test_spectate.py.
+ * load-bearing cases from the original wire's API + spectate suites.
  *
  * Drives the app via `app.fetch(new Request(...))` (Hono's fetch handler) — no
  * real port bound for the JSON cases. SSE (/spectate) reads the streamed Response
  * body incrementally under a bounded frame-count + timeout, then cancels, so the
- * endless stream can never hang the test (mirrors the Python ASGI harness).
+ * endless stream can never hang the test (mirrors the original ASGI harness).
  *
  * The one-status-401 contract (three distinct bodies), the jackin -> send ->
  * recv loop, jackout, the heartbeat, /schema honesty, the SSE snapshot/event/
@@ -654,7 +654,7 @@ describe("wire HTTP app", () => {
             }
         })
 
-        it("the plain routes document a 200 success body (matching the Python doc)", async () => {
+        it("the plain routes document a 200 success body (matching the original doc)", async () => {
             const { app } = makeApp()
             const doc = await schemaDoc(app)
             // /send returns JSON shaped by SendResponse (a component $ref).
@@ -825,7 +825,7 @@ describe("wire HTTP app", () => {
             expect(ld.peer).toBe("peer-2")
         })
 
-        it("frames the lines id: -> event: -> data:, byte-identical to Python", async () => {
+        it("frames the lines id: -> event: -> data:, byte-identical to the original", async () => {
             // The line ORDER is the contract (parseFrame above is order-agnostic).
             // Read the raw stream bytes: the snapshot has NO id: (event: then
             // data:); an event frame leads with id:, then event:, then data:.

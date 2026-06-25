@@ -1,13 +1,12 @@
 #!/usr/bin/env bun
 /**
- * install.ts — preemdeck installer (TS port of install.py, behavior-identical v1).
+ * install.ts — preemdeck installer (behavior-identical v1).
  *
  * Registers the marketplace (claude/codex) or installs per-extension (gemini) for
  * ONE harness, copies the per-harness overlay into the host config dir, and writes
- * the install manifest. Additive port: install.py stays the live entrypoint until
- * the flip phase. Subprocess shell-outs go through lib/proc.ts `spawn` (the
+ * the install manifest. Subprocess shell-outs go through lib/proc.ts `spawn` (the
  * timeout/kill is solved there); the .bak/.bak.<ts> backup scheme, the schema-1
- * manifest shape, and every printed line are byte-identical to the Python.
+ * manifest shape, and every printed line are byte-identical to the original.
  */
 
 import { copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
@@ -140,7 +139,7 @@ export async function runCli(cmd: string[], dryRun: boolean): Promise<[boolean, 
     result = await _internals.spawn(cmd, { timeoutMs: 10_000 });
   } catch (err) {
     // Bun.spawn rejects (ENOENT) when cmd[0] is not on PATH — the lib/proc.ts
-    // spawn does not swallow it. Mirror the Python FileNotFoundError branch.
+    // spawn does not swallow it. Mirror the original's FileNotFoundError branch.
     if (isNotFound(err)) {
       return [false, `${cmd[0]} not on PATH`];
     }
@@ -338,44 +337,6 @@ export function writeManifest(
 }
 
 /**
- * Install every workspace package's runtime deps into the shared .venv via uv.
- *
- * The repo is a uv workspace (root pyproject `[tool.uv.workspace]`); `uv sync
- * --all-packages --no-dev` resolves and installs each app's deps (e.g. wire's
- * fastapi/uvicorn/pydantic) without the root dev group. Non-fatal: a missing uv
- * or a failed sync prints a warning and lets the install continue.
- *
- * KEEP THE WIRE SEAM: wire stays Python, so this uv shell-out survives the port.
- */
-export async function bootstrapWorkspace(repoRoot: string, dryRun: boolean): Promise<void> {
-  if (!(await onPath("uv"))) {
-    console.log(`  ${CROSS} uv not found — skipping dependency bootstrap; install uv and re-run`);
-    return;
-  }
-  if (dryRun) {
-    console.log(`  (dry-run) would run: uv sync --all-packages --no-dev (cwd=${repoRoot})`);
-    return;
-  }
-  const result = await _internals.spawn(["uv", "sync", "--all-packages", "--no-dev"], {
-    cwd: repoRoot,
-    timeoutMs: 300_000,
-  });
-  if (result.timedOut) {
-    process.stderr.write(`  ${CROSS} dependency bootstrap timed out after 300s\n`);
-    return;
-  }
-  if (result.exitCode === 0) {
-    console.log(`  ${CHECK} dependency bootstrap: synced workspace packages`);
-  } else {
-    const tail = (result.stderr.trim() || result.stdout.trim() || "non-zero exit").split("\n").slice(-5);
-    process.stderr.write(`  ${CROSS} dependency bootstrap failed:\n`);
-    for (const line of tail) {
-      process.stderr.write(`      ${line}\n`);
-    }
-  }
-}
-
-/**
  * Install the TS plugins' npm deps into the gitignored node_modules via bun.
  *
  * The dock toolboxes and the TS wire server import npm packages (cmdore via a
@@ -410,7 +371,7 @@ export async function bootstrapNodeModules(repoRoot: string, dryRun: boolean): P
   }
 }
 
-/** Whether `bin` resolves on PATH (mirrors Python shutil.which truthiness). */
+/** Whether `bin` resolves on PATH (mirrors the original's shutil.which truthiness). */
 async function onPath(bin: string): Promise<boolean> {
   const result = await _internals.spawn(["sh", "-c", `command -v "$1" >/dev/null 2>&1`, "sh", bin]);
   return result.exitCode === 0;
@@ -422,7 +383,7 @@ export interface CliArgs {
 }
 
 export function parseInstallArgs(argv: string[]): CliArgs {
-  const prog = "install.py";
+  const prog = "install.ts";
   let parsed: ReturnType<typeof parseArgs<{ options: { "dry-run": { type: "boolean" } }; allowPositionals: true }>>;
   try {
     parsed = parseArgs({
@@ -486,7 +447,6 @@ export async function installFor(harness: string, dryRun: boolean): Promise<numb
   }
   console.log();
 
-  await bootstrapWorkspace(REPO_ROOT, dryRun);
   await bootstrapNodeModules(REPO_ROOT, dryRun);
 
   const [ok, err, overlay] = copyOverlay(harness, REPO_ROOT, configDir(harness), dryRun);

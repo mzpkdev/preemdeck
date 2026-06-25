@@ -5,7 +5,7 @@
  * fixture for the containment / file-existence logic — no fs mocking). The pure
  * helpers (payload parse, path extraction, suffix map) are asserted directly; the
  * end-to-end "right formatter actually runs" check is the behavioral verification
- * step, not a unit test (it would shell out to biome/ruff/mdformat).
+ * step, not a unit test (it would shell out to biome/prettier).
  */
 
 import { afterEach, beforeEach, describe, expect, test } from "bun:test"
@@ -17,7 +17,8 @@ import {
     biomeCmd,
     CONTAINMENT_ROOT,
     extractFilePath,
-    FORMATTERS,
+    PRETTIER_SUFFIXES,
+    prettierCmd,
     readPayload,
     resolveInsideRoot,
     suffix
@@ -70,11 +71,11 @@ describe("suffix", () => {
         expect(suffix("/a/b.Markdown")).toBe(".markdown")
         expect(suffix("/a/no_ext")).toBe("")
         expect(suffix("/a/.bashrc")).toBe("")
-        expect(suffix("/a.b/c.py")).toBe(".py")
+        expect(suffix("/a.b/c.yaml")).toBe(".yaml")
     })
 })
 
-describe("FORMATTERS map", () => {
+describe("formatter map", () => {
     test(".ts and .json both route to biome (via biomeCmd, lazily resolved)", async () => {
         expect(BIOME_SUFFIXES.has(".ts")).toBe(true)
         expect(BIOME_SUFFIXES.has(".json")).toBe(true)
@@ -84,18 +85,21 @@ describe("FORMATTERS map", () => {
         expect(cmd).toContain("--write")
     })
 
-    test(".py -> uv run ruff format", () => {
-        expect(FORMATTERS[".py"]).toEqual(["uv", "run", "--quiet", "ruff", "format"])
-    })
-
-    test(".md / .markdown -> uv run mdformat", () => {
-        expect(FORMATTERS[".md"]).toEqual(["uv", "run", "--quiet", "mdformat"])
-        expect(FORMATTERS[".markdown"]).toEqual(["uv", "run", "--quiet", "mdformat"])
+    test(".md / .markdown / .yml / .yaml all route to prettier (via prettierCmd, lazily resolved)", async () => {
+        expect(PRETTIER_SUFFIXES.has(".md")).toBe(true)
+        expect(PRETTIER_SUFFIXES.has(".markdown")).toBe(true)
+        expect(PRETTIER_SUFFIXES.has(".yml")).toBe(true)
+        expect(PRETTIER_SUFFIXES.has(".yaml")).toBe(true)
+        const cmd = await prettierCmd()
+        expect(cmd.join(" ")).toContain("prettier")
+        expect(cmd).toContain("--write")
     })
 
     test("no formatter for unknown suffixes", () => {
-        expect(FORMATTERS[".rs"]).toBeUndefined()
-        expect(FORMATTERS[""]).toBeUndefined()
+        expect(BIOME_SUFFIXES.has(".rs")).toBe(false)
+        expect(PRETTIER_SUFFIXES.has(".rs")).toBe(false)
+        expect(BIOME_SUFFIXES.has("")).toBe(false)
+        expect(PRETTIER_SUFFIXES.has("")).toBe(false)
     })
 })
 

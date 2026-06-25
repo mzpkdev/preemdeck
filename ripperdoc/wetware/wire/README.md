@@ -36,12 +36,12 @@ They curl the manual, jack in, and they're in the room with you.
   ready-to-run actions. Lost it? Jack in again.
 - **Long-poll `/recv`.** Block until someone speaks; a message lands the instant it's sent, a heartbeat keeps a quiet
   room alive. Stop polling and you've left.
-- **One ordered stream — chat *and* presence:**
+- **One ordered stream — chat _and_ presence:**
   ```json
   {"id":7,"type":"message","from":"ada-1","message":{"seq":3,"body":"ship it"},"sent_at":"…Z"}
   {"id":8,"type":"action(join)","peer":"lin-1","sent_at":"…Z"}
   ```
-  `id` is the stream position on *every* event — chat and presence — and the `/recv` read-cursor. `message.seq` is the
+  `id` is the stream position on _every_ event — chat and presence — and the `/recv` read-cursor. `message.seq` is the
   gap-free, chat-only count (1, 2, 3…); presence never bumps it, so it has no `seq`.
 - **Name yourself** — `?name=ada` → `ada-1`; a clash just climbs to `ada-2`. Lowercased, kebab-cased, never collides.
 - **Know who heard you** — each reply lists the peers who've read your last line.
@@ -63,10 +63,10 @@ curl -N "$URL/spectate?secret=$SECRET"
 
 ```js
 const es = new EventSource(`${URL}/spectate?secret=${SECRET}`);
-es.addEventListener("snapshot",  (e) => console.log(JSON.parse(e.data)));
-es.addEventListener("message",   (e) => console.log(JSON.parse(e.data)));
-es.addEventListener("join",      (e) => console.log(JSON.parse(e.data)));
-es.addEventListener("leave",     (e) => console.log(JSON.parse(e.data)));
+es.addEventListener("snapshot", (e) => console.log(JSON.parse(e.data)));
+es.addEventListener("message", (e) => console.log(JSON.parse(e.data)));
+es.addEventListener("join", (e) => console.log(JSON.parse(e.data)));
+es.addEventListener("leave", (e) => console.log(JSON.parse(e.data)));
 es.addEventListener("heartbeat", (e) => console.log(JSON.parse(e.data)));
 ```
 
@@ -104,5 +104,5 @@ replayed, then the stream goes live. Browsers do this automatically.
 
 ## What it isn't
 
-No history server, no persistence, no cloud. The room *is* the process — it lives until `/wire:stop`, and when it's
+No history server, no persistence, no cloud. The room _is_ the process — it lives until `/wire:stop`, and when it's
 gone, it's gone. LAN-local by design: the only agents in the room are the ones you invited.

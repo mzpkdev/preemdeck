@@ -4,7 +4,7 @@ How hooks see and shape an agent's work, **shipped from inside a plugin** (not p
 JSON-over-stdio contract on every host, but event names, payload nesting, and decision fields diverge. Cross-host
 details in [CLAUDE_CODEX_GEMINI.md](../CLAUDE_CODEX_GEMINI.md).
 
-______________________________________________________________________
+---
 
 ## Where hooks plug in
 
@@ -24,10 +24,10 @@ host                  hook
   ▼
 ```
 
-A hook *does not* run inside the agent. It runs in a subprocess with the host's environment, the project's `cwd`, and a
+A hook _does not_ run inside the agent. It runs in a subprocess with the host's environment, the project's `cwd`, and a
 host-provided timeout. Anything it learns must arrive on stdin; anything it changes must leave on stdout.
 
-______________________________________________________________________
+---
 
 ## Event catalog
 
@@ -50,10 +50,10 @@ Same semantic moments, different names. Pick by the role, then translate.
 | File or cwd change        | `FileChanged` / `CwdChanged`             | —                   | —                     |
 | Worktree lifecycle        | `WorktreeCreate` / `WorktreeRemove`      | —                   | —                     |
 
-Treat an event as a *semantic role*, not a string — adapters remap by role. Claude's catalog is largest; Codex stays
+Treat an event as a _semantic role_, not a string — adapters remap by role. Claude's catalog is largest; Codex stays
 small but load-bearing; Gemini uniquely sits between the LLM and tool selection.
 
-______________________________________________________________________
+---
 
 ## Matchers
 
@@ -74,19 +74,17 @@ that silently misses calls.
 { "matcher": "mcp__github__.*" }
 ```
 
-Claude tool events additionally accept an `if` field using *permission-rule* syntax — only spawns the hook when both the
+Claude tool events additionally accept an `if` field using _permission-rule_ syntax — only spawns the hook when both the
 matcher and the rule match. Use it to keep the matcher broad and the gate precise.
 
 ```jsonc
 {
   "matcher": "Bash",
-  "hooks": [
-    { "type": "command", "if": "Bash(rm *)", "command": "./block-rm.sh" }
-  ]
+  "hooks": [{ "type": "command", "if": "Bash(rm *)", "command": "./block-rm.sh" }],
 }
 ```
 
-______________________________________________________________________
+---
 
 ## Stdin payload
 
@@ -102,7 +100,7 @@ Common base fields land on every host. Event-specific fields land on the relevan
 
   "tool_name": "Write",
   "tool_input": {
-    "file_path": "/path/to/file.py",
+    "file_path": "/path/to/file.ts",
     "content": "…"
   },
   "tool_use_id": "tool-use-123"
@@ -125,7 +123,7 @@ Common base fields land on every host. Event-specific fields land on the relevan
 Read stdin once, parse once. Don't assume optional fields exist — `tool_input.file_path` is `Write`-shaped on Claude but
 absent on a `Bash` call.
 
-______________________________________________________________________
+---
 
 ## Stdout: decision payload
 
@@ -184,11 +182,11 @@ keeping most other fields (`decision`, `reason`, `updatedInput`) top-level. Smok
 silently-dropped fields look like a working hook that does nothing.
 
 For `SessionStart` specifically, Claude and Codex also accept plain (non-JSON) stdout — the host treats it as
-`additionalContext` automatically. Gemini does not — its docs say *"Your script must not print any plain text to stdout
-other than the final JSON."* Cross-host hooks emit the envelope; reach for plain stdout only if you're
+`additionalContext` automatically. Gemini does not — its docs say _"Your script must not print any plain text to stdout
+other than the final JSON."_ Cross-host hooks emit the envelope; reach for plain stdout only if you're
 Claude+Codex-only.
 
-______________________________________________________________________
+---
 
 ## Exit code semantics
 
@@ -201,10 +199,10 @@ The exit code is the load-bearing signal. Stdout is parsed only when the code sa
 | other | non-blocking error; stderr shown in transcript | proceeds with warning | warning; CLI continues   |
 
 Exit-2 behavior is event-shaped on Claude — most events block, but `PostToolUse`, `PermissionDenied`, `Notification`,
-and `SessionEnd` cannot block (the action already happened). `WorktreeCreate` treats *any* non-zero exit as failure.
+and `SessionEnd` cannot block (the action already happened). `WorktreeCreate` treats _any_ non-zero exit as failure.
 Read the [Claude Code hooks reference][1] when adopting an exotic event.
 
-______________________________________________________________________
+---
 
 ## Hook handler types
 
@@ -222,7 +220,7 @@ all.
 
 A cross-host hook stays on `type: "command"`. Use `type: "http"` only in Claude-only plugins.
 
-______________________________________________________________________
+---
 
 ## Plugin layout
 
@@ -236,34 +234,38 @@ collide.
 ├── .codex-plugin/plugin.json      ── Codex manifest + inline `hooks` block
 ├── gemini-extension.json          ── Gemini manifest + inline `hooks` block (at root, not in a subdir)
 └── scripts/
-    └── <name>_hook.py             ── shared executable; one source of truth
+    └── <name>-hook.ts            ── shared executable (run via the pinned preemdeck-bun shim); one source of truth
 ```
 
-The `_hook` suffix marks the file as a hook script (distinguishes it from skill helpers, install scripts, or other
+The `-hook` suffix marks the file as a hook script (distinguishes it from skill helpers, install scripts, or other
 `scripts/` contents). Each host reads only its own manifest's `hooks` block — Claude/Codex use `PreToolUse` /
 `PostToolUse`, Gemini uses `BeforeTool` / `AfterTool`, so event-name differences sit naturally in separate files.
 
-______________________________________________________________________
+---
 
 ## Config shape — inline per manifest
 
-The shared `<name>_hook.py` lives at `<plugin>/scripts/<name>_hook.py`. Each manifest carries its own `hooks` block
-pointing at the same script.
+The shared `<name>-hook.ts` lives at `<plugin>/scripts/<name>-hook.ts`. Each manifest carries its own `hooks` block
+pointing at the same script through the pinned `preemdeck-bun` shim.
 
 ```jsonc
 // .claude-plugin/plugin.json — Claude
 {
   "name": "...",
   "hooks": {
-    "PostToolUse": [{
-      "matcher": "(Edit|Write|MultiEdit)",
-      "hooks": [{
-        "type": "command",
-        "command": "${CLAUDE_PLUGIN_ROOT}/scripts/format_on_edit_hook.py",
-        "timeout": 30
-      }]
-    }]
-  }
+    "PostToolUse": [
+      {
+        "matcher": "(Edit|Write|MultiEdit)",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"${CLAUDE_PLUGIN_ROOT}/scripts/preemdeck-bun\" \"${CLAUDE_PLUGIN_ROOT}/scripts/format-on-edit.ts\"",
+            "timeout": 30,
+          },
+        ],
+      },
+    ],
+  },
 }
 ```
 
@@ -272,15 +274,19 @@ pointing at the same script.
 {
   "name": "...",
   "hooks": {
-    "PostToolUse": [{
-      "matcher": "(apply_patch|Edit|Write)",                       // Edit/Write are matcher aliases for apply_patch
-      "hooks": [{
-        "type": "command",
-        "command": "${CLAUDE_PLUGIN_ROOT}/scripts/format_on_edit_hook.py",
-        "timeout": 30
-      }]
-    }]
-  }
+    "PostToolUse": [
+      {
+        "matcher": "(apply_patch|Edit|Write)", // Edit/Write are matcher aliases for apply_patch
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"${CLAUDE_PLUGIN_ROOT}/scripts/preemdeck-bun\" \"${CLAUDE_PLUGIN_ROOT}/scripts/format-on-edit.ts\"",
+            "timeout": 30,
+          },
+        ],
+      },
+    ],
+  },
 }
 ```
 
@@ -289,15 +295,19 @@ pointing at the same script.
 {
   "name": "...",
   "hooks": {
-    "AfterTool": [{
-      "matcher": "(write_.*|replace)",                             // Gemini's tool names (`edit` is `replace`'s display name)
-      "hooks": [{
-        "type": "command",
-        "command": "${extensionPath}/scripts/format_on_edit_hook.py",
-        "timeout": 30
-      }]
-    }]
-  }
+    "AfterTool": [
+      {
+        "matcher": "(write_.*|replace)", // Gemini's tool names (`edit` is `replace`'s display name)
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"${extensionPath}/scripts/preemdeck-bun\" \"${extensionPath}/scripts/format-on-edit.ts\"",
+            "timeout": 30,
+          },
+        ],
+      },
+    ],
+  },
 }
 ```
 
@@ -308,7 +318,7 @@ Three things port unchanged: the script, `type: "command"`, and `timeout`. Three
 (Pre/Post vs Before/After), the matcher (because tool names differ), and the env-var placeholder for the plugin root —
 each manifest holds its own copy, so the divergence stays clean.
 
-______________________________________________________________________
+---
 
 ## Plugin discovery and trust
 
@@ -327,14 +337,14 @@ menu lets users review, trust, or disable individual hooks after install.
 Project-local and user-layer hook configs still exist (`.claude/settings.json`, `.codex/config.toml`,
 `.gemini/settings.json`) — this doc is about the plugin layer, the wiring that travels with the install.
 
-______________________________________________________________________
+---
 
 ## Read it in code
 
-`scripts/format_on_edit.py` is the canonical implementation. Read stdin once, decide quickly, exit `0` even on internal
-failure unless the agent *must* be stopped. See [BEST_PRACTICES.md](BEST_PRACTICES.md) for why.
+`scripts/format-on-edit.ts` is the canonical implementation. Read stdin once, decide quickly, exit `0` even on internal
+failure unless the agent _must_ be stopped. See [BEST_PRACTICES.md](BEST_PRACTICES.md) for why.
 
-______________________________________________________________________
+---
 
 ## Quick checklist
 

@@ -37,8 +37,8 @@ afterEach(async () => {
 describe("diff-file CLI", () => {
     context("on a live IDE", () => {
         it("exits 0 and writes nothing to stdout under --dry-run", async () => {
-            const target = path.join(directory, "target.py")
-            const suggestion = path.join(directory, "suggestion.py")
+            const target = path.join(directory, "target.ts")
+            const suggestion = path.join(directory, "suggestion.ts")
             await fs.writeFile(target, TARGET)
             await fs.writeFile(suggestion, SUGGESTION)
             const { code, stdout, stderr } = await run(["--dry-run", target, suggestion])
@@ -48,8 +48,8 @@ describe("diff-file CLI", () => {
         })
 
         it("prints the LEFT (target) pane back to stdout under --wait", async () => {
-            const target = path.join(directory, "target.py")
-            const suggestion = path.join(directory, "suggestion.py")
+            const target = path.join(directory, "target.ts")
+            const suggestion = path.join(directory, "suggestion.ts")
             await fs.writeFile(target, TARGET)
             await fs.writeFile(suggestion, SUGGESTION)
             const { code, stdout } = await run(["--wait", "--dry-run", target, suggestion])
@@ -58,9 +58,9 @@ describe("diff-file CLI", () => {
         })
 
         it("exits 1 when an input path does not exist", async () => {
-            const target = path.join(directory, "target.py")
+            const target = path.join(directory, "target.ts")
             await fs.writeFile(target, TARGET)
-            const { code, stdout, stderr } = await run(["--dry-run", target, path.join(directory, "nope.py")])
+            const { code, stdout, stderr } = await run(["--dry-run", target, path.join(directory, "nope.ts")])
             expect(code).toBe(1)
             expect(stdout).toBe("")
             expect(stderr).not.toBe("")
@@ -69,8 +69,8 @@ describe("diff-file CLI", () => {
 
     context("without a live IDE", () => {
         it("exits 1 with the IdeaError on stderr", async () => {
-            const target = path.join(directory, "target.py")
-            const suggestion = path.join(directory, "suggestion.py")
+            const target = path.join(directory, "target.ts")
+            const suggestion = path.join(directory, "suggestion.ts")
             await fs.writeFile(target, TARGET)
             await fs.writeFile(suggestion, SUGGESTION)
             const { code, stdout, stderr } = await run([target, suggestion], { PREEMDECK_FORCE_IN_IDEA: "0" })
@@ -82,8 +82,8 @@ describe("diff-file CLI", () => {
 
     context("given malformed arguments", () => {
         it.each([
-            ["a missing required suggestion", ["only.py"], 'An argument "suggestion" is required.'],
-            ["an unknown flag", ["--bogus", "a.py", "b.py"], 'An option "--bogus" is unknown.'],
+            ["a missing required suggestion", ["only.ts"], 'An argument "suggestion" is required.'],
+            ["an unknown flag", ["--bogus", "a.ts", "b.ts"], 'An option "--bogus" is unknown.'],
             ["a missing required target", [], 'An argument "target" is required.']
         ] as [string, string[], string][])("exits 2 given %s", async (_label, args, fragment) => {
             const { code, stderr } = await run(args)

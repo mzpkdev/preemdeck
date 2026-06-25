@@ -15,7 +15,7 @@ allowed-tools: [Bash]
 
 # idea:using
 
-A manual for the **idea toolbox** — a set of small CLIs that drive the *currently running* JetBrains IDE from the
+A manual for the **idea toolbox** — a set of small CLIs that drive the _currently running_ JetBrains IDE from the
 terminal: open files/URLs, show diffs, present code suggestions, run 3-way merges, tail the IDE log, and pop
 notification balloons.
 
@@ -32,7 +32,7 @@ browser/editor fallback**: if the terminal is not running inside a JetBrains IDE
   flag, missing required argument, non-integer `--line`, bad `notify --type`/`--action`) is a **usage** error and exits
   `2`. Runtime failures stay `1`: the diff/merge tools resolve their paths strictly and exit `1` on a missing input
   before launch; `read-logs` exits `1` if the log dir can't be resolved.
-- The IDE is the one that *launched* the process, not whichever is focused. Switching focus does not retarget it;
+- The IDE is the one that _launched_ the process, not whichever is focused. Switching focus does not retarget it;
   quitting the launching IDE makes the tools fail rather than hit a different IDE.
 
 So before relying on these, confirm you're in a JetBrains terminal with `in-idea.ts` (exit `0` inside, `1` outside):
@@ -47,7 +47,7 @@ So before relying on these, confirm you're in a JetBrains terminal with `in-idea
 The tools live in the plugin's `toolbox/` dir and are run through the **preemdeck-bun shim** by **absolute path**. The
 shim (`$HOME/.preemdeck/scripts/preemdeck-bun`) runs the bundled Bun runtime against the `.ts` tool. Anchor on
 `${CLAUDE_PLUGIN_ROOT}` (this plugin's root) so it works from any working directory — the run is **cwd-independent**
-(you do *not* need to `cd` into the toolbox):
+(you do _not_ need to `cd` into the toolbox):
 
 ```bash
 "$HOME/.preemdeck/scripts/preemdeck-bun" "${CLAUDE_PLUGIN_ROOT}/toolbox/<tool>.ts" [args…]
@@ -75,7 +75,7 @@ temps are removed synchronously; on fire-and-forget they're handed to a deferred
 
 Every tool also takes the standard set: `-h/--help` (the `USAGE` / `ARGUMENTS` / `OPTIONS` block shown per tool below),
 `-v/--version`, `--quiet` (mute output), `--verbose`, `--json`, `--no-colors`, and `--dry-run`. **`--dry-run` skips the
-IDE side-effect** — for the write tools (`open-*`, `diff-*`, `merge-*`, `notify`) it records the action but does *not*
+IDE side-effect** — for the write tools (`open-*`, `diff-*`, `merge-*`, `notify`) it records the action but does _not_
 launch the IDE / run the groovy, so use it to rehearse an invocation without popping anything in the editor. (Note
 `--quiet` only mutes output; on `in-idea` it does **not** affect the exit-code gate — use `-q/--silent` for that.)
 
@@ -85,7 +85,7 @@ Pick the tool from what the user asked for:
 
 | The user says…                                                             | Tool              |
 | -------------------------------------------------------------------------- | ----------------- |
-| "open `<file>` in the IDE", "jump to line N", "pull up `app.py`"           | `open-file.ts`    |
+| "open `<file>` in the IDE", "jump to line N", "pull up `app.ts`"           | `open-file.ts`    |
 | "open `<url>`", "preview localhost:3000", "show that page in the IDE"      | `open-url.ts`     |
 | "show me this snippet/string", "open this text", "render this markdown"    | `open-inline.ts`  |
 | "diff these two files", "show the diff", "review this change side by side" | `diff-file.ts`    |
@@ -99,11 +99,11 @@ Rules of thumb:
 
 - A **file on disk** → the `_file` variants. A **string you already hold** (a snippet, generated text, a draft) → the
   `_inline` variants.
-- Just *showing* a suggestion read-only → `open-inline`/`diff-inline`. Letting the user *accept it into* a file →
+- Just _showing_ a suggestion read-only → `open-inline`/`diff-inline`. Letting the user _accept it into_ a file →
   `merge-inline` (or `diff_*` `--wait`, where the user pulls chunks into the LEFT pane and you read it back).
 - Need to **read back** the user's edits/decision → add `--wait`.
 
-______________________________________________________________________
+---
 
 ## open-file.ts — open a file in the IDE
 
@@ -124,7 +124,7 @@ prints the file's full text (whether or not it was edited).
 **When to use:** the user wants a real file opened, or wants to land on a specific line.
 
 ```bash
-"$HOME/.preemdeck/scripts/preemdeck-bun" "$TB/open-file.ts" src/app.py --line 42      # jump to line 42, fire-and-forget
+"$HOME/.preemdeck/scripts/preemdeck-bun" "$TB/open-file.ts" src/app.ts --line 42      # jump to line 42, fire-and-forget
 "$HOME/.preemdeck/scripts/preemdeck-bun" "$TB/open-file.ts" notes.md --wait           # block until closed, then print the file
 "$HOME/.preemdeck/scripts/preemdeck-bun" "$TB/open-file.ts" README.md --preview       # open, then flip to rendered preview
 ```
@@ -141,7 +141,7 @@ Open `url` in the IDE's embedded JCEF web-preview tab. Fire-and-forget (there's 
 - `url` — must be a non-empty **http/https** URL (anything else → usage note, exit 1).
 - `--title TITLE` — tab label (the tab shows `Preview of <title>`); defaults to the URL's host[:port].
 
-**When to use:** the user wants to view a page/dev-server *inside* the IDE.
+**When to use:** the user wants to view a page/dev-server _inside_ the IDE.
 
 ```bash
 "$HOME/.preemdeck/scripts/preemdeck-bun" "$TB/open-url.ts" http://localhost:3000              # preview a local dev server
@@ -159,7 +159,7 @@ any generated text you're holding as a string (no need to write a file first).
 
 - `inline` — the literal string to open.
 - `--suffix SUFFIX` — temp-file suffix; the IDE uses it to pick syntax highlighting (default `.txt`). E.g.
-  `--suffix .py`, `--suffix .md`.
+  `--suffix .ts`, `--suffix .md`.
 - `--wait` — block until the tab closes, then print the (possibly edited) contents to stdout.
 - `--preview` — after opening, flip to rendered preview (pair with `--suffix .md`/`.html`).
 
@@ -167,7 +167,7 @@ any generated text you're holding as a string (no need to write a file first).
 the user's edits.
 
 ```bash
-"$HOME/.preemdeck/scripts/preemdeck-bun" "$TB/open-inline.ts" "$snippet" --suffix .py        # open with .py highlighting
+"$HOME/.preemdeck/scripts/preemdeck-bun" "$TB/open-inline.ts" "$snippet" --suffix .ts        # open with .ts highlighting
 "$HOME/.preemdeck/scripts/preemdeck-bun" "$TB/open-inline.ts" "$snippet" --wait              # block until closed, then print
 "$HOME/.preemdeck/scripts/preemdeck-bun" "$TB/open-inline.ts" "$md" --suffix .md --preview   # open, then flip to rendered preview
 ```
@@ -191,8 +191,8 @@ path fails before launch (exit 1).
 user's/current file on the LEFT (`target`) so `--wait` reads back the reconciled result.
 
 ```bash
-"$HOME/.preemdeck/scripts/preemdeck-bun" "$TB/diff-file.ts" mine.py theirs.py          # open the diff, fire-and-forget
-"$HOME/.preemdeck/scripts/preemdeck-bun" "$TB/diff-file.ts" mine.py theirs.py --wait   # block until closed, then print LEFT
+"$HOME/.preemdeck/scripts/preemdeck-bun" "$TB/diff-file.ts" mine.ts theirs.ts          # open the diff, fire-and-forget
+"$HOME/.preemdeck/scripts/preemdeck-bun" "$TB/diff-file.ts" mine.ts theirs.ts --wait   # block until closed, then print LEFT
 ```
 
 ## diff-inline.ts — 2-way diff of two strings
@@ -212,7 +212,7 @@ Same as `diff-file.ts` but each side is a string (spilled to a temp file). `targ
 vs a proposed rewrite.
 
 ```bash
-"$HOME/.preemdeck/scripts/preemdeck-bun" "$TB/diff-inline.ts" "$old" "$new" --suffix .py   # diff with .py highlighting
+"$HOME/.preemdeck/scripts/preemdeck-bun" "$TB/diff-inline.ts" "$old" "$new" --suffix .ts   # diff with .ts highlighting
 "$HOME/.preemdeck/scripts/preemdeck-bun" "$TB/diff-inline.ts" "$old" "$new" --wait         # block until closed, then print LEFT
 ```
 
@@ -235,8 +235,8 @@ and then prints the merged result. Inputs are resolved strictly (missing path �
 **When to use:** the user wants to reconcile two file versions, optionally against a base.
 
 ```bash
-"$HOME/.preemdeck/scripts/preemdeck-bun" "$TB/merge-file.ts" mine.py theirs.py base.py   # 3-way merge with a base
-"$HOME/.preemdeck/scripts/preemdeck-bun" "$TB/merge-file.ts" mine.py theirs.py --wait    # block until applied, then print
+"$HOME/.preemdeck/scripts/preemdeck-bun" "$TB/merge-file.ts" mine.ts theirs.ts base.ts   # 3-way merge with a base
+"$HOME/.preemdeck/scripts/preemdeck-bun" "$TB/merge-file.ts" mine.ts theirs.ts --wait    # block until applied, then print
 ```
 
 ## merge-inline.ts — 3-way merge of strings (optional base)
@@ -256,7 +256,7 @@ proposed snippet into their version** without writing files first.
 **When to use:** "merge this suggestion into my code." Add `--wait` to capture the applied result.
 
 ```bash
-"$HOME/.preemdeck/scripts/preemdeck-bun" "$TB/merge-inline.ts" "$mine" "$theirs" "$base" --suffix .py   # merge with a base
+"$HOME/.preemdeck/scripts/preemdeck-bun" "$TB/merge-inline.ts" "$mine" "$theirs" "$base" --suffix .ts   # merge with a base
 "$HOME/.preemdeck/scripts/preemdeck-bun" "$TB/merge-inline.ts" "$mine" "$theirs" --wait                 # block until applied, print
 ```
 

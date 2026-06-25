@@ -10,7 +10,7 @@
  * The subprocess seam rides lib/proc.ts (argv-only, no shell), wrapped in cmdore's
  * `effect()` so `--dry-run` skips the real spawn yet still reports a mechanism. A
  * missing binary makes Bun.spawn throw, which `runCmd` catches -> false (matches
- * Python's subprocess FileNotFoundError -> False).
+ * the original's subprocess FileNotFoundError -> False).
  */
 
 import { defineCommand, effect, execute } from "cmdore"

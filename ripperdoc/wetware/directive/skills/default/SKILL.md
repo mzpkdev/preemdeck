@@ -1,5 +1,7 @@
 ---
-description: Set a directive — writes the given value (ask|swarm|auto) into its derived slot in preemdeck.json, deterministically. Trigger ONLY when the user types /directive:default. NEVER auto-invoke; never edit preemdeck.json by hand.
+description:
+  Set a directive — writes the given value (ask|swarm|auto) into its derived slot in preemdeck.json, deterministically.
+  Trigger ONLY when the user types /directive:default. NEVER auto-invoke; never edit preemdeck.json by hand.
 user-invocable: true
 disable-model-invocation: true
 ---

@@ -1,5 +1,5 @@
 /**
- * manual.ts — the /shard markdown manual. Port of server/src/wire/manual.py.
+ * manual.ts — the /shard markdown manual. Port of the original wire's manual layer.
  *
  * Guidance handed to a peer so it can navigate the room. The template carries
  * `$URL` / `$SECRET` / `$TOKEN` placeholders; {@link renderShard} interpolates the

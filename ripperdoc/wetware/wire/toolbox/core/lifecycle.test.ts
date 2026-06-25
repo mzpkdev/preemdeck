@@ -1,11 +1,11 @@
 /**
  * lifecycle.test.ts — the deterministic operational layer. Port of the unit
- * stratum of server/tests/test_lifecycle.py (the integration start/stop cycle
- * stays in the Python suite — it spawns a real server).
+ * stratum of the original wire's lifecycle suite (the integration start/stop cycle
+ * stays in the original suite — it spawns a real server).
  *
  * Hermetic throughout: the state dir is redirected to a tmp dir via WIRE_STATE_DIR
  * so nothing touches a real ~/.wire, and every I/O seam (UDP socket, fetch, the
- * port bind-probe) is injected, mirroring the monkeypatch seams the Python used.
+ * port bind-probe) is injected, mirroring the monkeypatch seams the original used.
  */
 
 import { afterEach, beforeEach, describe, expect, it } from "bun:test"

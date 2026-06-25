@@ -2,7 +2,7 @@
 
 Cross-host cheat sheet for plugin/skill authoring. Verified against Claude Code, Codex, and Gemini CLI docs, 2026-05-21.
 
-______________________________________________________________________
+---
 
 ## Same
 
@@ -53,7 +53,7 @@ settings file   (JSON for Claude/Gemini, TOML for Codex; all three layer project
   Gemini  → ~/.gemini/settings.json   .gemini/settings.json
 ```
 
-______________________________________________________________________
+---
 
 ## Different
 
@@ -195,8 +195,8 @@ No parity. Pick one path, or ship three.
 | `${GEMINI_CWD}`          | —      | —                       | yes                            |
 | `${extensionPath}`       | —      | —                       | yes (manifest + hook config)   |
 
-Two systems, one syntax. On Gemini, **`${extensionPath}`**, **`${workspacePath}`**, and **`${/}`** are *manifest
-placeholders* substituted by the host before launching the process; the `GEMINI_*` names are *env vars* exposed to the
+Two systems, one syntax. On Gemini, **`${extensionPath}`**, **`${workspacePath}`**, and **`${/}`** are _manifest
+placeholders_ substituted by the host before launching the process; the `GEMINI_*` names are _env vars_ exposed to the
 spawned process, so `${GEMINI_PROJECT_DIR}` only resolves via shell expansion inside hook `command` strings — it isn't
 substituted in `gemini-extension.json` fields the host parses directly.
 
@@ -231,7 +231,7 @@ matcher = "(apply_patch|Edit|Write)"
 
 [[hooks.PostToolUse.hooks]]
 type    = "command"
-command = '"$(git rev-parse --show-toplevel)/scripts/format.py"'
+command = '"$HOME/.preemdeck/scripts/preemdeck-bun" "$(git rev-parse --show-toplevel)/scripts/format-on-edit.ts"'
 timeout = 30
 ```
 
@@ -257,7 +257,6 @@ name: reviewer
 description: Adversarial security pass
 model: opus
 ---
-
 You are a security reviewer...
 ```
 
@@ -277,19 +276,18 @@ You are a security reviewer...
 ---
 name: reviewer
 description: Adversarial security pass
-kind: local                        # 'local' (default) | 'remote'  — added 2026
+kind: local # 'local' (default) | 'remote'  — added 2026
 model: gemini-2.5-pro
 tools: [read_file, grep_search]
-mcpServers: {}                     # inline per-agent MCP config — added 2026
-temperature: 0.2                   # 0.0–2.0, default 1
-max_turns: 10                      # default 30
-timeout_mins: 5                    # default 10
+mcpServers: {} # inline per-agent MCP config — added 2026
+temperature: 0.2 # 0.0–2.0, default 1
+max_turns: 10 # default 30
+timeout_mins: 5 # default 10
 ---
-
 You are a security reviewer...
 ```
 
-______________________________________________________________________
+---
 
 ## Gotchas
 
@@ -303,12 +301,12 @@ Looks the same. Isn't.
 | Skill-scoped `hooks:` in `SKILL.md`                                        | Claude-only frontmatter                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          | Promote to manifest-level `hooks` block                                                                                                                                                                                                                                                                             |
 | `allowed-tools:` in `SKILL.md`                                             | Claude-only per-skill restriction                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                | Codex: `sandbox_mode`. Gemini: `excludeTools` on extension manifest                                                                                                                                                                                                                                                 |
 | `disable-model-invocation: true`                                           | Claude frontmatter; Codex uses a separate file; Gemini relies on description text                                                                                                                                                                                                                                                                                                                                                                                                                                                                | See side-by-side below                                                                                                                                                                                                                                                                                              |
-| Preload `` !`cmd` `` or fenced ```` ```! ````                              | Claude-only sugar — silent no-op elsewhere                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       | Move into a runtime body step                                                                                                                                                                                                                                                                                       |
+| Preload `` !`cmd` `` or fenced ` ```! `                                    | Claude-only sugar — silent no-op elsewhere                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       | Move into a runtime body step                                                                                                                                                                                                                                                                                       |
 | `argument-hint`, per-skill `model:`                                        | Not documented for Codex or Gemini SKILL.md                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      | Drop or duplicate as prose                                                                                                                                                                                                                                                                                          |
 | Tool-name matchers `Edit` / `Write`                                        | Codex aliases to `apply_patch`; Gemini uses `write_file` and `replace` (`edit` is just `replace`'s display name, not a tool name)                                                                                                                                                                                                                                                                                                                                                                                                                | Per-host regex: `(Edit\|Write\|MultiEdit)` · `(apply_patch\|Edit\|Write)` · `(write_.*\|replace)`                                                                                                                                                                                                                   |
-| Codex `tool_name` is always `apply_patch`                                  | Matcher accepts `Edit` / `Write` as aliases, but the stdin payload's `tool_name` field is *always* `apply_patch` — a script that branches on `tool_name == "Edit"` never matches                                                                                                                                                                                                                                                                                                                                                                 | Branch on `apply_patch`, or look at `tool_input.file_path` instead                                                                                                                                                                                                                                                  |
+| Codex `tool_name` is always `apply_patch`                                  | Matcher accepts `Edit` / `Write` as aliases, but the stdin payload's `tool_name` field is _always_ `apply_patch` — a script that branches on `tool_name == "Edit"` never matches                                                                                                                                                                                                                                                                                                                                                                 | Branch on `apply_patch`, or look at `tool_input.file_path` instead                                                                                                                                                                                                                                                  |
 | Claude matcher mode flip                                                   | Only `[A-Za-z0-9_\|]` → exact-string list. Any other char (`.`, `*`, `^`, `(`, …) flips to JS RegExp — `"mcp__memory"` matches only the literal tool; `"mcp__memory.*"` matches the family                                                                                                                                                                                                                                                                                                                                                       | Use `tool\|tool` for exact lists; anchored regex (`^foo`, `foo.*`) otherwise — and test it                                                                                                                                                                                                                          |
-| Exit `2` is not universally blocking                                       | On Claude, `PostToolUse` / `PermissionDenied` / `Notification` / `SessionEnd` cannot block (the action already happened); `WorktreeCreate` treats *any* non-zero exit as failure                                                                                                                                                                                                                                                                                                                                                                 | Block at the pre-event when possible; for post-events, exit 2 stops the *next* turn, not the side effect                                                                                                                                                                                                            |
+| Exit `2` is not universally blocking                                       | On Claude, `PostToolUse` / `PermissionDenied` / `Notification` / `SessionEnd` cannot block (the action already happened); `WorktreeCreate` treats _any_ non-zero exit as failure                                                                                                                                                                                                                                                                                                                                                                 | Block at the pre-event when possible; for post-events, exit 2 stops the _next_ turn, not the side effect                                                                                                                                                                                                            |
 | `permission_mode: auto`                                                    | Claude only                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      | Treat `auto` as `default` elsewhere                                                                                                                                                                                                                                                                                 |
 | Context file name                                                          | Defaults differ: `CLAUDE.md` / `AGENTS.md` / `GEMINI.md`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         | On Gemini set `contextFileName: AGENTS.md` for one source of truth                                                                                                                                                                                                                                                  |
 | Subagent recursion                                                         | Allowed on Claude/Codex, **blocked** on Gemini                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   | Don't chain subagents from inside subagents on Gemini                                                                                                                                                                                                                                                               |
@@ -327,7 +325,7 @@ Looks the same. Isn't.
 | Per-subagent enforcement is NOT hook-based                                 | Claude: start the whole session as a restricted subagent — `claude --agent <name>` ([Subagents → "Run the whole session as a subagent"](https://code.claude.com/docs/en/sub-agents)). Codex: the agent's own `.toml` (`sandbox_mode`, `tools`); no main-side gate documented. Gemini: Policy Engine `policy.toml` `[[rules]] subagent = "name"` — the only documented surface that sees subagent identity.                                                                                                                                       | Pick the host's per-agent surface; treat hooks as global rules only                                                                                                                                                                                                                                                 |
 | Codex `spawn_agent` schema double-surface                                  | Official schema is `{agent, instruction, fork_turns}` ([subagents docs](https://developers.openai.com/codex/subagents)). Community reports the tool also accepts `agent_type` / `model` / `reasoning_effort` / `task_name` / `message` ([#20077](https://github.com/openai/codex/issues/20077)). Default `fork_turns: true` inherits full history and rejects type/model/effort overrides.                                                                                                                                                       | For simple delegation use `{agent, instruction}`. For overrides set `fork_turns: false`. Teach the model the call shape in instructional content (SessionStart imprints, skill bodies, subagent prompts) — the model still emits the actual call. Don't programmatically construct `spawn_agent` from your own code |
 | Claude `Agent` tool was `Task`                                             | Renamed in v2.1.63. `Task(...)` still works as alias; new docs and code use `Agent`                                                                                                                                                                                                                                                                                                                                                                                                                                                              | Search for both names when scanning older repos, blog posts, or community plugins                                                                                                                                                                                                                                   |
-| Plain stdout on `SessionStart` — Claude+Codex inject it, Gemini forbids it | Claude and Codex both document non-JSON stdout from `SessionStart` as auto-injected `additionalContext` ([Claude hooks reference](https://code.claude.com/docs/en/hooks), [Codex hooks docs](https://developers.openai.com/codex/hooks)). Gemini's reference: *"Your script must not print any plain text to stdout other than the final JSON."* Gemini's `additionalContext` injection only works after PR [#15746](https://github.com/google-gemini/gemini-cli/pull/15746) (merged 2026-01-05) — older builds drop it silently.                | Cross-host hooks emit the envelope `hookSpecificOutput.{hookEventName, additionalContext}` — works on all three. Reach for `cat file.md`-style plain stdout only if you're Claude+Codex-only.                                                                                                                       |
+| Plain stdout on `SessionStart` — Claude+Codex inject it, Gemini forbids it | Claude and Codex both document non-JSON stdout from `SessionStart` as auto-injected `additionalContext` ([Claude hooks reference](https://code.claude.com/docs/en/hooks), [Codex hooks docs](https://developers.openai.com/codex/hooks)). Gemini's reference: _"Your script must not print any plain text to stdout other than the final JSON."_ Gemini's `additionalContext` injection only works after PR [#15746](https://github.com/google-gemini/gemini-cli/pull/15746) (merged 2026-01-05) — older builds drop it silently.                | Cross-host hooks emit the envelope `hookSpecificOutput.{hookEventName, additionalContext}` — works on all three. Reach for `cat file.md`-style plain stdout only if you're Claude+Codex-only.                                                                                                                       |
 
 ### Side-by-side
 
@@ -361,10 +359,12 @@ description: "Manual deploy. NEVER trigger automatically; only when user types /
 
 ```markdown
 # custom command — Markdown on Claude/Codex
+
 # .claude/commands/deploy.md
+
 ---
-description: Deploy to staging
----
+
+## description: Deploy to staging
 
 Push the current branch and trigger the deploy pipeline.
 ```
@@ -379,25 +379,32 @@ Push the current branch and trigger the deploy pipeline.
 
 ```markdown
 # preload — Claude-only sugar
+
 # Claude — SKILL.md body
+
 ## Preload
-!`python3 ${CLAUDE_PLUGIN_ROOT}/scripts/gather.py`
+
+!`"$HOME/.preemdeck/scripts/preemdeck-bun" ${CLAUDE_PLUGIN_ROOT}/scripts/gather.ts`
 ```
 
 ```markdown
 # Codex — runtime step (CLAUDE_PLUGIN_ROOT aliased to PLUGIN_ROOT)
+
 ## Step 1 — Gather
-Run `python3 ${CLAUDE_PLUGIN_ROOT}/scripts/gather.py` and parse the JSON.
+
+Run `"$HOME/.preemdeck/scripts/preemdeck-bun" ${CLAUDE_PLUGIN_ROOT}/scripts/gather.ts` and parse the JSON.
 ```
 
 ```markdown
 # Gemini — runtime step (no env var reaches the body; compute root in-script)
+
 ## Step 1 — Gather
-Run `python3 scripts/gather.py` — the script self-locates via
-`Path(__file__).resolve().parents[N]`. Parse the JSON output.
+
+Run `"$HOME/.preemdeck/scripts/preemdeck-bun" scripts/gather.ts` — the script self-locates via
+`dirname(fileURLToPath(import.meta.url))`. Parse the JSON output.
 ```
 
-______________________________________________________________________
+---
 
 ## Quick checklist
 

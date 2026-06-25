@@ -3,7 +3,7 @@
 How we write system prompts and agent harnesses. Cross-lab consensus plus the patterns worth stealing, turned into
 rules.
 
-______________________________________________________________________
+---
 
 ## Start simple, escalate on evidence
 
@@ -20,7 +20,7 @@ A workflow is code that calls the model at fixed points. An agent is the model d
 workflow until it can't bend to the task
 ([Anthropic — Building Effective Agents](https://www.anthropic.com/research/building-effective-agents)).
 
-______________________________________________________________________
+---
 
 ## Don't shout at the model
 
@@ -42,7 +42,7 @@ beats two instructions that fight each other
 ([Anthropic](https://platform.claude.com/docs/en/build-with-claude/prompt-engineering/claude-prompting-best-practices),
 [OpenAI GPT-5](https://developers.openai.com/cookbook/examples/gpt-5/gpt-5_prompting_guide)).
 
-______________________________________________________________________
+---
 
 ## Structure the prompt
 
@@ -63,7 +63,7 @@ Pitch instructions at the right altitude — specific enough to guide, loose eno
 
 ```text
 # Avoid — too rigid, brittle on the first unseen case
-If the file ends in .py, run black; if .js, run prettier; if .go, run gofmt; ...
+If the file ends in .rs, run rustfmt; if .js, run prettier; if .go, run gofmt; ...
 
 # Avoid — too vague, the model guesses
 Format the code nicely.
@@ -76,7 +76,7 @@ Cite
 ([Anthropic context engineering](https://www.anthropic.com/engineering/effective-context-engineering-for-ai-agents),
 [OpenAI GPT-4.1](https://cookbook.openai.com/examples/gpt4-1_prompting_guide)).
 
-______________________________________________________________________
+---
 
 ## Put the query last (long context)
 
@@ -102,7 +102,7 @@ syntax noise costs more than the structure buys
 [OpenAI GPT-4.1](https://cookbook.openai.com/examples/gpt4-1_prompting_guide),
 [Lost in the Middle](https://arxiv.org/abs/2307.03172)).
 
-______________________________________________________________________
+---
 
 ## Spend context like a budget
 
@@ -125,7 +125,7 @@ Cite
 [Writing tools for agents](https://www.anthropic.com/engineering/writing-tools-for-agents),
 [Long-running agent harnesses](https://www.anthropic.com/engineering/effective-harnesses-for-long-running-agents)).
 
-______________________________________________________________________
+---
 
 ## Steer agent eagerness
 
@@ -141,7 +141,7 @@ alone accounted for ~4%.
 Cite ([OpenAI GPT-4.1](https://cookbook.openai.com/examples/gpt4-1_prompting_guide),
 [OpenAI GPT-5](https://developers.openai.com/cookbook/examples/gpt-5/gpt-5_prompting_guide)).
 
-______________________________________________________________________
+---
 
 ## Orchestration patterns
 
@@ -168,7 +168,7 @@ Reasoning-agent patterns layer on top:
 The five primitives come from
 ([Anthropic — Building Effective Agents](https://www.anthropic.com/research/building-effective-agents)).
 
-______________________________________________________________________
+---
 
 ## Gotchas — looks right, isn't
 
@@ -180,7 +180,7 @@ ______________________________________________________________________
 | One big tool that does everything  | Bloated, overlapping tools are the top agent failure mode — keep them narrow and unambiguous          |
 | Vendor benchmark numbers as gospel | Self-reported single evals — trust the direction, not the exact magnitude                             |
 
-______________________________________________________________________
+---
 
 ## Quick checklist
 

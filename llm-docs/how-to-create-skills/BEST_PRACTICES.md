@@ -3,7 +3,7 @@
 Patterns that produce reliable, discoverable skills across Claude, Codex, and Gemini. A skill loads cold — the model
 reads it mid-turn and acts. Brief it like a colleague who walked in late.
 
-______________________________________________________________________
+---
 
 ## Single responsibility
 
@@ -22,7 +22,7 @@ description: Adversarial security review of the staged diff. Returns numbered fi
 The parent LLM picks a skill by string-matching `description`. Overloaded descriptions match too eagerly and confuse
 selection on every host.
 
-______________________________________________________________________
+---
 
 ## Naming
 
@@ -46,7 +46,7 @@ Verb-of-intent. Kebab-case. Prefix with the plugin. The name shows up in error m
 Skill names are not namespaced on Claude or Codex. Two plugins shipping `format` clobber each other; load order decides
 who wins. On Gemini, conflicts auto-prefix as `/<extension>.<name>` — but the bare name still has to read on its own.
 
-______________________________________________________________________
+---
 
 ## Description triggers
 
@@ -73,7 +73,7 @@ Three rules that compound:
 
 Hedging like "may help with…" or "useful for…" loses to a sibling skill that says "Trigger when…".
 
-______________________________________________________________________
+---
 
 ## Progressive disclosure
 
@@ -82,24 +82,27 @@ bulk.
 
 ```markdown
 # Avoid — 400-line SKILL.md with everything inline
+
 ## How to run
-First, here's the full spec of the JSON schema we use… [200 lines]
-Then the worked example… [80 lines]
-Then the error catalog… [120 lines]
+
+First, here's the full spec of the JSON schema we use… [200 lines] Then the worked example… [80 lines] Then the error
+catalog… [120 lines]
 
 # Prefer — concise body, link out for depth
+
 ## How to run
+
 1. Validate input against `<skill>/SCHEMA.md`.
 2. Render output following `<skill>/EXAMPLES.md`.
 3. On error, consult `<skill>/ERRORS.md` and pick the matching template.
 ```
 
-Companion files (`SCHEMA.md`, `EXAMPLES.md`, `ERRORS.md`) live next to `SKILL.md`. The body teaches the model *what to
-load when*; the model fetches the rest only on demand.
+Companion files (`SCHEMA.md`, `EXAMPLES.md`, `ERRORS.md`) live next to `SKILL.md`. The body teaches the model _what to
+load when_; the model fetches the rest only on demand.
 
 Aim for SKILL.md under 200 lines. Past 300 it stops being a skill and becomes a small library.
 
-______________________________________________________________________
+---
 
 ## Tool scoping
 
@@ -121,10 +124,10 @@ allowed-tools: [Read, Grep, Glob, Bash(git status:*)]
 { "excludeTools": ["Write", "Edit", "MultiEdit"] }
 ```
 
-For a cross-host skill, do the work at the *call layer*: phrase the body so the model has no reason to reach for `Write`
+For a cross-host skill, do the work at the _call layer_: phrase the body so the model has no reason to reach for `Write`
 in the first place. Add Claude / Gemini scoping as defense in depth.
 
-______________________________________________________________________
+---
 
 ## Model selection
 
@@ -139,7 +142,7 @@ Match the model to the task. Heavier models are slower and more expensive. Don't
 Only Claude reads `model:` from SKILL.md frontmatter. On Codex and Gemini the model is the host's session default unless
 you delegate to a worker (which declares its own model).
 
-______________________________________________________________________
+---
 
 ## Manual invocation
 
@@ -157,9 +160,11 @@ The two command files hand off to the same skill — don't duplicate the logic:
 
 ```markdown
 # commands/<name>.md (Claude / Codex)
+
 ---
-description: <Mirrors the SKILL.md description.>
----
+
+## description: <Mirrors the SKILL.md description.>
+
 Invoke the `<name>` skill against the current working tree.
 ```
 
@@ -171,7 +176,7 @@ prompt = "Invoke the <name> skill against the current working tree."
 
 Update both command files when the skill body changes. Drift is silent — no validator catches it.
 
-______________________________________________________________________
+---
 
 ## Reproducibility
 
@@ -179,11 +184,13 @@ A skill is a contract: same input, same output. Keep the body deterministic.
 
 ```markdown
 # Avoid — leans on model judgment for paths
+
 "Find the relevant files and report on them."
 
 # Prefer — concrete commands, deterministic order
-"Run `git status --porcelain=v2 -z`. Parse the result with the rules in
-PARSING.md. Report in the order the porcelain emits them."
+
+"Run `git status --porcelain=v2 -z`. Parse the result with the rules in PARSING.md. Report in the order the porcelain
+emits them."
 ```
 
 Things that drift:
@@ -198,7 +205,7 @@ Things that stick:
 - Output shapes declared as schemas
 - Paths via `git rev-parse --show-toplevel` or `__file__`
 
-______________________________________________________________________
+---
 
 ## Briefing the model
 
@@ -207,21 +214,23 @@ whatever the body contains.
 
 ```markdown
 # Avoid — leans on hidden parent context
+
 "Now do the status check."
 
 # Prefer — self-contained instruction
-"Read the porcelain output from step 1. For each unstaged file, emit a
-line `<state> <path>` where state is one of M/A/D/R/U. Sort by path."
+
+"Read the porcelain output from step 1. For each unstaged file, emit a line `<state> <path>` where state is one of
+M/A/D/R/U. Sort by path."
 ```
 
 Include the task, the inputs (paths, not pasted content), the output shape. Cut every sentence that doesn't shape one of
 those three.
 
-______________________________________________________________________
+---
 
 ## Reply shape
 
-A skill runs in the assistant's turn — the assistant's reply *is* the output. Declare the shape in the body so every
+A skill runs in the assistant's turn — the assistant's reply _is_ the output. Declare the shape in the body so every
 invocation produces the same thing.
 
 | Shape               | Use when                                            |
@@ -241,7 +250,7 @@ Default to markdown for users; JSON only when a parser is on the other side; one
 A 200-line skill reply is almost always a 10-line reply with prose around it. Cap inline output; link the artifact path
 (`${ROOT}/.preemdeck/<skill>/<verb>.<ext>`) for the full body. The artifact is the truth; the reply is the index.
 
-______________________________________________________________________
+---
 
 ## Graceful failure
 
@@ -250,11 +259,12 @@ commands manually and the parent LLM with no signal to retry intelligently.
 
 ```markdown
 # Avoid — silent failure looks like success
-"Done."   # but the artifact was never written
+
+"Done." # but the artifact was never written
 
 # Prefer — name the failure and the fix
-"FAIL: cwd is not a git repo. Re-run from inside the project root, or
-pass `--root <path>` explicitly."
+
+"FAIL: cwd is not a git repo. Re-run from inside the project root, or pass `--root <path>` explicitly."
 ```
 
 Three principles:
@@ -266,7 +276,7 @@ Three principles:
 On failure, hold the reply contract — same sections, verdict flipped to `FAIL: <cause>`. The user (or downstream parser)
 needs to read failure the same way as success.
 
-______________________________________________________________________
+---
 
 ## Verify, don't trust
 
@@ -275,16 +285,18 @@ surface drifts.
 
 ```markdown
 # Avoid — assumes prior step's output is still accurate
+
 "Use the file list from before."
 
 # Prefer — re-fetch the surface every time
+
 "Re-run `git status --porcelain=v2 -z` to refresh the surface, then…"
 ```
 
 Same rule for skills that mutate state: re-read after writing, confirm the diff matches intent. The harness will not
 catch a no-op write that the model claims succeeded.
 
-______________________________________________________________________
+---
 
 ## Workers — cross-link
 
@@ -309,7 +321,7 @@ The Gemini caveat: a skill cannot programmatically call a worker. Phrase the ski
 `<worker>`") — Claude and Codex models fire the call; Gemini interprets the same line as "tell the user to type
 `@worker`". Never hard-code a host primitive.
 
-______________________________________________________________________
+---
 
 ## Quick checklist
 

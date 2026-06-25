@@ -107,7 +107,7 @@ export const setDirective = async (config: string, slot: string, value: string):
     await writeJson(config, obj)
 }
 
-/** Render a string the way Python's `{value!r}` does for the common cases. */
+/** Render a string the way the reference `{value!r}` does for the common cases. */
 const pyRepr = (value: string): string => {
     if (!value.includes("'") || value.includes('"')) return `'${value}'`
     return `"${value}"`

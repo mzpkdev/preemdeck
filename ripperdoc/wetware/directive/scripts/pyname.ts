@@ -1,12 +1,12 @@
 /**
- * pyname.ts — a faithful port of Python `pathlib.PurePosixPath(value).name`, used
- * by inject_mode and show_mode for the "bare name" anti-traversal guard.
+ * pyname.ts — a faithful reproduction of the reference `pathlib.PurePosixPath(value).name`,
+ * used by inject_mode and show_mode for the "bare name" anti-traversal guard.
  *
  * Both scripts reject a value when `name(value) !== value`, so a config/CLI value
  * carrying a path separator or a dot-segment can't escape the skills dir. Matching
- * CPython's `.name` exactly keeps the guard byte-identical across the rewrite.
+ * the reference `.name` exactly keeps the guard byte-identical across the rewrite.
  *
- * CPython semantics (POSIX flavour), verified against the interpreter:
+ * Reference semantics (POSIX flavour), verified against the reference:
  *   - the final path component after splitting on "/";
  *   - "" for the empty string, a lone ".", and any pure-root path ("/", "//");
  *   - ".." is NOT special: PurePosixPath("..").name == "..", "a/..".name == "..";
@@ -14,7 +14,7 @@
  *   - "..." / "foo..bar" / ".hidden" keep their literal value.
  */
 
-/** Python `PurePosixPath(value).name`. */
+/** The reference `PurePosixPath(value).name`. */
 export const pyName = (value: string): string => {
     let s = value
     // pathlib ignores trailing separators for .name ("a/" -> "a", "//" -> root).

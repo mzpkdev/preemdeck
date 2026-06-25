@@ -48,7 +48,7 @@ describe("open-inline CLI", () => {
         })
 
         it("accepts --suffix and exits 0", async () => {
-            const { code, stdout, stderr } = await run(["x = 1", "--suffix", ".py", "--dry-run"])
+            const { code, stdout, stderr } = await run(["x = 1", "--suffix", ".ts", "--dry-run"])
             expect(code).toBe(0)
             expect(stdout).toBe("")
             expect(stderr).toBe("")

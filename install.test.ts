@@ -1,13 +1,13 @@
 /**
- * install.test.ts — bun-test port of tests/test_install.py.
+ * install.test.ts — bun-test suite for install.ts.
  *
- * MOCK PATTERNS (from rewrite-contract.md):
+ * MOCK PATTERNS:
  *   spawn seam — install.ts routes every shell-out through `_internals.spawn`. We
  *       override that single field (NOT mock.module on the shared ./lib/proc.ts,
  *       which leaks into lib/proc.test.ts across one `bun test` run) so command-
  *       SHAPE assertions capture the exact argv runCli/installPlugin/
  *       registerMarketplace hand to it, and we script exit codes/stderr. This is
- *       the faithful TS equivalent of the Python `patch("install.run_cli")`
+ *       the faithful TS equivalent of the original `patch("install.run_cli")`
  *       command-array assertions — one level lower, at the only escaping seam.
  *   E — tmp fixture: real FS in an mkdtemp dir (copyOverlay/writeManifest/loadManifest).
  *   F — spyOn(process,"exit"): exit-code assertions for parseInstallArgs.
@@ -83,7 +83,7 @@ describe("manifestDir", () => {
 describe("configDir", () => {
   // NOTE: configDir joins os.homedir() (not process.env.HOME). Bun's os.homedir()
   // snapshots $HOME at process startup on POSIX, so a runtime process.env.HOME
-  // mutation is NOT observable here (unlike Python's Path.home(), which re-reads
+  // mutation is NOT observable here (unlike the original's Path.home(), which re-reads
   // os.environ each call). The real CLI never mutates HOME mid-process, and a
   // spawned process WITH HOME set is honored (see the golden-diff harness), so
   // parity holds at the only point that matters. Assert against the live homedir.
@@ -430,7 +430,7 @@ describe("loadManifest", () => {
   });
 });
 
-// bootstrapNodeModules — bun install seam (mirrors bootstrapWorkspace/uv sync)
+// bootstrapNodeModules — bun install seam (the installer's only dependency bootstrap)
 
 describe("bootstrapNodeModules", () => {
   test("dry-run prints intent without spawning", async () => {
@@ -512,7 +512,7 @@ describe("installFor", () => {
   });
 
   test("dry-run returns 0 (harness present, no real subprocess work)", async () => {
-    // onPath + uv probes succeed; in dry-run copyOverlay/writeManifest write
+    // onPath probe succeeds; in dry-run copyOverlay/writeManifest write
     // nothing, so this is safe to run against the real REPO_ROOT / $HOME.
     spawnImpl = async () => ok;
     const logSpy = spyOn(console, "log").mockImplementation(() => {});
@@ -527,7 +527,7 @@ describe("installFor", () => {
   // NOTE: the marketplace-failure path (-> rc 1) is NOT unit-tested here. With
   // dryRun=false, installFor's copyOverlay writes the real overlay into $HOME and
   // writeManifest writes the real repo's .install-manifest.json — destructive side
-  // effects the Python test sidesteps via patch("install.copy_overlay"/...), which
+  // effects the original test sidesteps via patch("install.copy_overlay"/...), which
   // has no equivalent for install.ts's own self-calls. The path is covered by the
   // golden-diff dry-run and the registerMarketplace unit tests above.
 });
@@ -577,6 +577,6 @@ describe("parseInstallArgs", () => {
   test("unknown option -> exit 2", () => {
     const { code, stderr } = captureExit(() => parseInstallArgs(["claude", "--nope"]));
     expect(code).toBe(2);
-    expect(stderr).toContain("install.py:");
+    expect(stderr).toContain("install.ts:");
   });
 });

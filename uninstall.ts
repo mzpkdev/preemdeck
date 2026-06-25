@@ -1,6 +1,6 @@
 #!/usr/bin/env bun
 /**
- * uninstall.ts — preemdeck uninstaller (TS port of uninstall.py, behavior-identical v1).
+ * uninstall.ts — preemdeck uninstaller (behavior-identical v1).
  *
  * Reads the install manifest written by install.ts and inverts it per harness:
  *   * Overlay: walk the recorded overlay files in REVERSE order. With a `backup`,
@@ -11,8 +11,7 @@
  *   * Manifest: drop the harness key and rewrite (delete it once none remain).
  *
  * `--purge` does NOT delete the running source dir (this script lives inside it);
- * it just prints the manual `rm -rf` one-liner after reversing. Additive port —
- * uninstall.py stays the live entrypoint until the flip phase.
+ * it just prints the manual `rm -rf` one-liner after reversing.
  */
 
 import { existsSync, mkdirSync, renameSync, rmSync, unlinkSync, writeFileSync } from "node:fs";
@@ -42,7 +41,7 @@ export interface UninstallArgs {
 }
 
 export function parseUninstallArgs(argv: string[]): UninstallArgs {
-  const prog = "uninstall.py";
+  const prog = "uninstall.ts";
   let parsed: ReturnType<
     typeof parseArgs<{
       options: { "dry-run": { type: "boolean" }; purge: { type: "boolean" } };
