@@ -375,6 +375,41 @@ export async function bootstrapWorkspace(repoRoot: string, dryRun: boolean): Pro
   }
 }
 
+/**
+ * Install the TS plugins' npm deps into the gitignored node_modules via bun.
+ *
+ * The dock toolboxes and the TS wire server import npm packages (cmdore via a
+ * link:, plus hono/zod/@hono/zod-openapi); node_modules/ is gitignored, so a
+ * fresh ~/.preemdeck clone can't resolve them until something runs `bun install`.
+ * Uses the Bun already running this script (process.execPath IS the bun binary
+ * under the preemdeck-bun shim). Non-fatal: cmdore's link:cmdore points at the
+ * gitignored vendor/cmdore — a known, separately-tracked gap — so a failed or
+ * timed-out install prints a warning and lets the install continue.
+ */
+export async function bootstrapNodeModules(repoRoot: string, dryRun: boolean): Promise<void> {
+  if (dryRun) {
+    console.log(`  (dry-run) would run: bun install (cwd=${repoRoot})`);
+    return;
+  }
+  const result = await _internals.spawn([process.execPath, "install"], {
+    cwd: repoRoot,
+    timeoutMs: 300_000,
+  });
+  if (result.timedOut) {
+    process.stderr.write(`  ${CROSS} node_modules bootstrap timed out after 300s\n`);
+    return;
+  }
+  if (result.exitCode === 0) {
+    console.log(`  ${CHECK} node_modules bootstrap: installed npm deps`);
+  } else {
+    const tail = (result.stderr.trim() || result.stdout.trim() || "non-zero exit").split("\n").slice(-5);
+    process.stderr.write(`  ${CROSS} node_modules bootstrap failed:\n`);
+    for (const line of tail) {
+      process.stderr.write(`      ${line}\n`);
+    }
+  }
+}
+
 /** Whether `bin` resolves on PATH (mirrors Python shutil.which truthiness). */
 async function onPath(bin: string): Promise<boolean> {
   const result = await _internals.spawn(["sh", "-c", `command -v "$1" >/dev/null 2>&1`, "sh", bin]);
@@ -452,6 +487,7 @@ export async function installFor(harness: string, dryRun: boolean): Promise<numb
   console.log();
 
   await bootstrapWorkspace(REPO_ROOT, dryRun);
+  await bootstrapNodeModules(REPO_ROOT, dryRun);
 
   const [ok, err, overlay] = copyOverlay(harness, REPO_ROOT, configDir(harness), dryRun);
   if (!ok) {

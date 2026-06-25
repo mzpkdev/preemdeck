@@ -33,8 +33,9 @@ Full-repo format pass: `uv run task format`.
 - Repo-level suite (root `tests/`): `uv run pytest` from the repo root — what CI runs.
 - Wire server suite (`ripperdoc/wetware/wire/server/tests/`, 202 tests):
   `cd ripperdoc/wetware/wire/server && uv run pytest`. uv resolves the `wire` workspace member and auto-syncs its `dev`
-  group (pytest, pytest-asyncio, httpx) into the shared `.venv`. The `wire:start`/`wire:stop` runtime path uses
-  `uv run --no-sync wire …` and is unaffected.
+  group (pytest, pytest-asyncio, httpx) into the shared `.venv`. The `wire:start`/`wire:stop` runtime path is separate —
+  it runs the TS toolbox via `"$HOME/.preemdeck/scripts/preemdeck-bun" "${CLAUDE_PLUGIN_ROOT}/toolbox/start.ts"` (and
+  `stop.ts`) and is unaffected.
 
 ## Applying changes to a running harness
 

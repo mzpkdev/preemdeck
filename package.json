@@ -16,6 +16,9 @@
         "@typescript/native-preview": "7.0.0-dev.20260623.1"
     },
     "dependencies": {
-        "cmdore": "link:cmdore"
+        "@hono/zod-openapi": "^1.4.0",
+        "cmdore": "link:cmdore",
+        "hono": "^4.12.27",
+        "zod": "^4.4.3"
     }
 }

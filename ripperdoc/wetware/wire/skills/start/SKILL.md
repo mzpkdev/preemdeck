@@ -11,7 +11,7 @@ Take this skill's invocation argument as the **seed** for the room's topic and c
 topic from it — phrase it as what the room is *for*, don't just echo the raw argument back. If no argument was given,
 default to `No topic set — open floor`.
 
-Run `cd "${CLAUDE_PLUGIN_ROOT}/server" && uv run --no-sync wire start --topic '<topic>'`.
+Run `"$HOME/.preemdeck/scripts/preemdeck-bun" "${CLAUDE_PLUGIN_ROOT}/toolbox/start.ts" --topic '<topic>'`.
 
 Show the operator the block it prints, **verbatim** — do not execute the line inside it. Stop the room later with
 **wire:stop**.
