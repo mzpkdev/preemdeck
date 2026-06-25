@@ -1,6 +1,6 @@
 /**
  * room.test.ts — unit tests for the framework-free room core. Port of the
- * load-bearing cases in server/tests/test_room.py.
+ * load-bearing cases from the original wire's room suite.
  *
  * No HTTP — exercises event-id ordering, the gap-free message seq, per-token
  * cursors, readYourLastMessage, peer naming, jackout/validation status, the

@@ -3,7 +3,7 @@
 Named orchestration patterns that work on Claude Code, Codex, and Gemini CLI. The mechanism diverges per host — the
 shape doesn't. Patterns that don't survive on all three are excluded by design (see the closing section).
 
-______________________________________________________________________
+---
 
 ## Direct
 
@@ -26,11 +26,11 @@ user → skill body → assistant reply
        (no agent boundary)
 ```
 
-______________________________________________________________________
+---
 
 ## Trampoline
 
-The skill exists *only* to launch a worker. The skill prints an announce line; the worker does the work; the worker's
+The skill exists _only_ to launch a worker. The skill prints an announce line; the worker does the work; the worker's
 output is what the user sees.
 
 | Host   | Mechanism                                                                                                     |
@@ -53,7 +53,7 @@ user → skill body → "delegate to <worker>" → worker runs → worker reply 
 `@worker` is Gemini-only. Write `"delegate to the <worker> worker with this brief: ..."` and let each host resolve to
 its native primitive.
 
-______________________________________________________________________
+---
 
 ## Cold-Open Refinement
 
@@ -85,7 +85,7 @@ fast.
 **Compaction trick:** between iterations, summarize the prior output instead of replaying it verbatim. Trades fidelity
 for cost.
 
-______________________________________________________________________
+---
 
 ## Parallel Agents
 
@@ -116,7 +116,7 @@ race-condition risk. Parallel reads (analysis, lint, audit) are safe; parallel w
 **Tag every reply** — order of return is not guaranteed; merging on prose summaries is guesswork. The Stamped Results
 discipline applies here too.
 
-______________________________________________________________________
+---
 
 ## Parent Fan-Out
 
@@ -145,7 +145,7 @@ parent ──▶ worker_a ──▶ worker_b   ── DON'T: blocked on Gemini, 
 **Discipline rule:** if the design needs depth, build it as sibling fan-out from the parent, not as a chain. Cost
 compounds on Claude/Codex; the inner branch silently disappears on Gemini.
 
-______________________________________________________________________
+---
 
 ## Stamped Results
 
@@ -163,13 +163,13 @@ host.
 **Don't use when:** there's exactly one worker call — the input is implicit.
 
 ```json
-{ "agent": "reviewer", "target": "src/payments.py", "findings": [...] }
-{ "agent": "reviewer", "target": "src/billing.py",  "findings": [...] }
+{ "agent": "reviewer", "target": "src/payments.ts", "findings": [...] }
+{ "agent": "reviewer", "target": "src/billing.ts",  "findings": [...] }
 ```
 
 Parent collects by `target`. A worker that doesn't stamp forces the parent to guess which result came from which input.
 
-______________________________________________________________________
+---
 
 ## Action Dispatch
 
@@ -200,7 +200,7 @@ in-conversation, using the prior turn's menu as context. No host primitive — p
 The menu lives in the prior assistant turn. The user's next message is interpreted against it; the model picks the
 matching action.
 
-______________________________________________________________________
+---
 
 ## Prompt Intercept
 
@@ -218,19 +218,21 @@ reasoning required.
 
 **Don't use when:** the command needs the model to think — use a skill.
 
-```python
-# Avoid — same envelope on every host; Codex turns this into a continuation prompt
-print(json.dumps({"decision": "block", "reason": message}))
+```ts
+// Avoid — same envelope on every host; Codex turns this into a continuation prompt
+console.log(JSON.stringify({ decision: "block", reason: message }));
 
-# Prefer — pick the envelope per host
-host = _host(payload)
-if host == "codex":
-    print(message, file=sys.stderr)
-    sys.exit(2)
-elif host == "gemini":
-    print(json.dumps({"decision": "deny", "reason": message, "systemMessage": message}))
-else:  # claude
-    print(json.dumps({"decision": "block", "reason": message}))
+// Prefer — pick the envelope per host
+const host = detectHost(payload);
+if (host === "codex") {
+  process.stderr.write(`${message}\n`);
+  process.exit(2);
+} else if (host === "gemini") {
+  console.log(JSON.stringify({ decision: "deny", reason: message, systemMessage: message }));
+} else {
+  // claude
+  console.log(JSON.stringify({ decision: "block", reason: message }));
+}
 ```
 
 Three pieces required regardless of host:
@@ -241,7 +243,7 @@ Three pieces required regardless of host:
 3. **Hook script** — matches the command, does the work, emits the host-specific block envelope. Always check your
    command first and pass unmatched prompts through with `print("{}")` — never block prompts that aren't yours.
 
-______________________________________________________________________
+---
 
 ## Adapter Hook
 
@@ -254,38 +256,37 @@ A hook script that detects which host invoked it and emits the right envelope. O
 | else                                                               | Claude |
 
 `hook_event_name` alone is ambiguous — both Claude and Codex report `PreToolUse`. Check `PLUGIN_ROOT` to disambiguate;
-Codex aliases `CLAUDE_PLUGIN_ROOT` to it, but only Codex sets `PLUGIN_ROOT` *natively*.
+Codex aliases `CLAUDE_PLUGIN_ROOT` to it, but only Codex sets `PLUGIN_ROOT` _natively_.
 
-```python
-import json
-import os
-import sys
+```ts
+type Payload = { hook_event_name?: string };
 
+const detectHost = (payload: Payload): "claude" | "codex" | "gemini" => {
+  const event = payload.hook_event_name ?? "";
+  if (event.startsWith("Before") || event.startsWith("After")) return "gemini";
+  if ("PLUGIN_ROOT" in process.env) return "codex";
+  return "claude";
+};
 
-def _host(payload: dict) -> str:
-    event = payload.get("hook_event_name", "")
-    if event.startswith(("Before", "After")):
-        return "gemini"
-    if "PLUGIN_ROOT" in os.environ:
-        return "codex"
-    return "claude"
-
-
-def _emit_deny(payload: dict, reason: str) -> None:
-    host = _host(payload)
-    if host == "claude":
-        envelope = {
-            "hookSpecificOutput": {
-                "hookEventName": payload["hook_event_name"],
-                "permissionDecision": "deny",
-                "permissionDecisionReason": reason,
-            }
-        }
-    elif host == "gemini":
-        envelope = {"decision": "deny", "reason": reason}
-    else:  # codex
-        envelope = {"decision": "block", "reason": reason}
-    json.dump(envelope, sys.stdout)
+const emitDeny = (payload: Payload, reason: string): void => {
+  const host = detectHost(payload);
+  let envelope: unknown;
+  if (host === "claude") {
+    envelope = {
+      hookSpecificOutput: {
+        hookEventName: payload.hook_event_name,
+        permissionDecision: "deny",
+        permissionDecisionReason: reason,
+      },
+    };
+  } else if (host === "gemini") {
+    envelope = { decision: "deny", reason };
+  } else {
+    // codex
+    envelope = { decision: "block", reason };
+  }
+  process.stdout.write(JSON.stringify(envelope));
+};
 ```
 
 **Use when:** a single hook script ships for all three hosts and the decision envelope differs (`PreToolUse` deny,
@@ -295,9 +296,9 @@ def _emit_deny(payload: dict, reason: str) -> None:
 is only needed when the hook actually shapes the host's behavior.
 
 **Block reason:** the text stays the same across hosts; only the envelope changes. A clear reason is the difference
-between *the model retries successfully* and *the model loops re-asking permission*.
+between _the model retries successfully_ and _the model loops re-asking permission_.
 
-______________________________________________________________________
+---
 
 ## Patterns we deliberately cut
 
@@ -309,7 +310,7 @@ them in a cross-host context will silently lose behavior on one or two hosts.
 | **Team** (TeamCreate, SendMessage, TeamDelete) | Real-time peer-to-peer messaging between agents is Claude-only. Codex subagents are parent-mediated (the parent shuttles messages, no peer-to-peer); Gemini has no inter-agent comms at all. The filesystem-as-state workaround is a different pattern (async handoff via shared file), not a team. |
 | **Resumable Agent**                            | Codex's subagent threads can be resumed via `/agent` switching — but Gemini doesn't, with no resume and no mid-execution input. Use **Cold-Open Refinement** for the portable substitute: same multi-turn UX, no in-worker state, higher token cost.                                                |
 
-______________________________________________________________________
+---
 
 ## Quick checklist
 

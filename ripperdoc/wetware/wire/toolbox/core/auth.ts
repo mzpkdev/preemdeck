@@ -1,6 +1,6 @@
 /**
- * auth.ts — the one-status-401 credential gate. Port of
- * server/src/wire/auth.py.
+ * auth.ts — the one-status-401 credential gate. Port of the original wire's
+ * auth layer.
  *
  * Every gated endpoint rejects a missing, wrong, or unknown credential with HTTP
  * 401; the body names the failed key and carries a machine-readable `code`. The
@@ -24,7 +24,7 @@ export type WireAuthCode = "invalid_secret" | "invalid_token"
 /**
  * A 401 carrying a machine-readable `code` beside the prose `detail`.
  *
- * Mirrors Python's `WireAuthError(HTTPException)`: `status` is always 401, and
+ * Mirrors the original's `WireAuthError(HTTPException)`: `status` is always 401, and
  * the registered error handler renders `{detail, code}`. A peer branches on
  * `code` without parsing the prose.
  */

@@ -1,6 +1,6 @@
 /**
  * lifecycle.ts — operational plumbing for the wire server, the deterministic
- * layer. Port of server/src/wire/lifecycle.py (plus cli.py's free-port scan).
+ * layer. Port of the original wire's lifecycle layer (plus the original CLI's free-port scan).
  *
  * Owns what the launch/teardown skills used to do in bash: the on-disk state file
  * (one room per host), LAN-IP detection, the operator handoff render, the /health
@@ -81,7 +81,7 @@ export const readState = async (): Promise<WireState | null> => {
     try {
         const raw = await fs.readFile(await statePath(), "utf-8")
         // The writer always emits a JSON object; the cast asserts that without
-        // changing what is returned (matches the Python cast).
+        // changing what is returned (matches the original cast).
         return JSON.parse(raw) as WireState
     } catch {
         return null
@@ -120,7 +120,7 @@ export const detectLanIp = async (makeSocket: UdpSocketFactory = defaultUdpSocke
     try {
         await new Promise<void>((resolve, reject) => {
             // node:dgram `connect` is async; it only sets the default peer (no
-            // packets), exactly like Python's UDP connect. Errors -> fallback.
+            // packets), exactly like the original's UDP connect. Errors -> fallback.
             sock.connect(80, "8.8.8.8", (err?: Error) => {
                 if (err) {
                     reject(err)
@@ -149,7 +149,7 @@ export const detectLanIp = async (makeSocket: UdpSocketFactory = defaultUdpSocke
  *
  * @param url - the room's base URL (e.g. `http://192.168.1.20:5555`).
  * @param secret - the room secret.
- * @returns the exact handoff text the Python emits.
+ * @returns the exact handoff text the original emits.
  */
 export const renderHandoff = (url: string, secret: string): string => {
     return (
@@ -212,7 +212,7 @@ export type BindProbe = (host: string, port: number) => Promise<boolean>
  * Bind a throwaway TCP server to `(host, port)`, then close it. Resolves true if
  * the bind succeeded (port free), false on EADDRINUSE / any bind error. The probe
  * server is always closed before returning, so a brief bind race remains
- * (acceptable for LAN use) — matching the Python.
+ * (acceptable for LAN use) — matching the original.
  */
 const defaultBindProbe: BindProbe = (host, port) =>
     new Promise<boolean>((resolve) => {

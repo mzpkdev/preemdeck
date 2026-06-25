@@ -3,7 +3,7 @@
 Skills look identical on paper, then bite in production. Most pain comes from Claude-only frontmatter and sugar that
 silently drops on Codex / Gemini.
 
-______________________________________________________________________
+---
 
 ## Only `name` + `description` port
 
@@ -15,20 +15,20 @@ warning.
 ---
 name: payments-review
 description: Review the staged diff for amount-overflow.
-model: opus                          # Claude only
-allowed-tools: [Read, Grep]          # Claude only
+model: opus # Claude only
+allowed-tools: [Read, Grep] # Claude only
 when_to_use: "Before payment merge." # Claude only
-disable-model-invocation: true       # Claude only
-paths: ["src/payments/**.py"]        # Claude only
-hooks: { PreToolUse: [...] }         # Claude only
+disable-model-invocation: true # Claude only
+paths: ["src/payments/**/*.ts"] # Claude only
+hooks: { PreToolUse: [...] } # Claude only
 ---
 ```
 
 A field that "doesn't seem to be doing anything on Gemini" is almost always a Claude-only field. Full table in
-[CLAUDE_CODEX_GEMINI.md](../CLAUDE_CODEX_GEMINI.md#skillmd-frontmatter); the universal subset is *just* `name` +
+[CLAUDE_CODEX_GEMINI.md](../CLAUDE_CODEX_GEMINI.md#skillmd-frontmatter); the universal subset is _just_ `name` +
 `description`.
 
-______________________________________________________________________
+---
 
 ## `allowed-tools:` is Claude-only
 
@@ -44,7 +44,7 @@ Tool restriction lives in different places per host. A skill that "shouldn't be 
 Cross-host fallback: phrase the body so the model has no reason to reach for `Write` in the first place. Add host-native
 scoping as defense in depth.
 
-______________________________________________________________________
+---
 
 ## `disable-model-invocation` toggle differs
 
@@ -73,7 +73,7 @@ description: "Manual deploy. NEVER trigger automatically; only on user-typed /de
 Copy-pasting `disable-model-invocation: true` into a Codex / Gemini SKILL.md parses and ignores it. The skill stays
 auto-invocable on those hosts.
 
-______________________________________________________________________
+---
 
 ## `paths:` auto-activation is Claude-only
 
@@ -83,7 +83,7 @@ path-based activation — they only match on description.
 ```yaml
 # Claude — auto-activates when user touches matching files
 ---
-paths: ["src/payments/**.py", "src/billing/**.py"]
+paths: ["src/payments/**/*.ts", "src/billing/**/*.ts"]
 ---
 ```
 
@@ -99,29 +99,32 @@ description: |
 
 The cross-host substitute: bake file-path phrases into the description so the user-prompt match still fires.
 
-______________________________________________________________________
+---
 
 ## Preload sugar is Claude-only
 
-Inline command execution via `` !`<cmd>` `` or ```` ```! ```` runs only on Claude. On Codex / Gemini it parses as
-literal text — the command never runs.
+Inline command execution via `` !`<cmd>` `` or ` ```! ` runs only on Claude. On Codex / Gemini it parses as literal text
+— the command never runs.
 
 ```markdown
 # Avoid — Claude-only sugar, silent on Codex/Gemini
+
 ## Preload
-!`python3 ${CLAUDE_PLUGIN_ROOT}/scripts/gather.py`
+
+!`"$HOME/.preemdeck/scripts/preemdeck-bun" ${CLAUDE_PLUGIN_ROOT}/scripts/gather.ts`
 
 # Prefer — explicit body step, runs everywhere
+
 ## Step 1 — Gather
 
-Run `python3 ${CLAUDE_PLUGIN_ROOT}/scripts/gather.py` and parse the JSON
-output. The script self-locates if `${CLAUDE_PLUGIN_ROOT}` is unset.
+Run `"$HOME/.preemdeck/scripts/preemdeck-bun" ${CLAUDE_PLUGIN_ROOT}/scripts/gather.ts` and parse the JSON output. The
+script self-locates if `${CLAUDE_PLUGIN_ROOT}` is unset.
 ```
 
 A skill that depends on preload sugar has a runtime gap on two hosts. The model reads the body and never executes the
 command.
 
-______________________________________________________________________
+---
 
 ## Placeholders mostly don't port
 
@@ -136,14 +139,14 @@ Placeholder variables differ per host. None work on all three. Reaching for them
 | `${CLAUDE_PROJECT_DIR}`     | yes    | —                           | env var `GEMINI_PROJECT_DIR` (shell expansion only) |
 | `${extensionPath}`          | —      | —                           | yes — manifest placeholder, host-substituted        |
 
-Two systems on Gemini, easy to confuse. **`${extensionPath}`** (plus `${workspacePath}` and `${/}`) are *manifest
-placeholders* the host substitutes before launching the process. The `GEMINI_*` names are *env vars* exposed to the
+Two systems on Gemini, easy to confuse. **`${extensionPath}`** (plus `${workspacePath}` and `${/}`) are _manifest
+placeholders_ the host substitutes before launching the process. The `GEMINI_*` names are _env vars_ exposed to the
 spawned process — they resolve via shell `${VAR}` expansion inside a hook `command` string but **don't** get substituted
 in arbitrary `gemini-extension.json` fields. Cross-host portable: compute paths inside the body via shell
 (`git rev-parse --show-toplevel`) or in a sidecar script (`Path(__file__).resolve().parents[N]`). Reach for a
 placeholder only where you have no other option — typically the `command` field in a hook config.
 
-______________________________________________________________________
+---
 
 ## The `Skill` tool is Claude-only
 
@@ -152,22 +155,25 @@ Skill-to-skill invocation via the `Skill` tool exists only on Claude. A SKILL.md
 
 ```markdown
 # Avoid — Claude-only
+
 "Use the Skill tool to invoke the `git-status-hud` skill."
 
 # Prefer — describe the intent; the model handles host-appropriate hand-off
+
 "For the status surface, run the equivalent of the `git-status-hud` skill:
-  1. `git status --porcelain=v2 -z`
-  2. Format with the HUD rules in <link>"
+
+1. `git status --porcelain=v2 -z`
+2. Format with the HUD rules in <link>"
 ```
 
 Cross-host plugins keep skills atomic — no programmatic chaining between them. Pull shared logic into a companion file
 both skills include in their body.
 
-______________________________________________________________________
+---
 
 ## Slash-command formats diverge
 
-A user-invocable `/<name>` needs a Markdown file on Claude / Codex *and* a TOML file on Gemini. Shipping only one host's
+A user-invocable `/<name>` needs a Markdown file on Claude / Codex _and_ a TOML file on Gemini. Shipping only one host's
 format silently drops the others.
 
 ```
@@ -188,7 +194,7 @@ format silently drops the others.
 
 Update both command files when the skill body changes — no validator catches drift.
 
-______________________________________________________________________
+---
 
 ## Hard-coded `Agent(…)` in the body
 
@@ -197,16 +203,18 @@ primitive) and Gemini (no agent-to-agent at all).
 
 ```markdown
 # Avoid — Claude-only tool name
+
 "Use Agent({ subagent_type: 'reviewer', prompt: '...' })"
 
 # Prefer — intent-only; the model resolves to the right primitive
+
 "Delegate to the `reviewer` worker. Brief: <self-contained instruction>."
 ```
 
 On Gemini the model interprets "delegate" as "tell the user to type `@reviewer`". See
 [DELEGATING_FROM_SKILLS.md](DELEGATING_FROM_SKILLS.md#the-fundamental-split) for the per-host call shapes.
 
-______________________________________________________________________
+---
 
 ## Over-broad description triggers
 
@@ -218,15 +226,15 @@ description: A helpful skill for code-related tasks.
 
 # Prefer — specific surface, named exclusions
 description: |
-  Format Python files with `ruff format` and report changes.
-  Trigger on 'format this', 'ruff this file', or `/format-py`.
-  Use for .py files only. Do NOT trigger for .md, .json, or
+  Format TypeScript files with `biome format` and report changes.
+  Trigger on 'format this', 'biome this file', or `/format-ts`.
+  Use for .ts files only. Do NOT trigger for .md, .yml, or
   .yaml files — the `format-md` skill handles those.
 ```
 
 Test the trigger by re-reading your description against three near-neighbor prompts. If they all match, narrow it.
 
-______________________________________________________________________
+---
 
 ## Description too narrow
 
@@ -246,7 +254,7 @@ description: |
 
 If the test prompts don't fire the skill, the trigger phrasing is wrong — not the model.
 
-______________________________________________________________________
+---
 
 ## Skill name collisions
 
@@ -264,7 +272,7 @@ name: pyforge-format
 On Gemini, conflicts auto-prefix as `/<extension>.<command>` — visible to the user, but the bare name still has to read
 on its own. A plugin-prefixed name reads cleanly in `/<extension>.format` and survives Claude / Codex collisions.
 
-______________________________________________________________________
+---
 
 ## Codex project trust is silent until refused
 
@@ -281,7 +289,7 @@ trust_level = "trusted"
 
 Symptom: the skill works on Claude / Gemini, "doesn't seem to load" on Codex. Check trust before debugging the skill.
 
-______________________________________________________________________
+---
 
 ## Standalone install paths diverge
 
@@ -297,7 +305,7 @@ each go to a host-specific path.
 the same tier, so it's not just accepted, it's preferred. Claude does not read it. For a single cross-host project-local
 skill, install it in `.agents/skills/` (covers Codex + Gemini) plus `.claude/skills/`, or ship as a plugin.
 
-______________________________________________________________________
+---
 
 ## SKILL.md is loaded into every turn
 
@@ -306,11 +314,15 @@ including turns where the model decides not to act on it.
 
 ```markdown
 # Avoid — everything inline; the body loads even when the skill won't use it
+
 ## How to run
+
 [full schema, full examples, full error catalog — 600 lines]
 
 # Prefer — concise body, link out for depth
+
 ## How to run
+
 1. Validate against `<skill>/SCHEMA.md`.
 2. Render via `<skill>/EXAMPLES.md`.
 3. On error, see `<skill>/ERRORS.md`.
@@ -319,26 +331,28 @@ including turns where the model decides not to act on it.
 Aim for SKILL.md under 200 lines. Past 300 it stops being a skill and becomes a small library — split it or move detail
 into companion files the model loads on demand.
 
-______________________________________________________________________
+---
 
 ## "Based on prior turns…" assumptions
 
-The skill body is the only context the model gets *about the skill*. Phrases like "based on the previous step" or "as
+The skill body is the only context the model gets _about the skill_. Phrases like "based on the previous step" or "as
 discussed earlier" lean on conversation history the model may not have when the skill fires.
 
 ```markdown
 # Avoid — leans on prior conversation
+
 ## Step 2 — Apply the fix discussed.
 
 # Prefer — self-contained
+
 ## Step 2 — Apply the fix
-Edit `src/payments.py:42` to return `Decimal` instead of `float`.
-Keep the function signature.
+
+Edit `src/payments.ts:42` to return a `bigint` of minor units instead of a `float`. Keep the function signature.
 ```
 
 A skill is loaded mid-turn. The body must stand on its own.
 
-______________________________________________________________________
+---
 
 ## Quick checklist
 

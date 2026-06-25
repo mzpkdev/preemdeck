@@ -1,7 +1,7 @@
 /**
  * install.test.ts — bun-test port of tests/test_install.py.
  *
- * MOCK PATTERNS (from rewrite-contract.md):
+ * MOCK PATTERNS:
  *   spawn seam — install.ts routes every shell-out through `_internals.spawn`. We
  *       override that single field (NOT mock.module on the shared ./lib/proc.ts,
  *       which leaks into lib/proc.test.ts across one `bun test` run) so command-
@@ -430,7 +430,7 @@ describe("loadManifest", () => {
   });
 });
 
-// bootstrapNodeModules — bun install seam (mirrors bootstrapWorkspace/uv sync)
+// bootstrapNodeModules — bun install seam (the installer's only dependency bootstrap)
 
 describe("bootstrapNodeModules", () => {
   test("dry-run prints intent without spawning", async () => {
@@ -512,7 +512,7 @@ describe("installFor", () => {
   });
 
   test("dry-run returns 0 (harness present, no real subprocess work)", async () => {
-    // onPath + uv probes succeed; in dry-run copyOverlay/writeManifest write
+    // onPath probe succeeds; in dry-run copyOverlay/writeManifest write
     // nothing, so this is safe to run against the real REPO_ROOT / $HOME.
     spawnImpl = async () => ok;
     const logSpy = spyOn(console, "log").mockImplementation(() => {});

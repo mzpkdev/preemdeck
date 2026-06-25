@@ -5,13 +5,13 @@
  * dash-leading secret can't be misparsed), and the idle/sweep/empty/cap/
  * public-url knobs forwarded ONLY when set (an unset knob is omitted so the child
  * resolves its own env/default). Ports the load-bearing _serve_argv cases from
- * test_lifecycle.py.
+ * the original wire's lifecycle suite.
  *
  * E2E (subprocess): the real start -> status -> stop cycle, idempotent re-start
  * (no second server), and the mint-a-secret path — each under a throwaway
  * WIRE_STATE_DIR so it never touches a real ~/.wire and the spawned pid is torn
  * down. Plus the idempotent reuse path driven hermetically against a stub /health
- * (no real server spawned). Mirrors test_lifecycle's start/status/stop suite.
+ * (no real server spawned). Mirrors the original wire's start/status/stop suite.
  */
 
 import { afterEach, describe, expect, it } from "bun:test"

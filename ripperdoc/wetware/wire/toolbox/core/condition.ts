@@ -1,14 +1,12 @@
 /**
  * condition.ts — the single-waiter-friendly condition primitive the wire core
- * parks long-polls on. Replaces Python's one `asyncio.Condition` that `room.py`
- * guards every long-poll with.
+ * parks long-polls on. The room guards every long-poll with one of these.
  *
- * In Python a /recv does `asyncio.wait_for(cond.wait_for(predicate), timeout)`:
- * park until `predicate()` is true OR the timeout fires; every write calls
- * `cond.notify_all()` to wake parked waiters to re-test. Bun is single-threaded
- * with no built-in condition, so we model it with promises.
+ * A /recv parks until `predicate()` is true OR the timeout fires; every write
+ * calls `notifyAll()` to wake parked waiters to re-test. Bun is single-threaded
+ * with no built-in condition primitive, so we model it with promises.
  *
- * Correctness contract (mirrors asyncio.Condition's guarantees):
+ * Correctness contract:
  *  - NO LOST NOTIFIES — a waiter registers its resolver in a pending set BEFORE
  *    it parks, so a `notifyAll()` racing the registration still wakes it. (We
  *    fast-path an already-true predicate without ever registering.)

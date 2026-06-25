@@ -34,51 +34,20 @@ jobs:
       - name: Lint
         run: bunx biome check
 
-  wire-python:
-    name: Python (wire server)
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Set up uv
-        uses: astral-sh/setup-uv@v5
-        with:
-          enable-cache: true
-          cache-dependency-glob: "uv.lock"
-          python-version: "3.12"
-
-      - name: Install dependencies
-        run: uv sync --locked
-
-      - name: Lint
-        run: uv run ruff check .
-
-      - name: Format check
-        run: uv run ruff format --check .
-
-      - name: Typecheck
-        run: uv run mypy
-
-      - name: Test
-        run: uv run pytest
-
   docs:
-    name: Markdown format
+    name: Format (Prettier)
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Set up uv
-        uses: astral-sh/setup-uv@v5
+      - name: Set up Bun
+        uses: oven-sh/setup-bun@v2
         with:
-          enable-cache: true
-          cache-dependency-glob: "uv.lock"
-          python-version: "3.12"
+          bun-version: "1.3.14"
 
       - name: Install dependencies
-        run: uv sync --locked
+        run: bun install --frozen-lockfile
 
-      - name: Format check (Markdown)
-        run: find . -type f -name '*.md' -not -path './.venv/*' -not -path './.git/*' -not -path './node_modules/*' -not -path './experiments/*' -print0 | xargs -0 uv run mdformat --check
+      - name: Format check (Markdown + YAML)
+        run: bunx prettier --check .

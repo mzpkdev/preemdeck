@@ -4,7 +4,7 @@ This directory holds reference docs that an LLM agent reads before doing work in
 sheet — built for fast scanning, not cover-to-cover reading. This doc demonstrates the style it describes; if in doubt,
 mimic its shape.
 
-______________________________________________________________________
+---
 
 ## Audience
 
@@ -16,7 +16,7 @@ The reader is another LLM, often loading the file mid-task with finite context. 
 
 If a future LLM has to read three paragraphs before it can act, the doc has failed.
 
-______________________________________________________________________
+---
 
 ## Capture, then ask
 
@@ -33,11 +33,11 @@ decides what compounds and what doesn't.
 
 Memory is for you. `agents/` is the public contract for the next agent.
 
-______________________________________________________________________
+---
 
 ## Voice
 
-Warm, direct, second-person plural ("How *we* write…"). Friendly opener, then get out of the way.
+Warm, direct, second-person plural ("How _we_ write…"). Friendly opener, then get out of the way.
 
 | Trait       | Do                                  | Don't                                |
 | ----------- | ----------------------------------- | ------------------------------------ |
@@ -47,9 +47,9 @@ Warm, direct, second-person plural ("How *we* write…"). Friendly opener, then 
 | Person      | First-person plural / imperative    | Third-person passive                 |
 | Hedging     | None                                | "may", "might want to", "consider"   |
 
-One-liner aphorisms are welcome when they compress a rule: *"Trust the inside.", "Comments explain WHY, not WHAT."*
+One-liner aphorisms are welcome when they compress a rule: _"Trust the inside.", "Comments explain WHY, not WHAT."_
 
-______________________________________________________________________
+---
 
 ## Structure
 
@@ -78,7 +78,7 @@ Rules:
 - **No "in this section we will…"** — just start.
 - **Sections stand alone.** A reader can land on any H2 and act.
 
-______________________________________________________________________
+---
 
 ## Visualization first
 
@@ -98,15 +98,16 @@ artifact is fine. A 6-sentence paragraph means the artifact should be doing the 
 Label inside code comments. **Never use emojis** (unless the user explicitly asks):
 
 ````markdown
-```python
-# Avoid
-def fetch(items=[]):
-    ...
+```ts
+// Avoid
+const fetch = (items) => {
+  // ...
+};
 
-# Prefer
-def fetch(items: list | None = None):
-    items = items or []
-    ...
+// Prefer
+const fetch = (items: string[] = []) => {
+  // ...
+};
 ```
 ````
 
@@ -115,7 +116,7 @@ Two acceptable shapes:
 - **Sequential** — `# Avoid` block, then `# Prefer` block, in the same fenced snippet.
 - **Side-by-side** — only when both forms are short enough to read at a glance.
 
-______________________________________________________________________
+---
 
 ## Density rules
 
@@ -126,7 +127,7 @@ ______________________________________________________________________
 - Cut any sentence that starts with "Note that…", "It's worth mentioning…", or "Generally speaking…".
 - If a section grows past ~one screen, split it or move detail into a subsection.
 
-______________________________________________________________________
+---
 
 ## File organization
 
@@ -145,22 +146,22 @@ Conventions:
 - **No duplication.** Two files explaining the same rule will drift. Cross-link instead.
 - **Update before adding.** Reach for a new file only when the topic doesn't fit an existing one's scope.
 
-______________________________________________________________________
+---
 
 ## Examples are domain-neutral
 
 Use simple, evergreen domains (cars, payments, dice) so the rule stays the focus. Avoid examples that bake in business
 logic, project internals, or recently-shipped features — they age badly.
 
-```python
-# Avoid — couples the rule to a specific feature
-def fetch_preemdeck_slot_status(slot_id: str) -> SlotStatus: ...
+```ts
+// Avoid — couples the rule to a specific feature
+const fetchPreemdeckSlotStatus = (slotId: string): SlotStatus => { ... }
 
-# Prefer — domain-neutral, the rule is the point
-def fetch(url: str, *, timeout: int = 30) -> bytes: ...
+// Prefer — domain-neutral, the rule is the point
+const fetch = (url: string, { timeout = 30 }: { timeout?: number } = {}): Uint8Array => { ... }
 ```
 
-______________________________________________________________________
+---
 
 ## Cheat sheet at the end
 
@@ -170,13 +171,13 @@ panel:
 ```
 Naming     ── self-explanatory, no abbreviations, no magic numbers
 Functions  ── small, single responsibility, stepdown order
-Typing     ── public surface typed; `| None` not Optional
+Typing     ── public surface typed; `T | undefined` not `any`
 ```
 
 The cheat sheet is the doc's table of contents and its TL;DR — a reader who only scans the bottom should still walk away
 with the headline rules.
 
-______________________________________________________________________
+---
 
 ## Skeleton
 
@@ -226,7 +227,7 @@ Rule three   ── short verb phrase
 ```
 ````
 
-______________________________________________________________________
+---
 
 ## Quick checklist
 
