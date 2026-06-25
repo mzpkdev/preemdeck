@@ -1,18 +1,17 @@
 import { afterEach, beforeEach, describe, expect, it } from "bun:test"
-import { mkdtemp, rm, writeFile } from "node:fs/promises"
-import { tmpdir } from "node:os"
-import { join } from "node:path"
+import * as fs from "node:fs/promises"
+import * as os from "node:os"
+import * as path from "node:path"
 
 const context = describe
 
-const CLI = join(import.meta.dir, "open-file.ts")
 const ORIGINAL = "ORIGINAL\n"
 
 const run = async (
     args: string[],
     environment: Record<string, string> = {}
 ): Promise<{ code: number; stdout: string; stderr: string }> => {
-    const subprocess = Bun.spawn([process.execPath, CLI, ...args], {
+    const subprocess = Bun.spawn([process.execPath, path.join(import.meta.dir, "open-file.ts"), ...args], {
         stdin: "ignore",
         stdout: "pipe",
         stderr: "pipe",
@@ -28,17 +27,17 @@ const run = async (
 
 let directory = ""
 beforeEach(async () => {
-    directory = await mkdtemp(join(tmpdir(), "preemdeck-openfile-"))
+    directory = await fs.mkdtemp(path.join(os.tmpdir(), "preemdeck-openfile-"))
 })
 afterEach(async () => {
-    await rm(directory, { recursive: true, force: true })
+    await fs.rm(directory, { recursive: true, force: true })
 })
 
 describe("open-file CLI", () => {
     context("on a live IDE", () => {
         it("exits 0 and writes nothing to stdout under --dry-run", async () => {
-            const target = join(directory, "thing.py")
-            await writeFile(target, ORIGINAL)
+            const target = path.join(directory, "thing.py")
+            await fs.writeFile(target, ORIGINAL)
             const { code, stdout, stderr } = await run(["--dry-run", target])
             expect(code).toBe(0)
             expect(stdout).toBe("")
@@ -46,8 +45,8 @@ describe("open-file CLI", () => {
         })
 
         it("prints the file contents back to stdout under --wait", async () => {
-            const target = join(directory, "thing.py")
-            await writeFile(target, ORIGINAL)
+            const target = path.join(directory, "thing.py")
+            await fs.writeFile(target, ORIGINAL)
             const { code, stdout } = await run(["--wait", "--dry-run", target])
             expect(code).toBe(0)
             expect(stdout).toBe(ORIGINAL)
@@ -56,8 +55,8 @@ describe("open-file CLI", () => {
 
     context("without a live IDE", () => {
         it("exits 1 with the IdeaError on stderr", async () => {
-            const target = join(directory, "thing.py")
-            await writeFile(target, ORIGINAL)
+            const target = path.join(directory, "thing.py")
+            await fs.writeFile(target, ORIGINAL)
             const { code, stdout, stderr } = await run([target], { PREEMDECK_FORCE_IN_IDEA: "0" })
             expect(code).toBe(1)
             expect(stdout).toBe("")
