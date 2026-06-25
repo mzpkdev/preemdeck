@@ -155,7 +155,7 @@ The worker has no memory of the skill's turn. Pass file paths; the worker reads 
 
 # Prefer — pass the path; the worker reads what it needs
 
-"Review src/payments.py:14-180. Focus on parse_amount and apply_discount."
+"Review src/payments.ts:14-180. Focus on parseAmount and applyDiscount."
 ```
 
 A 4000-line file in a brief costs twice — once in the skill's context, once in the worker's input tokens. Worse on
