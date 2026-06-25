@@ -21,13 +21,24 @@ SOURCE_DIRECTORY="$HOME/.preemdeck"
 
 command -v git >/dev/null     || { echo "      ⊘ git not found"; exit 1; }
 
+# Release channel -> branch. PREEMDECK_CHANNEL picks a published stream; install from
+# dist-<channel> when that branch exists, else fall back to main so an install never
+# breaks on a channel whose branch isn't published yet (e.g. stable before its producer
+# lands). Default: stable.
+CHANNEL="${PREEMDECK_CHANNEL:-stable}"
+TARGET_BRANCH="dist-$CHANNEL"
+if ! git ls-remote --exit-code --heads "$REPOSITORY" "$TARGET_BRANCH" >/dev/null 2>&1; then
+  echo "      ▸ channel '$CHANNEL' not published yet — installing from main"
+  TARGET_BRANCH="main"
+fi
+
 # Re-runnable: ~/.preemdeck is preemdeck's own source, not user config — refresh it
 # in place rather than backing it up. (Full update logic lives in update.ts.)
 if [ -d "$SOURCE_DIRECTORY/.git" ]; then
-  git -C "$SOURCE_DIRECTORY" fetch --depth 1 --quiet origin HEAD
+  git -C "$SOURCE_DIRECTORY" fetch --depth 1 --quiet origin "$TARGET_BRANCH"
   git -C "$SOURCE_DIRECTORY" reset --hard --quiet FETCH_HEAD
 else
-  git clone --depth 1 --quiet "$REPOSITORY" "$SOURCE_DIRECTORY"
+  git clone --depth 1 --quiet --branch "$TARGET_BRANCH" "$REPOSITORY" "$SOURCE_DIRECTORY"
 fi
 
 # Ship-the-runtime: fetch the PINNED Bun into ~/.preemdeck/.runtime/bin/bun so all
