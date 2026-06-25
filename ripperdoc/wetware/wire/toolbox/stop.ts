@@ -1,7 +1,7 @@
 #!/usr/bin/env bun
 /**
  * stop.ts — TERM/KILL the tracked room, confirm it's down, clear state. Port of
- * `wire stop` in server/src/wire/cli.py.
+ * the original `wire stop` command.
  *
  * Reads the state file: nothing → "nothing running". A dead pid (the process is
  * gone) → clear the stale state and report it, no signal. A live pid → SIGTERM,
@@ -30,7 +30,7 @@ const sleep = (ms: number): Promise<void> => new Promise((resolve) => setTimeout
 /**
  * True if a signal can be delivered to `pid` (the process exists). `kill(pid, 0)`
  * delivers no signal — it only probes: ESRCH (no such process) → false, EPERM
- * (exists but not ours) → true. Mirrors the Python `_pid_alive`.
+ * (exists but not ours) → true. Mirrors the original `_pid_alive`.
  */
 export const pidAlive = (pid: number): boolean => {
     try {

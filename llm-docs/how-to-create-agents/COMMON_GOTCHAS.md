@@ -2,7 +2,7 @@
 
 Looks right, bites later. Most pain comes from the gap between hosts.
 
-______________________________________________________________________
+---
 
 ## File format diverges
 
@@ -28,7 +28,7 @@ You are a reviewer…
 Copy-pasting a Claude `agents/<name>.md` into `.codex/agents/` with a renamed extension will not work — TOML can't parse
 YAML frontmatter, and Codex won't find the body.
 
-______________________________________________________________________
+---
 
 ## Tool restriction unit differs
 
@@ -42,7 +42,7 @@ A subagent that "shouldn't be able to write" needs `tools:` declared in its own 
 `sandbox_mode = "read-only"` on Codex. Don't try to scope at the caller — caller-side restrictions don't reach the
 subagent's process.
 
-______________________________________________________________________
+---
 
 ## Invocation syntax differs
 
@@ -56,7 +56,7 @@ A skill that hard-codes `Agent(...)` is Claude-only. On Gemini the **main** agen
 the same name), but **subagent→subagent** recursion is blocked — and there is no peer-to-peer messaging on any host
 except Claude.
 
-______________________________________________________________________
+---
 
 ## "Based on findings…" delegation
 
@@ -70,14 +70,14 @@ invoke(reviewer, prompt="Based on the research, implement the fix.")
 
 # Prefer — self-contained instruction with concrete coordinates
 invoke(reviewer, prompt=(
-    "Replace the `parse_amount` function at src/payments.py:42 with "
-    "one that returns Decimal instead of float. Keep the signature."
+    "Replace the `parseAmount` function at src/payments.ts:42 with "
+    "one that returns a bigint of minor units instead of a float. Keep the signature."
 ))
 ```
 
 If you understand the work, prove it in the prompt — file path, line, exact change.
 
-______________________________________________________________________
+---
 
 ## Description too vague
 
@@ -96,7 +96,7 @@ description: |
 
 Front-load the trigger phrase. Add an exclusion line if there's a near-neighbor agent that should win in some cases.
 
-______________________________________________________________________
+---
 
 ## Tool-name mismatch
 
@@ -114,7 +114,7 @@ miss the call. Gemini uses `write_file` and friends.
 
 If the agent restricts tools by name, list every variant the host can emit.
 
-______________________________________________________________________
+---
 
 ## Frontmatter silently drops
 
@@ -132,7 +132,7 @@ Most subagent frontmatter is host-specific. Fields the host doesn't recognize pa
 Smoke-test on every host the agent claims to support. A drop-on-Codex bug looks like the agent working fine until it
 suddenly doesn't terminate.
 
-______________________________________________________________________
+---
 
 ## Inter-agent comms only on Claude
 
@@ -141,31 +141,31 @@ subagents (built-ins `default`/`worker`/`explorer` plus registered `.toml` files
 peer-to-peer protocol; messaging is parent-mediated. Gemini exposes subagents as tools to the main agent only; subagents
 can't see or invoke each other.
 
-```python
-# Avoid — Claude-only peer messaging; won't port to Codex / Gemini
-SendMessage({"to": "reviewer", "message": "ping"})
+```ts
+// Avoid — Claude-only peer messaging; won't port to Codex / Gemini
+SendMessage({ to: "reviewer", message: "ping" });
 ```
 
 Design as fan-out / fan-in from the invoker — the parent on Claude/Codex, the parent or user on Gemini:
 
-```python
-# Claude — parent agent fans out via the Agent tool
-results = [Agent({"subagent_type": "reviewer", "prompt": f"Review {t}"}) for t in targets]
+```ts
+// Claude — parent agent fans out via the Agent tool
+const results = targets.map((t) => Agent({ subagent_type: "reviewer", prompt: `Review ${t}` }));
 
-# Codex — batch fan-out: model emits spawn_agents_on_csv; each worker calls
-# report_agent_job_result exactly once with its result row
-# (CSV holds per-row briefs; collection happens via the report calls)
+// Codex — batch fan-out: model emits spawn_agents_on_csv; each worker calls
+// report_agent_job_result exactly once with its result row
+// (CSV holds per-row briefs; collection happens via the report calls)
 ```
 
 ```text
 # Gemini — no parent layer; the user runs N invocations manually
-> @reviewer Review src/a.py
-> @reviewer Review src/b.py
+> @reviewer Review src/a.ts
+> @reviewer Review src/b.ts
 ```
 
 A skill that orchestrates a "team" of agents is a Claude-only skill — document it or split the skill per host.
 
-______________________________________________________________________
+---
 
 ## Context bloat
 
@@ -173,15 +173,15 @@ Passing entire files in the prompt eats the agent's context window and the invok
 
 ```text
 # Avoid — file contents inlined into the prompt
-invoke(reviewer, prompt=f"Review this:\n{open('big.py').read()}")
+invoke(reviewer, prompt=`Review this:\n${await Bun.file("big.ts").text()}`)
 
 # Prefer — pass the path; the subagent reads what it needs
-invoke(reviewer, prompt="Review src/big.py. Focus on parse_amount.")
+invoke(reviewer, prompt="Review src/big.ts. Focus on parseAmount.")
 ```
 
 A 4000-line file in a prompt costs you twice — once in the invoker's context, once in the agent's input tokens.
 
-______________________________________________________________________
+---
 
 ## Name collisions across plugins
 
@@ -199,7 +199,7 @@ name: payments-reviewer
 On Gemini the `@name` invocation is the user-visible syntax — a collision becomes a UX problem the user sees in
 completions.
 
-______________________________________________________________________
+---
 
 ## Quick checklist
 

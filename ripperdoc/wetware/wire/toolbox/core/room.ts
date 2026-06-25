@@ -1,6 +1,6 @@
 /**
- * room.ts — the framework-free core of a wire room. Port of
- * server/src/wire/room.py.
+ * room.ts — the framework-free core of a wire room. Port of the original wire's
+ * room layer.
  *
  * Holds all room state — token->peer binding, the message log, the room-global
  * event-`id` counter (stream position / read-cursor key) plus a separate
@@ -8,7 +8,7 @@
  * Imports neither an HTTP framework nor a schema lib; depends only on the
  * primitives: {@link Config}, {@link Clock}, and {@link Condition}.
  *
- * Single-threaded Bun, no locks: where room.py wraps mutations in
+ * Single-threaded Bun, no locks: where the original wraps mutations in
  * `async with self._cond` to serialize them against the long-poll, TS gets the
  * same atomicity for free — nothing preempts between two synchronous statements,
  * so each mutation runs to completion before any parked `recv` re-tests. The one
@@ -38,7 +38,7 @@ const EDGE_SEP_RE = /^-+|-+$/g
 const BASE_MAX = 32
 // Base used when no usable name was requested.
 const DEFAULT_BASE = "peer"
-// Token entropy in bytes; base64url-encoded, mirrors Python's token_urlsafe(32).
+// Token entropy in bytes; base64url-encoded, mirrors the original's token_urlsafe(32).
 const TOKEN_BYTES = 32
 
 /**
@@ -153,7 +153,7 @@ type Peer = {
 /**
  * The pure async core. Build via {@link makeRoom}.
  *
- * Every method mirrors a room.py method (camelCased): the membership surface
+ * Every method mirrors an original room method (camelCased): the membership surface
  * (jackin/jackout/touch/reapIdle), the token-validation surface
  * (status/isKnown/peerNameFor), messaging (send/recv), the empty-room decision
  * (shouldSelfClose), and the tokenless spectator surface (cond/eventId/
@@ -186,7 +186,7 @@ export type Room = {
  *
  * `now` is the injectable monotonic clock (float SECONDS) — every elapsed-time
  * read goes through it; tests pass a `fakeClock` to drive reapIdle/shouldSelfClose
- * without real sleeps. Mirrors room.py's `now=time.monotonic`.
+ * without real sleeps. Mirrors the original's `now=time.monotonic`.
  *
  * The load-bearing `idleTimeout > waitMax` invariant is enforced in
  * {@link makeConfig}, so a `Config` that reaches here already satisfies it — a

@@ -338,44 +338,6 @@ export function writeManifest(
 }
 
 /**
- * Install every workspace package's runtime deps into the shared .venv via uv.
- *
- * The repo is a uv workspace (root pyproject `[tool.uv.workspace]`); `uv sync
- * --all-packages --no-dev` resolves and installs each app's deps (e.g. wire's
- * fastapi/uvicorn/pydantic) without the root dev group. Non-fatal: a missing uv
- * or a failed sync prints a warning and lets the install continue.
- *
- * KEEP THE WIRE SEAM: wire stays Python, so this uv shell-out survives the port.
- */
-export async function bootstrapWorkspace(repoRoot: string, dryRun: boolean): Promise<void> {
-  if (!(await onPath("uv"))) {
-    console.log(`  ${CROSS} uv not found — skipping dependency bootstrap; install uv and re-run`);
-    return;
-  }
-  if (dryRun) {
-    console.log(`  (dry-run) would run: uv sync --all-packages --no-dev (cwd=${repoRoot})`);
-    return;
-  }
-  const result = await _internals.spawn(["uv", "sync", "--all-packages", "--no-dev"], {
-    cwd: repoRoot,
-    timeoutMs: 300_000,
-  });
-  if (result.timedOut) {
-    process.stderr.write(`  ${CROSS} dependency bootstrap timed out after 300s\n`);
-    return;
-  }
-  if (result.exitCode === 0) {
-    console.log(`  ${CHECK} dependency bootstrap: synced workspace packages`);
-  } else {
-    const tail = (result.stderr.trim() || result.stdout.trim() || "non-zero exit").split("\n").slice(-5);
-    process.stderr.write(`  ${CROSS} dependency bootstrap failed:\n`);
-    for (const line of tail) {
-      process.stderr.write(`      ${line}\n`);
-    }
-  }
-}
-
-/**
  * Install the TS plugins' npm deps into the gitignored node_modules via bun.
  *
  * The dock toolboxes and the TS wire server import npm packages (cmdore via a
@@ -486,7 +448,6 @@ export async function installFor(harness: string, dryRun: boolean): Promise<numb
   }
   console.log();
 
-  await bootstrapWorkspace(REPO_ROOT, dryRun);
   await bootstrapNodeModules(REPO_ROOT, dryRun);
 
   const [ok, err, overlay] = copyOverlay(harness, REPO_ROOT, configDir(harness), dryRun);

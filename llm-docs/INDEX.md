@@ -14,9 +14,10 @@ Action Dispatch, Prompt Intercept, Adapter Hook.
 Cross-lab rules for system prompts and agent harnesses — structure, context budgeting, eagerness, orchestration
 patterns.
 
-## [Python Coding Standards](CODING_STANDARDS.md)
+## [TypeScript Coding Standards](CODING_STANDARDS.md)
 
-Repo conventions for Python. Naming, function shape, type hints, idioms, SOLID, and pytest patterns.
+Repo conventions for TypeScript. Naming, modules & imports, types, function shape, errors, async on the Bun runtime, and
+testing.
 
 ## [How to Contribute](HOW_TO_CONTRIBUTE.md)
 

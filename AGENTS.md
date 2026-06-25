@@ -3,18 +3,12 @@
 - Bun — preemdeck's `.ts` source runs on a **pinned** Bun (`1.3.14`), vendored by `boot.sh` into
   `~/.preemdeck/.runtime/bin/bun` and invoked through the `scripts/preemdeck-bun` shim. No host Bun needed; the fetch is
   best-effort and falls back to a host `bun` on `PATH` if it can't vendor.
-- Python 3.12+, pip3, uv — needed only for the **wire server** (still Python) and its `uv` dependency bootstrap.
-  `boot.sh` installs `uv` if missing.
-
-Bootstrap:
-
-- `uv sync` — sets up the wire server's Python env.
 
 ## Format on edit
 
-A project-local hook runs `ruff format` (`.py`) and `mdformat` (`.md`) after every agent edit on Claude Code, Codex, and
-Gemini CLI. The hook script is run on the vendored Bun via the `scripts/preemdeck-bun` shim; the formatters it shells
-out to (`ruff`, `mdformat`) are unchanged. It never blocks the edit — failures warn on stderr.
+A project-local hook runs Biome (`.ts`/`.json`) and Prettier (`.md`/`.yml`/`.yaml`) after every agent edit on Claude
+Code, Codex, and Gemini CLI. The hook script is run on the vendored Bun via the `scripts/preemdeck-bun` shim; the
+formatters it shells out to (Biome, Prettier) are unchanged. It never blocks the edit — failures warn on stderr.
 
 | File                        | Role                                    |
 | --------------------------- | --------------------------------------- |
@@ -26,16 +20,13 @@ out to (`ruff`, `mdformat`) are unchanged. It never blocks the edit — failures
 **Codex trust:** first run prompts you to trust the project — accept it, or `.codex/config.toml` is silently ignored.
 (Alt: pre-add `[projects."/abs/path/to/preemdeck"] trust_level = "trusted"` to `~/.codex/config.toml`.)
 
-Full-repo format pass: `uv run task format`.
+Full-repo format pass: `bun run format`.
 
 ## Tests
 
-- Repo-level suite (root `tests/`): `uv run pytest` from the repo root — what CI runs.
-- Wire server suite (`ripperdoc/wetware/wire/server/tests/`, 202 tests):
-  `cd ripperdoc/wetware/wire/server && uv run pytest`. uv resolves the `wire` workspace member and auto-syncs its `dev`
-  group (pytest, pytest-asyncio, httpx) into the shared `.venv`. The `wire:start`/`wire:stop` runtime path is separate —
-  it runs the TS toolbox via `"$HOME/.preemdeck/scripts/preemdeck-bun" "${CLAUDE_PLUGIN_ROOT}/toolbox/start.ts"` (and
-  `stop.ts`) and is unaffected.
+- `bun test` — what CI runs. The `bun:test` API; specs are colocated as `*.test.ts` next to their source.
+- The `wire:start`/`wire:stop` runtime path runs the TS toolbox via
+  `"$HOME/.preemdeck/scripts/preemdeck-bun" "${CLAUDE_PLUGIN_ROOT}/toolbox/start.ts"` (and `stop.ts`).
 
 ## Applying changes to a running harness
 

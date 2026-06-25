@@ -1,7 +1,7 @@
 #!/usr/bin/env bun
 /**
- * status.ts — report whether the tracked room is up. Port of `wire status` in
- * server/src/wire/cli.py.
+ * status.ts — report whether the tracked room is up. Port of the original
+ * `wire status` command.
  *
  * Reads the state file: nothing → "not running". Otherwise probe /health and
  * print up/down with the room's host, port, url, and secret. Read-only — it

@@ -1,7 +1,7 @@
 #!/usr/bin/env bun
 /**
- * serve.ts — the FOREGROUND wire server (blocking). Port of `wire serve` in
- * server/src/wire/cli.py.
+ * serve.ts — the FOREGROUND wire server (blocking). Port of the original
+ * `wire serve` command.
  *
  * Resolves a free port, builds the frozen Config (which asserts
  * idleTimeout > waitMax), writes the state file — it is the SINGLE writer —
@@ -12,8 +12,7 @@
  *
  * Concurrency cap (the 503): app.fetch is wrapped in an in-flight counter that
  * answers 503 once over `config.maxConnections` (skipped when 0 = unlimited),
- * bounding the unauthenticated-flood blast radius, mirroring uvicorn's
- * limit_concurrency.
+ * bounding the unauthenticated-flood blast radius by shedding excess connections.
  */
 
 import * as crypto from "node:crypto"
@@ -30,10 +29,10 @@ import {
     resolveSweepInterval
 } from "./knobs.ts"
 
-/** Bun's idle-timeout is a byte, capped at 255s; trim slow-loris holds like uvicorn's keep-alive. */
+/** Bun's idle-timeout is a byte, capped at 255s; trim slow-loris holds like a server keep-alive. */
 const SERVE_IDLE_SECONDS = 10
 
-/** Raised to fail the launch cleanly (exit 1) with a `wire: error:` message, like the Python's early returns. */
+/** Raised to fail the launch cleanly (exit 1) with a `wire: error:` message, like the original's early returns. */
 export class ServeError extends Error {}
 
 /** The launch knobs serve resolves; the integer knobs are `undefined` when unset (flag>env>default applies). */
@@ -54,8 +53,8 @@ export type ServeOptions = {
 /**
  * Wrap `fetch` in an in-flight counter that returns 503 once `max` requests are
  * already running (0 = unlimited → the handler is returned as-is). This bounds
- * the unauthenticated-flood blast radius the way uvicorn's `limit_concurrency`
- * does — excess connections are shed, not queued.
+ * the unauthenticated-flood blast radius by shedding excess connections instead
+ * of queuing them.
  */
 export const capConcurrency = (
     handler: (request: Request) => Response | Promise<Response>,
@@ -191,7 +190,7 @@ export const serve = async (options: ServeOptions): Promise<void> => {
                     }
                     stopped = true
                     stopReaper()
-                    // serve does NOT clear state — `stop` owns that (mirrors cli.py).
+                    // serve does NOT clear state — `stop` owns that (mirrors the original).
                     void server.stop(true)
                     resolve()
                 }

@@ -1,14 +1,13 @@
 /**
  * knobs.ts — the flag > env > default resolvers shared by serve and start.
- * Port of the `_idle_timeout` / `_sweep_interval` / `_empty_grace` /
- * `_max_connections` / `_public_url` / `_start_timeout` helpers in
- * server/src/wire/cli.py.
+ * Port of the original `_idle_timeout` / `_sweep_interval` / `_empty_grace` /
+ * `_max_connections` / `_public_url` / `_start_timeout` helpers.
  *
  * Each resolver takes the already-parsed flag value (`undefined` when the flag
  * was not passed — cmdore leaves an absent arity-1 option `undefined`) and
- * applies the same precedence the Python does: an explicit flag wins; else the
+ * applies the same precedence as the original: an explicit flag wins; else the
  * env var (if valid); else the Config default. The "valid" bar matches the
- * Python per-knob — most accept any non-negative int (0 is MEANINGFUL: it
+ * original per-knob — most accept any non-negative int (0 is MEANINGFUL: it
  * disables idle drop / empty self-close / the connection cap), while the sweep
  * interval requires a positive cadence and the start timeout a positive float.
  *
@@ -31,7 +30,7 @@ export const STOP_TIMEOUT = 5
 export const STOP_POLL_INTERVAL = 0.2
 
 /**
- * Parse a base-10 integer exactly (the Python `int()` bar): optional sign, all
+ * Parse a base-10 integer exactly (the strict `int()` bar): optional sign, all
  * digits, no trailing junk. Returns `null` on anything unparseable so a garbage
  * env value falls through to the default rather than poisoning a knob.
  */

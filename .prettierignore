@@ -1,0 +1,8 @@
+node_modules
+vendor
+experiments
+.venv
+
+*.ts
+*.tsx
+*.json
