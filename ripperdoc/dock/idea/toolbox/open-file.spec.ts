@@ -36,7 +36,7 @@ afterEach(async () => {
 describe("open-file CLI", () => {
     context("on a live IDE", () => {
         it("exits 0 and writes nothing to stdout under --dry-run", async () => {
-            const target = path.join(directory, "thing.py")
+            const target = path.join(directory, "thing.ts")
             await fs.writeFile(target, ORIGINAL)
             const { code, stdout, stderr } = await run(["--dry-run", target])
             expect(code).toBe(0)
@@ -45,7 +45,7 @@ describe("open-file CLI", () => {
         })
 
         it("prints the file contents back to stdout under --wait", async () => {
-            const target = path.join(directory, "thing.py")
+            const target = path.join(directory, "thing.ts")
             await fs.writeFile(target, ORIGINAL)
             const { code, stdout } = await run(["--wait", "--dry-run", target])
             expect(code).toBe(0)
@@ -55,7 +55,7 @@ describe("open-file CLI", () => {
 
     context("without a live IDE", () => {
         it("exits 1 with the IdeaError on stderr", async () => {
-            const target = path.join(directory, "thing.py")
+            const target = path.join(directory, "thing.ts")
             await fs.writeFile(target, ORIGINAL)
             const { code, stdout, stderr } = await run([target], { PREEMDECK_FORCE_IN_IDEA: "0" })
             expect(code).toBe(1)

@@ -32,9 +32,9 @@ afterEach(async () => {
 })
 
 const makeInputs = async (): Promise<{ target: string; suggestion: string; base: string }> => {
-    const target = path.join(directory, "target.py")
-    const suggestion = path.join(directory, "suggestion.py")
-    const base = path.join(directory, "base.py")
+    const target = path.join(directory, "target.ts")
+    const suggestion = path.join(directory, "suggestion.ts")
+    const base = path.join(directory, "base.ts")
     await fs.writeFile(target, "a\n")
     await fs.writeFile(suggestion, "b\n")
     await fs.writeFile(base, "o\n")
@@ -85,7 +85,7 @@ describe("merge-file CLI", () => {
         })
 
         it("exits 1 when an input path does not exist", async () => {
-            const { code, stdout } = await run([path.join(directory, "nope.py"), path.join(directory, "gone.py")])
+            const { code, stdout } = await run([path.join(directory, "nope.ts"), path.join(directory, "gone.ts")])
             expect(code).toBe(1)
             expect(stdout).toBe("")
         })
