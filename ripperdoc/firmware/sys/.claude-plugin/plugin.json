@@ -1,0 +1,13 @@
+{
+  "name": "sys",
+  "description": "System-level firmware plugin (scaffold).",
+  "version": "0.1.0",
+  "author": {
+    "name": "preemdeck"
+  },
+  "keywords": [
+    "firmware",
+    "sys",
+    "system"
+  ]
+}

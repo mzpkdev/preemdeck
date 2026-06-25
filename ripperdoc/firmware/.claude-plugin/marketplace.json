@@ -5,5 +5,13 @@
     "name": "preemdeck",
     "email": "preemdeck"
   },
-  "plugins": []
+  "plugins": [
+    {
+      "name": "sys",
+      "description": "System-level firmware plugin (scaffold).",
+      "source": "./sys",
+      "version": "0.1.0",
+      "category": "firmware"
+    }
+  ]
 }

@@ -3,5 +3,12 @@
   "interface": {
     "displayName": "preemdeck • firmware"
   },
-  "plugins": []
+  "plugins": [
+    {
+      "name": "sys",
+      "source": "./sys",
+      "policy": "allow",
+      "category": "firmware"
+    }
+  ]
 }
