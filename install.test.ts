@@ -467,13 +467,13 @@ describe("bootstrapNodeModules", () => {
   });
 
   test("non-zero exit is non-fatal (warns, no throw)", async () => {
-    spawnImpl = async () => result({ exitCode: 1, stderr: "could not resolve link:cmdore" });
+    spawnImpl = async () => result({ exitCode: 1, stderr: "could not resolve cmdore" });
     const errSpy = spyOn(process.stderr, "write").mockImplementation((() => true) as never);
     try {
       await expect(bootstrapNodeModules("/some/repo", false)).resolves.toBeUndefined();
       const wrote = errSpy.mock.calls.map((c) => String(c[0])).join("");
       expect(wrote).toContain(`${CROSS} node_modules bootstrap failed`);
-      expect(wrote).toContain("could not resolve link:cmdore");
+      expect(wrote).toContain("could not resolve cmdore");
     } finally {
       errSpy.mockRestore();
     }

@@ -20,9 +20,6 @@
 # JS/TS tooling (Bun)
 node_modules/
 
-# Local dev clone of cmdore for `bun link` (nested .git + its build output)
-/vendor/
-
 # Editors
 .idea/
 .vscode/
