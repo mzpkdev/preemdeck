@@ -1,0 +1,64 @@
+name: Publish dist-stable
+
+on:
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: "Commit, branch, or tag to promote to stable"
+        required: false
+        default: main
+
+permissions:
+  contents: write
+
+concurrency:
+  group: dist-stable # serialize publishes so commits stay linear (ff-safe for consumers)
+  cancel-in-progress: false
+
+jobs:
+  stable:
+    name: Prune + publish
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout (ref to promote)
+        uses: actions/checkout@v5
+        with:
+          ref: ${{ inputs.ref }}
+
+      - name: Assemble pruned tree (allowlist)
+        run: |
+          set -euo pipefail
+          echo "PROMOTED_SHA=$(git rev-parse --short HEAD)" >> "$GITHUB_ENV"
+          rm -rf /tmp/stage && mkdir -p /tmp/stage
+          # Only runtime paths ship. A new dead-weight file at root is excluded by
+          # default; a missing runtime essential fails loudly below (allowlist, not denylist).
+          for path in ripperdoc lib scripts root \
+                      install.ts update.ts uninstall.ts \
+                      package.json bun.lock boot.sh preemdeck.json tsconfig.json; do
+            [ -e "$path" ] && cp -R "$path" "/tmp/stage/$path"
+          done
+          find /tmp/stage -name '*.test.ts' -delete   # drop colocated tests
+          for must in ripperdoc lib install.ts package.json bun.lock; do
+            [ -e "/tmp/stage/$must" ] || { echo "::error::pruned tree missing $must"; exit 1; }
+          done
+
+      - name: Publish to dist-stable (orphan, linear, no force)
+        run: |
+          set -euo pipefail
+          git config user.name  "preemdeck-ci"
+          git config user.email "ci@preemdeck"
+          if git ls-remote --exit-code --heads origin dist-stable >/dev/null 2>&1; then
+            git fetch --depth 1 origin dist-stable:dist-stable
+            git checkout dist-stable
+          else
+            git checkout --orphan dist-stable
+          fi
+          git rm -rqf . >/dev/null 2>&1 || true
+          cp -R /tmp/stage/. .
+          git add -A
+          if git diff --cached --quiet; then
+            echo "dist-stable already current — nothing to publish"
+            exit 0
+          fi
+          git commit -m "stable: promote ${PROMOTED_SHA}"
+          git push origin dist-stable   # plain push, never --force → consumers fast-forward
