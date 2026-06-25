@@ -11,7 +11,7 @@ import { NotImplementedError } from "./errors.ts"
 
 /** True when this terminal was launched by a JetBrains IDE — unimplemented on Linux. */
 export const inIdea = (): boolean => {
-  throw new NotImplementedError("inIdea is not implemented for Linux yet")
+    throw new NotImplementedError("inIdea is not implemented for Linux yet")
 }
 
 /**
@@ -21,7 +21,7 @@ export const inIdea = (): boolean => {
  * created), so callers see the same eager failure as before.
  */
 export const resolveExecPath = (): Promise<string> => {
-  throw new NotImplementedError("resolveExecPath is not implemented for Linux yet")
+    throw new NotImplementedError("resolveExecPath is not implemented for Linux yet")
 }
 
 /**
@@ -30,5 +30,5 @@ export const resolveExecPath = (): Promise<string> => {
  * SYNCHRONOUSLY (before any promise is created).
  */
 export const resolveLogDir = (): Promise<string> => {
-  throw new NotImplementedError("resolveLogDir is not implemented for Linux yet")
+    throw new NotImplementedError("resolveLogDir is not implemented for Linux yet")
 }

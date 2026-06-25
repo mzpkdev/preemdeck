@@ -28,16 +28,16 @@ const PROG = "open-inline"
 
 /** cmdore metadata for the commandless CLI; version mirrors the idea plugin manifest. */
 const METADATA = {
-  name: PROG,
-  version: "0.1.0",
-  description: "Open an inline string in the running JetBrains IDE via a temp file.",
+    name: PROG,
+    version: "0.1.0",
+    description: "Open an inline string in the running JetBrains IDE via a temp file."
 } as const
 
 /** Options for {@link openInline}: the temp-file suffix (drives IDE syntax highlighting), the wait toggle, and the rendered-preview opt-in. */
 export type OpenInlineOptions = {
-  suffix?: string
-  wait?: boolean
-  preview?: boolean
+    suffix?: string
+    wait?: boolean
+    preview?: boolean
 }
 
 /**
@@ -48,26 +48,26 @@ export type OpenInlineOptions = {
  *   reap (reapLater) and return null.
  */
 export const openInline = async (content: string, options: OpenInlineOptions = {}): Promise<string | null> => {
-  const suffix = options.suffix ?? ".txt"
-  const wait = options.wait ?? false
-  const preview = options.preview ?? false
+    const suffix = options.suffix ?? ".txt"
+    const wait = options.wait ?? false
+    const preview = options.preview ?? false
 
-  const path = await writeTemp(content, suffix)
-  try {
-    const contents = await open(path, { wait, preview })
-    if (wait) {
-      return contents
+    const path = await writeTemp(content, suffix)
+    try {
+        const contents = await open(path, { wait, preview })
+        if (wait) {
+            return contents
+        }
+        // Fire-and-forget: the IDE was launched async and is (or will be) reading
+        // `path`, so deleting it now would yank the file out from under the editor.
+        reapLater([path])
+        return null
+    } finally {
+        // Only the wait=true path is safe to clean up synchronously here.
+        if (wait) {
+            await unlink(path)
+        }
     }
-    // Fire-and-forget: the IDE was launched async and is (or will be) reading
-    // `path`, so deleting it now would yank the file out from under the editor.
-    reapLater([path])
-    return null
-  } finally {
-    // Only the wait=true path is safe to clean up synchronously here.
-    if (wait) {
-      await unlink(path)
-    }
-  }
 }
 
 /**
@@ -76,23 +76,23 @@ export const openInline = async (content: string, options: OpenInlineOptions = {
  * path writes the edited file text to stdout verbatim (no trailing newline).
  */
 const openInlineCommand = defineCommand({
-  name: PROG,
-  description: METADATA.description,
-  arguments: [{ name: "inline", description: "string to open", required: true }],
-  options: [
-    { name: "suffix", arity: 1, hint: "ext", description: "temp-file suffix (drives IDE syntax highlighting)" },
-    { name: "wait", arity: 0, description: "block until the tab closes, then print the file back" },
-    { name: "preview", arity: 0, description: "flip the editor to the rendered preview after opening" },
-  ],
-  run: async ({ inline, suffix, wait, preview }) => {
-    if (!inIdea()) {
-      throw new IdeaError("no JetBrains IDE in the process ancestry")
+    name: PROG,
+    description: METADATA.description,
+    arguments: [{ name: "inline", description: "string to open", required: true }],
+    options: [
+        { name: "suffix", arity: 1, hint: "ext", description: "temp-file suffix (drives IDE syntax highlighting)" },
+        { name: "wait", arity: 0, description: "block until the tab closes, then print the file back" },
+        { name: "preview", arity: 0, description: "flip the editor to the rendered preview after opening" }
+    ],
+    run: async ({ inline, suffix, wait, preview }) => {
+        if (!inIdea()) {
+            throw new IdeaError("no JetBrains IDE in the process ancestry")
+        }
+        const contents = await openInline(inline, { suffix: suffix ?? ".txt", wait, preview })
+        if (contents !== null) {
+            process.stdout.write(contents)
+        }
     }
-    const contents = await openInline(inline, { suffix: suffix ?? ".txt", wait, preview })
-    if (contents !== null) {
-      process.stdout.write(contents)
-    }
-  },
 })
 
 /**
@@ -102,22 +102,22 @@ const openInlineCommand = defineCommand({
  * Anything else is a bug and rethrown.
  */
 export const main = async (argv: string[] = Bun.argv.slice(2)): Promise<number> => {
-  try {
-    await execute(openInlineCommand, { argv, metadata: METADATA, onError: "throw" })
-  } catch (error) {
-    if (error instanceof IdeaError) {
-      process.stderr.write(`${PROG}: ${error.message}\n`)
-      return 1
+    try {
+        await execute(openInlineCommand, { argv, metadata: METADATA, onError: "throw" })
+    } catch (error) {
+        if (error instanceof IdeaError) {
+            process.stderr.write(`${PROG}: ${error.message}\n`)
+            return 1
+        }
+        if (error instanceof CmdoreError) {
+            process.stderr.write(`${PROG}: ${error.message}\n`)
+            return error.exitCode
+        }
+        throw error
     }
-    if (error instanceof CmdoreError) {
-      process.stderr.write(`${PROG}: ${error.message}\n`)
-      return error.exitCode
-    }
-    throw error
-  }
-  return 0
+    return 0
 }
 
 if (import.meta.main) {
-  process.exit(await main())
+    process.exit(await main())
 }

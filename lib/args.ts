@@ -30,8 +30,8 @@ export class UsageError extends Error {}
 // analysis (an inline `(): never =>` does not), so callers like `parseOrExit`
 // and every `main` are correctly seen as terminating.
 export const usageError: (prog: string, message: string) => never = (prog, message) => {
-  process.stderr.write(`${prog}: ${message}\n`)
-  process.exit(2)
+    process.stderr.write(`${prog}: ${message}\n`)
+    process.exit(2)
 }
 
 /**
@@ -40,12 +40,12 @@ export const usageError: (prog: string, message: string) => never = (prog, messa
  * `config.args` defaults to `Bun.argv.slice(2)` (the args after the script path).
  */
 export const parseOrExit = <T extends ParseArgsConfig>(prog: string, config: T): ReturnType<typeof parseArgs<T>> => {
-  try {
-    return parseArgs<T>({ args: Bun.argv.slice(2), ...config })
-  } catch (err) {
-    const message = err instanceof Error ? err.message : String(err)
-    usageError(prog, message)
-  }
+    try {
+        return parseArgs<T>({ args: Bun.argv.slice(2), ...config })
+    } catch (err) {
+        const message = err instanceof Error ? err.message : String(err)
+        usageError(prog, message)
+    }
 }
 
 /**
@@ -54,11 +54,11 @@ export const parseOrExit = <T extends ParseArgsConfig>(prog: string, config: T):
  * `name` heads the error (e.g. "--timeout").
  */
 export const parseIntArg = (prog: string, name: string, raw: string): number => {
-  // Reject anything that isn't a clean optional-sign integer (no floats, no "3abc").
-  if (!/^[+-]?\d+$/.test(raw.trim())) {
-    usageError(prog, `argument ${name}: invalid int value: '${raw}'`)
-  }
-  return Number.parseInt(raw, 10)
+    // Reject anything that isn't a clean optional-sign integer (no floats, no "3abc").
+    if (!/^[+-]?\d+$/.test(raw.trim())) {
+        usageError(prog, `argument ${name}: invalid int value: '${raw}'`)
+    }
+    return Number.parseInt(raw, 10)
 }
 
 /** One parsed `--action`: its `name`, and the `=arg` payload (`null` when bare). */
@@ -73,9 +73,9 @@ export type ActionSpec = Record<string, { needsArg: boolean }>
  * original `_parse_action` (so `=` inside a URL/path query stays in `arg`).
  */
 export const parseAction = (value: string): Action => {
-  const eq = value.indexOf("=")
-  if (eq === -1) return { name: value, arg: null }
-  return { name: value.slice(0, eq), arg: value.slice(eq + 1) }
+    const eq = value.indexOf("=")
+    if (eq === -1) return { name: value, arg: null }
+    return { name: value.slice(0, eq), arg: value.slice(eq + 1) }
 }
 
 /**
@@ -85,18 +85,18 @@ export const parseAction = (value: string): Action => {
  * `_validate_action`. `raw` is `result.values.action` (string[] | undefined).
  */
 export const validateActions = (prog: string, raw: string[] | undefined, spec: ActionSpec): Action[] => {
-  const out: Action[] = []
-  for (const value of raw ?? []) {
-    const { name, arg } = parseAction(value)
-    const entry = spec[name]
-    if (!entry) {
-      const allowed = Object.keys(spec).sort().join(", ")
-      usageError(prog, `unknown action '${name}' (choose from ${allowed})`)
+    const out: Action[] = []
+    for (const value of raw ?? []) {
+        const { name, arg } = parseAction(value)
+        const entry = spec[name]
+        if (!entry) {
+            const allowed = Object.keys(spec).sort().join(", ")
+            usageError(prog, `unknown action '${name}' (choose from ${allowed})`)
+        }
+        if (entry.needsArg && (arg === null || arg.length === 0)) {
+            usageError(prog, `action '${name}' needs an argument: --action ${name}=<value>`)
+        }
+        out.push({ name, arg })
     }
-    if (entry.needsArg && (arg === null || arg.length === 0)) {
-      usageError(prog, `action '${name}' needs an argument: --action ${name}=<value>`)
-    }
-    out.push({ name, arg })
-  }
-  return out
+    return out
 }

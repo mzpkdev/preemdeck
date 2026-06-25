@@ -10,10 +10,10 @@
 
 /** No running JetBrains IDE could be resolved. */
 export class IdeaError extends Error {
-  constructor(message: string) {
-    super(message)
-    this.name = "IdeaError"
-  }
+    constructor(message: string) {
+        super(message)
+        this.name = "IdeaError"
+    }
 }
 
 /**
@@ -23,8 +23,8 @@ export class IdeaError extends Error {
  * graceful-degrade path, so it lives next to IdeaError as a toolbox-shared type.
  */
 export class NotImplementedError extends Error {
-  constructor(message: string) {
-    super(message)
-    this.name = "NotImplementedError"
-  }
+    constructor(message: string) {
+        super(message)
+        this.name = "NotImplementedError"
+    }
 }

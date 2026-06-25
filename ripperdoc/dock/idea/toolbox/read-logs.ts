@@ -26,9 +26,9 @@ const PROG = "read-logs"
 
 /** cmdore metadata for the commandless CLI; version mirrors the idea plugin manifest. */
 const METADATA = {
-  name: PROG,
-  version: "0.1.0",
-  description: "Read the last N lines of the running JetBrains IDE's log.",
+    name: PROG,
+    version: "0.1.0",
+    description: "Read the last N lines of the running JetBrains IDE's log."
 } as const
 
 /**
@@ -37,16 +37,16 @@ const METADATA = {
  * CmdoreError carrying this message.
  */
 const integer = (name: string): StandardSchemaV1<number> => ({
-  "~standard": {
-    version: 1,
-    vendor: "preemdeck",
-    validate: (value: unknown) => {
-      const text = String(value).trim()
-      return /^[+-]?\d+$/.test(text)
-        ? { value: Number.parseInt(text, 10) }
-        : { issues: [{ message: `${name} must be an integer, got '${value}'` }] }
-    },
-  },
+    "~standard": {
+        version: 1,
+        vendor: "preemdeck",
+        validate: (value: unknown) => {
+            const text = String(value).trim()
+            return /^[+-]?\d+$/.test(text)
+                ? { value: Number.parseInt(text, 10) }
+                : { issues: [{ message: `${name} must be an integer, got '${value}'` }] }
+        }
+    }
 })
 
 /**
@@ -55,14 +55,14 @@ const integer = (name: string): StandardSchemaV1<number> => ({
  * line boundaries are vanishingly rare in idea.log and out of scope.
  */
 const splitLines = (text: string): string[] => {
-  if (text === "") {
-    return []
-  }
-  const lines = text.split(/\r\n|\r|\n/)
-  if (lines.length > 0 && lines[lines.length - 1] === "") {
-    lines.pop()
-  }
-  return lines
+    if (text === "") {
+        return []
+    }
+    const lines = text.split(/\r\n|\r|\n/)
+    if (lines.length > 0 && lines[lines.length - 1] === "") {
+        lines.pop()
+    }
+    return lines
 }
 
 /**
@@ -74,9 +74,9 @@ const splitLines = (text: string): string[] => {
  * n>0 -> last n; n==0 -> all; n<0 -> drop the first |n|.
  */
 export const readLogs = async (n = 50): Promise<string[]> => {
-  const log = join(await resolveLogDir(), "idea.log")
-  const lines = splitLines(await readFile(log, { encoding: "latin1" }))
-  return lines.slice(n > 0 ? Math.max(0, lines.length - n) : -n)
+    const log = join(await resolveLogDir(), "idea.log")
+    const lines = splitLines(await readFile(log, { encoding: "latin1" }))
+    return lines.slice(n > 0 ? Math.max(0, lines.length - n) : -n)
 }
 
 /**
@@ -86,16 +86,16 @@ export const readLogs = async (n = 50): Promise<string[]> => {
  * readLogs, and writes the joined lines to stdout.
  */
 const readLogsCommand = defineCommand({
-  name: PROG,
-  description: METADATA.description,
-  arguments: [{ name: "n", description: "number of lines to read (default 50)", schema: integer("n") }],
-  run: async ({ n }) => {
-    if (!inIdea()) {
-      throw new IdeaError("no JetBrains IDE in the process ancestry")
+    name: PROG,
+    description: METADATA.description,
+    arguments: [{ name: "n", description: "number of lines to read (default 50)", schema: integer("n") }],
+    run: async ({ n }) => {
+        if (!inIdea()) {
+            throw new IdeaError("no JetBrains IDE in the process ancestry")
+        }
+        const lines = await readLogs(n ?? 50)
+        console.log(lines.join("\n"))
     }
-    const lines = await readLogs(n ?? 50)
-    console.log(lines.join("\n"))
-  },
 })
 
 /**
@@ -106,25 +106,25 @@ const readLogsCommand = defineCommand({
  * rethrown.
  */
 export const main = async (argv = Bun.argv.slice(2)): Promise<number> => {
-  try {
-    await execute(readLogsCommand, { argv, metadata: METADATA, onError: "throw" })
-  } catch (error) {
-    if (error instanceof CmdoreError) {
-      process.stderr.write(`${PROG}: ${error.message}\n`)
-      return error.exitCode
+    try {
+        await execute(readLogsCommand, { argv, metadata: METADATA, onError: "throw" })
+    } catch (error) {
+        if (error instanceof CmdoreError) {
+            process.stderr.write(`${PROG}: ${error.message}\n`)
+            return error.exitCode
+        }
+        if (
+            error instanceof IdeaError ||
+            (error instanceof Error && typeof (error as NodeJS.ErrnoException).code === "string")
+        ) {
+            process.stderr.write(`${PROG}: ${error.message}\n`)
+            return 1
+        }
+        throw error
     }
-    if (
-      error instanceof IdeaError ||
-      (error instanceof Error && typeof (error as NodeJS.ErrnoException).code === "string")
-    ) {
-      process.stderr.write(`${PROG}: ${error.message}\n`)
-      return 1
-    }
-    throw error
-  }
-  return 0
+    return 0
 }
 
 if (import.meta.main) {
-  process.exit(await main())
+    process.exit(await main())
 }

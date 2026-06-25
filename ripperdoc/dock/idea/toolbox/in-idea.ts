@@ -32,9 +32,9 @@ const PROG = "in-idea"
 
 /** cmdore metadata for the commandless CLI; version mirrors the idea plugin manifest. */
 const METADATA = {
-  name: PROG,
-  version: "0.1.0",
-  description: "Report whether this terminal is running inside a JetBrains IDE.",
+    name: PROG,
+    version: "0.1.0",
+    description: "Report whether this terminal is running inside a JetBrains IDE."
 } as const
 
 /**
@@ -51,15 +51,15 @@ let inside = true
  * main() for its own mapping.
  */
 const inIdeaCommand = defineCommand({
-  name: PROG,
-  description: METADATA.description,
-  options: [{ name: "silent", alias: "q", arity: 0, description: "no output; gate on the exit code only" }],
-  run: ({ silent }) => {
-    inside = inIdea()
-    if (!silent) {
-      console.log(inside ? "in a JetBrains IDE terminal" : "not in a JetBrains IDE terminal")
+    name: PROG,
+    description: METADATA.description,
+    options: [{ name: "silent", alias: "q", arity: 0, description: "no output; gate on the exit code only" }],
+    run: ({ silent }) => {
+        inside = inIdea()
+        if (!silent) {
+            console.log(inside ? "in a JetBrains IDE terminal" : "not in a JetBrains IDE terminal")
+        }
     }
-  },
 })
 
 /**
@@ -70,23 +70,23 @@ const inIdeaCommand = defineCommand({
  * rethrown.
  */
 export const main = async (argv = Bun.argv.slice(2)): Promise<number> => {
-  inside = true
-  try {
-    await execute(inIdeaCommand, { argv, metadata: METADATA, onError: "throw" })
-  } catch (error) {
-    if (error instanceof NotImplementedError) {
-      process.stderr.write(`${PROG}: ${error.message}\n`)
-      return 1
+    inside = true
+    try {
+        await execute(inIdeaCommand, { argv, metadata: METADATA, onError: "throw" })
+    } catch (error) {
+        if (error instanceof NotImplementedError) {
+            process.stderr.write(`${PROG}: ${error.message}\n`)
+            return 1
+        }
+        if (error instanceof CmdoreError) {
+            process.stderr.write(`${PROG}: ${error.message}\n`)
+            return error.exitCode
+        }
+        throw error
     }
-    if (error instanceof CmdoreError) {
-      process.stderr.write(`${PROG}: ${error.message}\n`)
-      return error.exitCode
-    }
-    throw error
-  }
-  return inside ? 0 : 1
+    return inside ? 0 : 1
 }
 
 if (import.meta.main) {
-  process.exit(await main())
+    process.exit(await main())
 }

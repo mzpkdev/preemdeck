@@ -19,12 +19,12 @@
  *   '  -> &#x27;
  */
 export const htmlEscape = (s: string): string =>
-  s
-    .replaceAll("&", "&amp;")
-    .replaceAll("<", "&lt;")
-    .replaceAll(">", "&gt;")
-    .replaceAll('"', "&quot;")
-    .replaceAll("'", "&#x27;")
+    s
+        .replaceAll("&", "&amp;")
+        .replaceAll("<", "&lt;")
+        .replaceAll(">", "&gt;")
+        .replaceAll('"', "&quot;")
+        .replaceAll("'", "&#x27;")
 
 /**
  * The fields lifted from a parsed URL, mirroring the subset of
@@ -33,14 +33,14 @@ export const htmlEscape = (s: string): string =>
  * fallback; `raw` carries the untouched input for that no-host label.
  */
 export type ParsedUrl = {
-  /** The lowercased scheme WITHOUT a trailing colon, e.g. "https" — "" when absent. */
-  scheme: string
-  /** Lowercased hostname, or null when the input parsed without a host. */
-  hostname: string | null
-  /** Numeric port, or null when none was given. */
-  port: number | null
-  /** The original input, unchanged. Use this as the no-host fallback label. */
-  raw: string
+    /** The lowercased scheme WITHOUT a trailing colon, e.g. "https" — "" when absent. */
+    scheme: string
+    /** Lowercased hostname, or null when the input parsed without a host. */
+    hostname: string | null
+    /** Numeric port, or null when none was given. */
+    port: number | null
+    /** The original input, unchanged. Use this as the no-host fallback label. */
+    raw: string
 }
 
 /**
@@ -53,16 +53,16 @@ export type ParsedUrl = {
  * Validation callers (open-url) should check `scheme` is "http"/"https".
  */
 export const parseUrl = (url: string): ParsedUrl => {
-  try {
-    const u = new URL(url)
-    return {
-      // u.protocol is "https:"; strip the trailing colon to match urlsplit.scheme.
-      scheme: u.protocol.replace(/:$/, "").toLowerCase(),
-      hostname: u.hostname ? u.hostname.toLowerCase() : null,
-      port: u.port ? Number(u.port) : null,
-      raw: url,
+    try {
+        const u = new URL(url)
+        return {
+            // u.protocol is "https:"; strip the trailing colon to match urlsplit.scheme.
+            scheme: u.protocol.replace(/:$/, "").toLowerCase(),
+            hostname: u.hostname ? u.hostname.toLowerCase() : null,
+            port: u.port ? Number(u.port) : null,
+            raw: url
+        }
+    } catch {
+        return { scheme: "", hostname: null, port: null, raw: url }
     }
-  } catch {
-    return { scheme: "", hostname: null, port: null, raw: url }
-  }
 }

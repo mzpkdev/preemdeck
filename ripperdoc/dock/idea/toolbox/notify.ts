@@ -36,9 +36,9 @@ const PROG = "notify"
 
 /** cmdore metadata for the commandless CLI; version mirrors the idea plugin manifest. */
 const METADATA = {
-  name: PROG,
-  version: "0.1.0",
-  description: "Pop an in-IDE notification balloon in the running JetBrains IDE.",
+    name: PROG,
+    version: "0.1.0",
+    description: "Pop an in-IDE notification balloon in the running JetBrains IDE."
 } as const
 
 /** The notification group id the balloon registers under. */
@@ -49,9 +49,9 @@ export const NOTIFY_GROUP_ID = "idea.toolbox"
  * Groovy token, never raw input).
  */
 export const NOTIFICATION_TYPES: Record<string, string> = {
-  info: "INFORMATION",
-  warning: "WARNING",
-  error: "ERROR",
+    info: "INFORMATION",
+    warning: "WARNING",
+    error: "ERROR"
 }
 
 // Closure-body locals are prefixed `action*` so re-fetching the project INSIDE
@@ -85,16 +85,16 @@ type ActionEntry = [label: string, needsArg: boolean, body: string]
  * caller never injects arbitrary Groovy.
  */
 export const NOTIFICATION_ACTIONS: Record<string, ActionEntry> = {
-  "open-url": ["Open in browser", true, 'com.intellij.ide.BrowserUtil.browse("{arg}")'],
-  "open-file": ["Open file", true, OPEN_FILE_BODY],
-  "open-preview": ["Open preview", true, OPEN_PREVIEW_BODY],
+    "open-url": ["Open in browser", true, 'com.intellij.ide.BrowserUtil.browse("{arg}")'],
+    "open-file": ["Open file", true, OPEN_FILE_BODY],
+    "open-preview": ["Open preview", true, OPEN_PREVIEW_BODY]
 }
 
 // Groovy run on the EDT against the live IntelliJ Platform API. {actions} is
 // zero-or-more rendered n.addAction(...) lines (empty when no --action, leaving
 // the render byte-identical to the action-less path).
 const groovyNotify = (group: string, title: string, content: string, type: string, actions: string): string => {
-  return `import com.intellij.notification.Notification
+    return `import com.intellij.notification.Notification
 import com.intellij.notification.NotificationAction
 import com.intellij.notification.NotificationType
 import com.intellij.notification.Notifications
@@ -112,41 +112,41 @@ ApplicationManager.getApplication().invokeLater {
 
 /** Render one vetted action into its n.addAction(...) line, body {arg} slot escaped. */
 const renderAction = (name: string, arg: string | null): string => {
-  const entry = NOTIFICATION_ACTIONS[name]
-  if (entry === undefined) {
-    throw new Error(`unknown action ${name}`) // programming error: CLI only passes whitelisted names
-  }
-  const [label, , bodyTemplate] = entry
-  const body = bodyTemplate.replaceAll("{arg}", escapeGroovy(arg ?? ""))
-  // Indent a multi-line body so every statement sits inside the closure braces.
-  const indented = body
-    .split("\n")
-    .map((line) => `        ${line}`)
-    .join("\n")
-  return `    n.addAction(NotificationAction.createSimple("${label}", {\n${indented}\n    } as Runnable))`
+    const entry = NOTIFICATION_ACTIONS[name]
+    if (entry === undefined) {
+        throw new Error(`unknown action ${name}`) // programming error: CLI only passes whitelisted names
+    }
+    const [label, , bodyTemplate] = entry
+    const body = bodyTemplate.replaceAll("{arg}", escapeGroovy(arg ?? ""))
+    // Indent a multi-line body so every statement sits inside the closure braces.
+    const indented = body
+        .split("\n")
+        .map((line) => `        ${line}`)
+        .join("\n")
+    return `    n.addAction(NotificationAction.createSimple("${label}", {\n${indented}\n    } as Runnable))`
 }
 
 /** Render the parsed --action list to the {actions} block, in CLI order. */
 const renderActions = (actions: Action[]): string => {
-  if (actions.length === 0) {
-    return ""
-  }
-  return `\n${actions.map(({ name, arg }) => renderAction(name, arg)).join("\n")}`
+    if (actions.length === 0) {
+        return ""
+    }
+    return `\n${actions.map(({ name, arg }) => renderAction(name, arg)).join("\n")}`
 }
 
 /** Render the notification Groovy for title/message/typeToken/actions. */
 export const groovyFor = (title: string, message: string, typeToken: string, actions: Action[] = []): string => {
-  const constant = NOTIFICATION_TYPES[typeToken]
-  if (constant === undefined) {
-    throw new Error(`unknown type ${typeToken}`) // programming error: CLI only passes whitelisted tokens
-  }
-  return groovyNotify(
-    escapeGroovy(NOTIFY_GROUP_ID),
-    escapeGroovy(title),
-    escapeGroovy(message),
-    constant,
-    renderActions(actions),
-  )
+    const constant = NOTIFICATION_TYPES[typeToken]
+    if (constant === undefined) {
+        throw new Error(`unknown type ${typeToken}`) // programming error: CLI only passes whitelisted tokens
+    }
+    return groovyNotify(
+        escapeGroovy(NOTIFY_GROUP_ID),
+        escapeGroovy(title),
+        escapeGroovy(message),
+        constant,
+        renderActions(actions)
+    )
 }
 
 /**
@@ -160,17 +160,17 @@ export const runGroovy = effect.fn(rawRunGroovy, "ide.runGroovy")
 
 /** Options for {@link notify}: balloon title, the --type token (info/warning/error), and the action registry entries. */
 export type NotifyOptions = {
-  title?: string
-  typeToken?: string
-  actions?: Action[]
+    title?: string
+    typeToken?: string
+    actions?: Action[]
 }
 
 /** Pop an in-IDE notification balloon for `message` in the running IDE (best-effort). */
 export const notify = async (message: string, options: NotifyOptions = {}): Promise<void> => {
-  const title = options.title ?? "PreemDeck"
-  const typeToken = options.typeToken ?? "info"
-  const actions = options.actions ?? []
-  await runGroovy(groovyFor(title, message, typeToken, actions), "notify: could not pop notification")
+    const title = options.title ?? "PreemDeck"
+    const typeToken = options.typeToken ?? "info"
+    const actions = options.actions ?? []
+    await runGroovy(groovyFor(title, message, typeToken, actions), "notify: could not pop notification")
 }
 
 /**
@@ -179,20 +179,20 @@ export const notify = async (message: string, options: NotifyOptions = {}): Prom
  * as a CmdoreError carrying this message.
  */
 const typeSchema: StandardSchemaV1<string> = {
-  "~standard": {
-    version: 1,
-    vendor: "preemdeck",
-    validate: (value: unknown) => {
-      const raw = String(value)
-      if (raw in NOTIFICATION_TYPES) {
-        return { value: raw }
-      }
-      const allowed = Object.keys(NOTIFICATION_TYPES)
-        .map((token) => `'${token}'`)
-        .join(", ")
-      return { issues: [{ message: `--type: invalid choice: '${raw}' (choose from ${allowed})` }] }
-    },
-  },
+    "~standard": {
+        version: 1,
+        vendor: "preemdeck",
+        validate: (value: unknown) => {
+            const raw = String(value)
+            if (raw in NOTIFICATION_TYPES) {
+                return { value: raw }
+            }
+            const allowed = Object.keys(NOTIFICATION_TYPES)
+                .map((token) => `'${token}'`)
+                .join(", ")
+            return { issues: [{ message: `--type: invalid choice: '${raw}' (choose from ${allowed})` }] }
+        }
+    }
 }
 
 /**
@@ -201,18 +201,18 @@ const typeSchema: StandardSchemaV1<string> = {
  * an unknown name or a missing required arg yields an issue message.
  */
 const parseAction = (value: string): { value: Action } | { message: string } => {
-  const eq = value.indexOf("=")
-  const name = eq === -1 ? value : value.slice(0, eq)
-  const arg = eq === -1 ? null : value.slice(eq + 1)
-  const entry = NOTIFICATION_ACTIONS[name]
-  if (entry === undefined) {
-    const allowed = Object.keys(NOTIFICATION_ACTIONS).sort().join(", ")
-    return { message: `--action: unknown action '${name}' (choose from ${allowed})` }
-  }
-  if (entry[1] && (arg === null || arg.length === 0)) {
-    return { message: `--action: action '${name}' needs an argument: --action ${name}=<value>` }
-  }
-  return { value: { name, arg } }
+    const eq = value.indexOf("=")
+    const name = eq === -1 ? value : value.slice(0, eq)
+    const arg = eq === -1 ? null : value.slice(eq + 1)
+    const entry = NOTIFICATION_ACTIONS[name]
+    if (entry === undefined) {
+        const allowed = Object.keys(NOTIFICATION_ACTIONS).sort().join(", ")
+        return { message: `--action: unknown action '${name}' (choose from ${allowed})` }
+    }
+    if (entry[1] && (arg === null || arg.length === 0)) {
+        return { message: `--action: action '${name}' needs an argument: --action ${name}=<value>` }
+    }
+    return { value: { name, arg } }
 }
 
 /**
@@ -221,22 +221,22 @@ const parseAction = (value: string): { value: Action } | { message: string } => 
  * each, short-circuiting to a CmdoreError on the first bad entry.
  */
 const actionsSchema: StandardSchemaV1<Action[]> = {
-  "~standard": {
-    version: 1,
-    vendor: "preemdeck",
-    validate: (value: unknown) => {
-      const raw = Array.isArray(value) ? (value as string[]) : []
-      const out: Action[] = []
-      for (const entry of raw) {
-        const parsed = parseAction(entry)
-        if ("message" in parsed) {
-          return { issues: [{ message: parsed.message }] }
+    "~standard": {
+        version: 1,
+        vendor: "preemdeck",
+        validate: (value: unknown) => {
+            const raw = Array.isArray(value) ? (value as string[]) : []
+            const out: Action[] = []
+            for (const entry of raw) {
+                const parsed = parseAction(entry)
+                if ("message" in parsed) {
+                    return { issues: [{ message: parsed.message }] }
+                }
+                out.push(parsed.value)
+            }
+            return { value: out }
         }
-        out.push(parsed.value)
-      }
-      return { value: out }
-    },
-  },
+    }
 }
 
 /**
@@ -245,33 +245,33 @@ const actionsSchema: StandardSchemaV1<Action[]> = {
  * with the validated title/type/actions.
  */
 const notifyCommand = defineCommand({
-  name: PROG,
-  description: METADATA.description,
-  arguments: [{ name: "message", description: "the balloon message", required: true }],
-  options: [
-    { name: "title", arity: 1, hint: "title", description: "balloon title", defaultValue: () => "PreemDeck" },
-    {
-      name: "type",
-      arity: 1,
-      hint: "info|warning|error",
-      description: "notification type",
-      defaultValue: () => "info",
-      schema: typeSchema,
-    },
-    {
-      name: "action",
-      hint: "name[=arg]",
-      description: "add a clickable balloon action (repeatable)",
-      defaultValue: () => [] as Action[],
-      schema: actionsSchema,
-    },
-  ],
-  run: async ({ message, title, type, action }) => {
-    if (!inIdea()) {
-      throw new IdeaError("no JetBrains IDE in the process ancestry")
+    name: PROG,
+    description: METADATA.description,
+    arguments: [{ name: "message", description: "the balloon message", required: true }],
+    options: [
+        { name: "title", arity: 1, hint: "title", description: "balloon title", defaultValue: () => "PreemDeck" },
+        {
+            name: "type",
+            arity: 1,
+            hint: "info|warning|error",
+            description: "notification type",
+            defaultValue: () => "info",
+            schema: typeSchema
+        },
+        {
+            name: "action",
+            hint: "name[=arg]",
+            description: "add a clickable balloon action (repeatable)",
+            defaultValue: () => [] as Action[],
+            schema: actionsSchema
+        }
+    ],
+    run: async ({ message, title, type, action }) => {
+        if (!inIdea()) {
+            throw new IdeaError("no JetBrains IDE in the process ancestry")
+        }
+        await notify(message, { title, typeToken: type, actions: action })
     }
-    await notify(message, { title, typeToken: type, actions: action })
-  },
 })
 
 /**
@@ -281,23 +281,23 @@ const notifyCommand = defineCommand({
  * --type/--action) -> its own exitCode. Anything else is a bug and rethrown.
  */
 export const main = async (argv: string[] = Bun.argv.slice(2)): Promise<number> => {
-  try {
-    await execute(notifyCommand, { argv, metadata: METADATA, onError: "throw" })
-  } catch (error) {
-    if (error instanceof IdeaError) {
-      process.stderr.write(`${PROG}: ${error.message}\n`)
-      return 1
+    try {
+        await execute(notifyCommand, { argv, metadata: METADATA, onError: "throw" })
+    } catch (error) {
+        if (error instanceof IdeaError) {
+            process.stderr.write(`${PROG}: ${error.message}\n`)
+            return 1
+        }
+        if (error instanceof CmdoreError) {
+            process.stderr.write(`${PROG}: ${error.message}\n`)
+            return error.exitCode
+        }
+        throw error
     }
-    if (error instanceof CmdoreError) {
-      process.stderr.write(`${PROG}: ${error.message}\n`)
-      return error.exitCode
-    }
-    throw error
-  }
-  return 0
+    return 0
 }
 
 if (import.meta.main) {
-  const code = await main(Bun.argv.slice(2))
-  process.exit(code)
+    const code = await main(Bun.argv.slice(2))
+    process.exit(code)
 }

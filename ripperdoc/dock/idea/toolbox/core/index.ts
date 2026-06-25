@@ -16,20 +16,20 @@ import * as ideaLinux from "./idea-linux.ts"
 import * as ideaMac from "./idea-mac.ts"
 
 type PlatformModule = {
-  inIdea: () => boolean
-  resolveExecPath: () => Promise<string>
-  resolveLogDir: () => Promise<string>
+    inIdea: () => boolean
+    resolveExecPath: () => Promise<string>
+    resolveLogDir: () => Promise<string>
 }
 
 const pickPlatform = (): PlatformModule => {
-  const platform = process.platform
-  if (platform === "darwin") {
-    return ideaMac
-  }
-  if (platform === "linux") {
-    return ideaLinux
-  }
-  throw new Error(`Only macOS and Linux are supported (got '${platform}')`)
+    const platform = process.platform
+    if (platform === "darwin") {
+        return ideaMac
+    }
+    if (platform === "linux") {
+        return ideaLinux
+    }
+    throw new Error(`Only macOS and Linux are supported (got '${platform}')`)
 }
 
 const platformModule = pickPlatform()
@@ -44,24 +44,24 @@ const platformModule = pickPlatform()
  * env affordance — not a code seam — letting tests force the gate either way.
  */
 export const inIdea = (): boolean => {
-  const forced = process.env.PREEMDECK_FORCE_IN_IDEA
-  if (forced === "1" || forced === "true") {
-    return true
-  }
-  if (forced === "0" || forced === "false") {
-    return false
-  }
-  return platformModule.inIdea()
+    const forced = process.env.PREEMDECK_FORCE_IN_IDEA
+    if (forced === "1" || forced === "true") {
+        return true
+    }
+    if (forced === "0" || forced === "false") {
+        return false
+    }
+    return platformModule.inIdea()
 }
 
 /** Absolute path to the JetBrains IDE binary this process is running inside (per-OS). */
 export const resolveExecPath = async (): Promise<string> => {
-  return await platformModule.resolveExecPath()
+    return await platformModule.resolveExecPath()
 }
 
 /** Log dir of the IDE this process is running inside (per-OS). */
 export const resolveLogDir = async (): Promise<string> => {
-  return await platformModule.resolveLogDir()
+    return await platformModule.resolveLogDir()
 }
 
 /** Shared error types callers `catch`/`instanceof` across the toolbox. */
@@ -75,11 +75,11 @@ export { escapeGroovy, type RunGroovyDeps, runGroovy } from "./groovy.ts"
 export { type LaunchOptions, launch } from "./launch.ts"
 /** Preview helpers (layer on the bridge) for forcing a rendered preview / URL tab. */
 export {
-  HTML_PREVIEW_EXTS,
-  previewUrl,
-  setPreview,
-  type WebpreviewOpenBodyOptions,
-  webpreviewOpenBody,
+    HTML_PREVIEW_EXTS,
+    previewUrl,
+    setPreview,
+    type WebpreviewOpenBodyOptions,
+    webpreviewOpenBody
 } from "./preview.ts"
 /** Deferred temp cleanup for the toolbox's fire-and-forget (no-wait) modes. */
 export { REAP_DELAY_MS, reapLater } from "./reap.ts"

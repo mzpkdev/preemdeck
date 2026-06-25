@@ -16,12 +16,12 @@
 
 /** Python `PurePosixPath(value).name`. */
 export const pyName = (value: string): string => {
-  let s = value
-  // pathlib ignores trailing separators for .name ("a/" -> "a", "//" -> root).
-  while (s.length > 1 && s.endsWith("/")) s = s.slice(0, -1)
-  const idx = s.lastIndexOf("/")
-  const last = idx === -1 ? s : s.slice(idx + 1)
-  // The empty path and a lone "." have no name; everything else (incl. "..") does.
-  if (last === "" || last === ".") return ""
-  return last
+    let s = value
+    // pathlib ignores trailing separators for .name ("a/" -> "a", "//" -> root).
+    while (s.length > 1 && s.endsWith("/")) s = s.slice(0, -1)
+    const idx = s.lastIndexOf("/")
+    const last = idx === -1 ? s : s.slice(idx + 1)
+    // The empty path and a lone "." have no name; everything else (incl. "..") does.
+    if (last === "" || last === ".") return ""
+    return last
 }

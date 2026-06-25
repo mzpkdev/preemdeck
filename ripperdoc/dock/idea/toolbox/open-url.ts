@@ -25,9 +25,9 @@ const PROG = "open-url"
 
 /** cmdore metadata for the commandless CLI; version mirrors the idea plugin manifest. */
 const METADATA = {
-  name: PROG,
-  version: "0.1.0",
-  description: "Open an http/https URL in the running JetBrains IDE's web preview.",
+    name: PROG,
+    version: "0.1.0",
+    description: "Open an http/https URL in the running JetBrains IDE's web preview."
 } as const
 
 /**
@@ -43,8 +43,8 @@ export const previewUrl = effect.fn(rawPreviewUrl, "ide.previewUrl")
  * is the single guard for a live IDE; then previewUrl() fires the ideScript.
  */
 export const openUrl = async (url: string, title?: string): Promise<void> => {
-  await resolveExecPath()
-  await previewUrl(url, title)
+    await resolveExecPath()
+    await previewUrl(url, title)
 }
 
 /**
@@ -53,21 +53,21 @@ export const openUrl = async (url: string, title?: string): Promise<void> => {
  * runs openUrl.
  */
 const openUrlCommand = defineCommand({
-  name: PROG,
-  description: METADATA.description,
-  arguments: [{ name: "url", description: "http/https URL to open", required: true }],
-  options: [{ name: "title", arity: 1, hint: "title", description: "title for the preview tab" }],
-  run: async ({ url, title }) => {
-    // Light validation: a non-empty http/https URL. The IDE's JCEF preview only
-    // speaks http(s), so reject anything else up front with a clear note.
-    if (!["http", "https"].includes(parseUrl(url).scheme)) {
-      throw new IdeaError("url must be a non-empty http/https URL")
+    name: PROG,
+    description: METADATA.description,
+    arguments: [{ name: "url", description: "http/https URL to open", required: true }],
+    options: [{ name: "title", arity: 1, hint: "title", description: "title for the preview tab" }],
+    run: async ({ url, title }) => {
+        // Light validation: a non-empty http/https URL. The IDE's JCEF preview only
+        // speaks http(s), so reject anything else up front with a clear note.
+        if (!["http", "https"].includes(parseUrl(url).scheme)) {
+            throw new IdeaError("url must be a non-empty http/https URL")
+        }
+        if (!inIdea()) {
+            throw new IdeaError("no JetBrains IDE in the process ancestry")
+        }
+        await openUrl(url, title)
     }
-    if (!inIdea()) {
-      throw new IdeaError("no JetBrains IDE in the process ancestry")
-    }
-    await openUrl(url, title)
-  },
 })
 
 /**
@@ -77,22 +77,22 @@ const openUrlCommand = defineCommand({
  * own exitCode. Anything else is a bug and rethrown.
  */
 export const main = async (argv: string[] = Bun.argv.slice(2)): Promise<number> => {
-  try {
-    await execute(openUrlCommand, { argv, metadata: METADATA, onError: "throw" })
-  } catch (error) {
-    if (error instanceof IdeaError || error instanceof NotImplementedError) {
-      process.stderr.write(`${PROG}: ${error.message}\n`)
-      return 1
+    try {
+        await execute(openUrlCommand, { argv, metadata: METADATA, onError: "throw" })
+    } catch (error) {
+        if (error instanceof IdeaError || error instanceof NotImplementedError) {
+            process.stderr.write(`${PROG}: ${error.message}\n`)
+            return 1
+        }
+        if (error instanceof CmdoreError) {
+            process.stderr.write(`${PROG}: ${error.message}\n`)
+            return error.exitCode
+        }
+        throw error
     }
-    if (error instanceof CmdoreError) {
-      process.stderr.write(`${PROG}: ${error.message}\n`)
-      return error.exitCode
-    }
-    throw error
-  }
-  return 0
+    return 0
 }
 
 if (import.meta.main) {
-  process.exit(await main())
+    process.exit(await main())
 }

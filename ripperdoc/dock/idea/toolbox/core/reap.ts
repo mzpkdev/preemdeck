@@ -39,19 +39,19 @@ export const REAP_DELAY_MS = 3000
  * caller-owned generator can't be exhausted before the timer fires.
  */
 export const reapLater = (paths: Iterable<string>, delayMs: number = REAP_DELAY_MS): void => {
-  const targets = [...paths]
-  setTimeout(() => {
-    void reap(targets)
-  }, delayMs)
+    const targets = [...paths]
+    setTimeout(() => {
+        void reap(targets)
+    }, delayMs)
 }
 
 /** Unlink every target, swallowing per-path errors (never rejects). */
 const reap = async (targets: string[]): Promise<void> => {
-  for (const path of targets) {
-    try {
-      await unlink(path)
-    } catch {
-      // never raise from the reaper (matches missing_ok=True + suppress(OSError))
+    for (const path of targets) {
+        try {
+            await unlink(path)
+        } catch {
+            // never raise from the reaper (matches missing_ok=True + suppress(OSError))
+        }
     }
-  }
 }

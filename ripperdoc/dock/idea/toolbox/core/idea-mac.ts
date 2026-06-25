@@ -20,22 +20,22 @@ import { IdeaError } from "./errors.ts"
 
 /** Basenames of JetBrains IDE launchers at `<App>.app/Contents/MacOS/<name>`. */
 export const IDE_BINARIES: ReadonlySet<string> = new Set([
-  "webstorm",
-  "pycharm",
-  "idea",
-  "goland",
-  "phpstorm",
-  "rubymine",
-  "clion",
-  "rider",
-  "datagrip",
-  "rustrover",
+    "webstorm",
+    "pycharm",
+    "idea",
+    "goland",
+    "phpstorm",
+    "rubymine",
+    "clion",
+    "rider",
+    "datagrip",
+    "rustrover"
 ])
 
 /** One ancestry step: a process's parent pid and its executable path. */
 type PsEntry = {
-  ppid: number
-  exe: string
+    ppid: number
+    exe: string
 }
 
 /**
@@ -50,29 +50,29 @@ type PsEntry = {
 export type PsProbe = (pid: number) => Promise<PsEntry | null>
 
 const defaultPsProbe: PsProbe = async (pid) => {
-  const proc = Bun.spawn(["ps", "-o", "ppid=,comm=", "-p", String(pid)], {
-    stdout: "pipe",
-  })
-  const out = await new Response(proc.stdout).text()
-  await proc.exited
-  // Python: out.split(maxsplit=1) — leading whitespace stripped, split once.
-  const trimmed = out.replace(/^\s+/, "")
-  const match = trimmed.match(/^(\S+)\s+([\s\S]*)$/)
-  if (match === null) {
-    return null
-  }
-  const ppid = Number(match[1])
-  const exe = (match[2] ?? "").trim()
-  if (!Number.isFinite(ppid)) {
-    return null
-  }
-  return { ppid, exe }
+    const proc = Bun.spawn(["ps", "-o", "ppid=,comm=", "-p", String(pid)], {
+        stdout: "pipe"
+    })
+    const out = await new Response(proc.stdout).text()
+    await proc.exited
+    // Python: out.split(maxsplit=1) — leading whitespace stripped, split once.
+    const trimmed = out.replace(/^\s+/, "")
+    const match = trimmed.match(/^(\S+)\s+([\s\S]*)$/)
+    if (match === null) {
+        return null
+    }
+    const ppid = Number(match[1])
+    const exe = (match[2] ?? "").trim()
+    if (!Number.isFinite(ppid)) {
+        return null
+    }
+    return { ppid, exe }
 }
 
 /** True when this terminal was launched by a JetBrains IDE. */
 export const inIdea = (): boolean => {
-  const bundle = process.env.__CFBundleIdentifier ?? ""
-  return bundle.startsWith("com.jetbrains.") || process.env.TERMINAL_EMULATOR === "JetBrains-JediTerm"
+    const bundle = process.env.__CFBundleIdentifier ?? ""
+    return bundle.startsWith("com.jetbrains.") || process.env.TERMINAL_EMULATOR === "JetBrains-JediTerm"
 }
 
 /**
@@ -90,28 +90,28 @@ export const inIdea = (): boolean => {
  * use real `ps` and `process.pid`.
  */
 export const resolveExecPath = async (
-  probe: PsProbe = defaultPsProbe,
-  startPid: number = process.pid,
+    probe: PsProbe = defaultPsProbe,
+    startPid: number = process.pid
 ): Promise<string> => {
-  let pid = startPid
-  for (let i = 0; i < 16; i++) {
-    // bounded climb
-    const entry = await probe(pid)
-    if (entry === null) {
-      break
+    let pid = startPid
+    for (let i = 0; i < 16; i++) {
+        // bounded climb
+        const entry = await probe(pid)
+        if (entry === null) {
+            break
+        }
+        const { ppid, exe } = entry
+        // basename: everything after the last "/" (Python str.rpartition("/")[2]).
+        const base = exe.slice(exe.lastIndexOf("/") + 1)
+        if (IDE_BINARIES.has(base)) {
+            return exe
+        }
+        pid = ppid
+        if (pid <= 1) {
+            break
+        }
     }
-    const { ppid, exe } = entry
-    // basename: everything after the last "/" (Python str.rpartition("/")[2]).
-    const base = exe.slice(exe.lastIndexOf("/") + 1)
-    if (IDE_BINARIES.has(base)) {
-      return exe
-    }
-    pid = ppid
-    if (pid <= 1) {
-      break
-    }
-  }
-  throw new IdeaError("no JetBrains IDE in the process ancestry")
+    throw new IdeaError("no JetBrains IDE in the process ancestry")
 }
 
 /**
@@ -126,49 +126,49 @@ export const resolveExecPath = async (
  * `resolveExecPath`) and is awaited.
  */
 export const resolveLogDir = async (
-  resolveExec: () => string | Promise<string> = () => resolveExecPath(),
+    resolveExec: () => string | Promise<string> = () => resolveExecPath()
 ): Promise<string> => {
-  // Path(exec).stem.lower(): the basename without its final suffix, lowercased.
-  const execPath = await resolveExec()
-  const baseName = execPath.slice(execPath.lastIndexOf("/") + 1)
-  const dot = baseName.lastIndexOf(".")
-  const stem = (dot > 0 ? baseName.slice(0, dot) : baseName).toLowerCase()
-  const product = stem === "idea" ? "intellijidea" : stem
+    // Path(exec).stem.lower(): the basename without its final suffix, lowercased.
+    const execPath = await resolveExec()
+    const baseName = execPath.slice(execPath.lastIndexOf("/") + 1)
+    const dot = baseName.lastIndexOf(".")
+    const stem = (dot > 0 ? baseName.slice(0, dot) : baseName).toLowerCase()
+    const product = stem === "idea" ? "intellijidea" : stem
 
-  // Path.home() honors $HOME; mirror that so the tmp-HOME tests work.
-  const home = process.env.HOME ?? homedir()
-  const base = join(home, "Library/Logs/JetBrains")
+    // Path.home() honors $HOME; mirror that so the tmp-HOME tests work.
+    const home = process.env.HOME ?? homedir()
+    const base = join(home, "Library/Logs/JetBrains")
 
-  let names: string[]
-  try {
-    names = await readdir(base)
-  } catch {
-    names = []
-  }
-
-  const matches: Array<{ path: string; mtime: number }> = []
-  for (const name of names) {
-    if (!name.toLowerCase().startsWith(product)) {
-      continue
-    }
-    const path = join(base, name)
-    let st: Awaited<ReturnType<typeof stat>>
+    let names: string[]
     try {
-      st = await stat(path)
+        names = await readdir(base)
     } catch {
-      continue
+        names = []
     }
-    if (!st.isDirectory()) {
-      continue
-    }
-    matches.push({ path, mtime: st.mtimeMs })
-  }
 
-  // Newest mtime first (Python sorted(..., key=mtime, reverse=True)).
-  matches.sort((a, b) => b.mtime - a.mtime)
-  const newest = matches[0]
-  if (newest === undefined) {
-    throw new IdeaError(`no log dir for '${product}'`)
-  }
-  return newest.path
+    const matches: Array<{ path: string; mtime: number }> = []
+    for (const name of names) {
+        if (!name.toLowerCase().startsWith(product)) {
+            continue
+        }
+        const path = join(base, name)
+        let st: Awaited<ReturnType<typeof stat>>
+        try {
+            st = await stat(path)
+        } catch {
+            continue
+        }
+        if (!st.isDirectory()) {
+            continue
+        }
+        matches.push({ path, mtime: st.mtimeMs })
+    }
+
+    // Newest mtime first (Python sorted(..., key=mtime, reverse=True)).
+    matches.sort((a, b) => b.mtime - a.mtime)
+    const newest = matches[0]
+    if (newest === undefined) {
+        throw new IdeaError(`no log dir for '${product}'`)
+    }
+    return newest.path
 }

@@ -17,15 +17,15 @@ import { rename, writeFile } from "node:fs/promises"
  * `try: json.loads(...) except (JSONDecodeError, OSError): {}` degrade-to-empty.
  */
 export const readJson = async <T = unknown>(path: string, fallback?: T): Promise<T> => {
-  const fb = (fallback ?? ({} as T)) as T
-  try {
-    const file = Bun.file(path)
-    if (!(await file.exists())) return fb
-    const text = await file.text()
-    return JSON.parse(text) as T
-  } catch {
-    return fb
-  }
+    const fb = (fallback ?? ({} as T)) as T
+    try {
+        const file = Bun.file(path)
+        if (!(await file.exists())) return fb
+        const text = await file.text()
+        return JSON.parse(text) as T
+    } catch {
+        return fb
+    }
 }
 
 /**
@@ -35,8 +35,8 @@ export const readJson = async <T = unknown>(path: string, fallback?: T): Promise
  * partial file. Matches the Python `json.dumps` writer byte-for-byte.
  */
 export const writeJson = async (path: string, data: unknown): Promise<void> => {
-  const payload = `${JSON.stringify(data, null, 2)}\n`
-  const tmp = `${path}.tmp`
-  await writeFile(tmp, payload, "utf8")
-  await rename(tmp, path)
+    const payload = `${JSON.stringify(data, null, 2)}\n`
+    const tmp = `${path}.tmp`
+    await writeFile(tmp, payload, "utf8")
+    await rename(tmp, path)
 }
