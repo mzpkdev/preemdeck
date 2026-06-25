@@ -5,13 +5,15 @@
  * macOS + Linux only (Windows/winsound already removed). Selects a host-native
  * mechanism by platform; falls back to the ASCII terminal bell so something always
  * fires. Wired as a Stop hook: it ignores stdin entirely. Best-effort — never
- * throws; main always exits 0.
+ * throws; the command always exits 0.
  *
- * The subprocess seam rides lib/proc.ts (argv-only, no shell). A missing binary
- * makes Bun.spawn throw, which `runCmd` catches -> false (matches Python's
- * subprocess FileNotFoundError -> False).
+ * The subprocess seam rides lib/proc.ts (argv-only, no shell), wrapped in cmdore's
+ * `effect()` so `--dry-run` skips the real spawn yet still reports a mechanism. A
+ * missing binary makes Bun.spawn throw, which `runCmd` catches -> false (matches
+ * Python's subprocess FileNotFoundError -> False).
  */
 
+import { defineCommand, effect, execute } from "cmdore"
 import { spawn } from "../../../../lib/proc.ts"
 
 // macOS: a built-in system sound that reads as a clean "ding".
@@ -32,10 +34,17 @@ export const LINUX_CANDIDATES: string[][] = [
 /**
  * Run `cmd` to completion; resolve true iff it spawned and exited 0. A missing
  * binary, non-zero exit, or timeout all resolve false. Never throws.
+ *
+ * The spawn rides `effect()`, so under `--dry-run` it is skipped and resolves to
+ * `undefined` — treated here as "the command fired" so dry-run reports a real
+ * mechanism without launching a player.
  */
 export const runCmd = async (cmd: string[]): Promise<boolean> => {
     try {
-        const result = await spawn(cmd, { timeoutMs: 10_000 })
+        const result = (await effect(() => spawn(cmd, { timeoutMs: 10_000 }))) as
+            | Awaited<ReturnType<typeof spawn>>
+            | undefined
+        if (result === undefined) return true
         return !result.timedOut && result.exitCode === 0
     } catch {
         return false
@@ -72,7 +81,16 @@ export const platformWorker = (
     return async () => null // exotic platform: no native mechanism, fall to bell
 }
 
-/** Play the host OS's "ding"; return the mechanism, or "bell" as the floor. */
+/**
+ * Play the host OS's "ding" and report which mechanism fired. Tries the
+ * platform-native player first; when none is available it rings the ASCII
+ * terminal bell as the floor, so a mechanism always fires.
+ *
+ * @returns the mechanism name (e.g. "afplay"), or "bell" when nothing native worked.
+ *
+ * @example
+ * await ding() // "afplay" on a Mac, or "bell" if no player is installed
+ */
 export const ding = async (
     worker: () => Promise<string | null> = platformWorker(),
     bell: () => void = terminalBell
@@ -85,20 +103,24 @@ export const ding = async (
     return mechanism
 }
 
-/**
- * CLI entrypoint: play the ding and (when `-v`/`--verbose`) report the mechanism
- * on stderr. Always exits 0 — a ding failing is never worth failing the Stop hook
- * that drives this.
- */
-export const main = async (argv: string[]): Promise<number> => {
-    const verbose = argv.includes("-v") || argv.includes("--verbose")
-    const mechanism = await ding()
-    if (verbose) {
-        process.stderr.write(`ding: ${mechanism}\n`)
+const command = defineCommand({
+    name: "os-ding",
+    description: "Play a short notification ding (macOS/Linux), falling back to the terminal bell.",
+    options: [{ name: "verbose", arity: 0, description: "report the chosen mechanism on stderr" }],
+    run: async ({ verbose }) => {
+        // Best-effort: a ding failing must never fail the Stop hook that drives
+        // this, so swallow everything and let the process exit 0.
+        try {
+            const mechanism = await ding()
+            if (verbose) {
+                process.stderr.write(`ding: ${mechanism}\n`)
+            }
+        } catch {
+            // ignore — the bell floor already tried; never fail the hook
+        }
     }
-    return 0
-}
+})
 
 if (import.meta.main) {
-    process.exit(await main(Bun.argv.slice(2)))
+    process.exit(await execute(command, { metadata: command }))
 }
