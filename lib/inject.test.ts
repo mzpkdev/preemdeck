@@ -1,6 +1,6 @@
 /**
  * inject.test.ts — the byte-exact injection runner. Same contract as hook.test.ts
- * (DI stdin/write), but the emitted line must match Python's bare json.dumps
+ * (DI stdin/write), but the emitted line must match the reference bare json.dumps
  * (spaced separators + ensure_ascii), which is the whole reason this exists.
  */
 
@@ -10,7 +10,7 @@ import { runInjectionHook } from "./inject.ts"
 const fakeStdin = (text: string) => ({ text: () => Promise.resolve(text) })
 
 describe("runInjectionHook", () => {
-    test("emits the Python-faithful envelope (spaced separators, ascii-escaped)", async () => {
+    test("emits the reference-faithful envelope (spaced separators, ascii-escaped)", async () => {
         let out = ""
         await runInjectionHook({
             stdin: fakeStdin('{"hook_event_name":"UserPromptSubmit"}'),

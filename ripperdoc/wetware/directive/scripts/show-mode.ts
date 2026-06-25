@@ -64,7 +64,7 @@ export const main = async (
     return 0
 }
 
-/** Render a string the way Python's `{value!r}` does for the common cases. */
+/** Render a string the way the reference `{value!r}` does for the common cases. */
 const pyRepr = (value: string): string => {
     if (!value.includes("'") || value.includes('"')) return `'${value}'`
     return `"${value}"`

@@ -1,5 +1,5 @@
 /**
- * lib/text.ts — text helpers byte-compatible with the Python originals.
+ * lib/text.ts — text helpers byte-compatible with the reference originals.
  *
  *   htmlEscape — matches `html.escape(s)` (quote=True, the stdlib default), used
  *                before handing text to the IDE notifier.
@@ -9,7 +9,7 @@
  */
 
 /**
- * Escape `&`, `<`, `>`, `"`, `'` exactly as Python's `html.escape(s, quote=True)`.
+ * Escape `&`, `<`, `>`, `"`, `'` exactly as the reference `html.escape(s, quote=True)`.
  * `&` is replaced first so the entities it introduces aren't double-escaped.
  *
  *   &  -> &amp;
@@ -47,7 +47,7 @@ export type ParsedUrl = {
  * Parse `url` the forgiving way `urlsplit` does: never throws. WHATWG `new URL`
  * requires a host (and rejects bare `localhost:3000`, treating the part before
  * `:` as the protocol), so this returns `{hostname: null}` for host-less inputs,
- * leaving callers to fall back to `raw` — matching Python `_title_for`'s
+ * leaving callers to fall back to `raw` — matching the reference `_title_for`'s
  * `if parts.hostname: ... else: return url`.
  *
  * Validation callers (open-url) should check `scheme` is "http"/"https".

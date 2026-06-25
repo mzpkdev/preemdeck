@@ -1,12 +1,12 @@
 /**
  * launch.ts — launch the running JetBrains IDE (cross-platform), optionally
- * blocking. Port of core/_launch.py.
+ * blocking.
  *
  * Resolve the IDE binary and spawn it. With `wait: false` (default) the launch
  * is fire-and-forget; with `wait: true` the IDE's native `--wait` is appended
  * and the call blocks on the child's exit until the opened tab/window closes.
  *
- * Stdio is INHERITED (like Python's `subprocess.Popen`, which inherits the
+ * Stdio is INHERITED (like the original's `subprocess.Popen`-style inheritance, which inherits the
  * parent fds by default) so the launcher attaches to the caller's terminal
  * rather than having its output captured/swallowed.
  */
@@ -53,7 +53,7 @@ export type LaunchOptions = {
  * 1). No second inIdea() check.
  *
  * Returns a Promise: with `wait: true` it resolves only after the child exits
- * (blocking, like Python `.wait()`); with `wait: false` it resolves as soon as
+ * (blocking, like the original's `.wait()`); with `wait: false` it resolves as soon as
  * the child is spawned, leaving it running.
  */
 export const launch = async (args: string[], options: LaunchOptions = {}): Promise<Bun.Subprocess> => {

@@ -127,7 +127,7 @@ ApplicationManager.getApplication().invokeLater {
  * <title>"). No VFS lookup (the dummy stands in).
  *
  * NOTE: line 1 is intentionally one physical line — the two Registry.is(...)
- * calls are joined (the Python source used `\` line-continuations), and the
+ * calls are joined (the original source used `\` line-continuations), and the
  * block has NO trailing newline. Both are load-bearing for byte-parity.
  */
 const webpreviewOpenBodyRaw = (url: string, title: string, projectVar: string): string => {

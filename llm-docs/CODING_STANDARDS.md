@@ -289,7 +289,7 @@ keep. Prose blocks with embedded examples; we don't use `@param`/`@returns` tag 
 ```ts
 /**
  * Transform an int into its labelled string form.
- * Mirrors the Python `transform()` byte-for-byte (see py-json parity notes).
+ * Mirrors the reference `transform()` byte-for-byte (see py-json parity notes).
  */
 export const transform = (n: number): string => {
   if (n < 0) throw new UsageError(`${n} must be non-negative`);
@@ -300,7 +300,7 @@ export const transform = (n: number): string => {
 - **Inline comments explain WHY, not WHAT.** If a comment narrates mechanics, the code wants a better name instead.
 - **No commented-out code.** Git remembers.
 - **`TODO:` only if you actually plan to return.** Otherwise fix it now or file an issue.
-- Module-header comments are welcome where a file's purpose or a non-obvious decision (e.g. Python parity) needs
+- Module-header comments are welcome where a file's purpose or a non-obvious decision (e.g. reference parity) needs
   stating.
 
 ---
@@ -374,8 +374,8 @@ describe("parseAction", () => {
 Other conventions:
 
 - **Test names describe behavior** (`splits name from arg on the first colon`), not implementation.
-- **Golden-value tests** for parity-critical code — hardcode the expected CPython/reference output and assert byte
-  equality (see the `py-json` suite).
+- **Golden-value tests** for parity-critical code — hardcode the expected reference output and assert byte equality (see
+  the `py-json` suite).
 - **Bump the timeout** for genuinely slow cases: `test("spawns a subprocess", async () => { ... }, 10_000)`.
 - Don't mock the unit under test — only its collaborators.
 

@@ -1,5 +1,5 @@
 /**
- * lib/text.test.ts — htmlEscape parity with Python html.escape, and parseUrl's
+ * lib/text.test.ts — htmlEscape parity with the reference html.escape, and parseUrl's
  * forgiving urlsplit-style fallback. Pure functions: no mocks needed (the
  * simplest case — assert input/output directly).
  */
@@ -9,7 +9,7 @@ import { htmlEscape, parseUrl } from "./text.ts"
 
 describe("htmlEscape", () => {
     test("escapes the five html.escape(quote=True) characters", () => {
-        // Golden value produced by Python: html.escape('<a href="x">&\'</a>')
+        // Golden value produced by the reference: html.escape('<a href="x">&\'</a>')
         expect(htmlEscape('<a href="x">&\'</a>')).toBe("&lt;a href=&quot;x&quot;&gt;&amp;&#x27;&lt;/a&gt;")
     })
 

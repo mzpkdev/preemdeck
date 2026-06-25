@@ -1,6 +1,6 @@
 /**
  * tmp.ts — temp-file minting for the inline / merge toolbox CLIs, matching
- * Python's `tempfile.mkstemp(suffix=...)` for the bits the callers depend on:
+ * the original `tempfile.mkstemp(suffix=...)` for the bits the callers depend on:
  * a fresh, uniquely-named file in the system temp dir whose name ENDS WITH the
  * given suffix (so the IDE picks the right syntax highlighting). Shared so
  * open_inline / diff_inline / merge_file / merge_inline mint temps identically.
@@ -15,7 +15,7 @@ import { join } from "node:path"
  * exist — the diff/merge inputs' `Path(p).resolve(strict=True)`. realpath
  * matches both halves (resolves symlinks AND raises ENOENT on a missing path);
  * the thrown error carries a string `.code` ("ENOENT"), so the CLIs' OSError
- * handler catches it and exits 1, like Python's FileNotFoundError.
+ * handler catches it and exits 1, like the original's FileNotFoundError.
  */
 export const resolveStrict = async (path: string): Promise<string> => {
     return await realpath(path)

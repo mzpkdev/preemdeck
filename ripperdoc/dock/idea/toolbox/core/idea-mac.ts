@@ -1,7 +1,7 @@
 /**
  * idea-mac.ts — JetBrains IDE detection for the idea toolbox (macOS).
  *
- * Port of core/idea_mac.py. Resolution reads the *running* IDE, not project
+ * Resolution reads the *running* IDE, not project
  * files: the IDE that opened the terminal is an ancestor process, so
  * resolveExecPath() walks up to its binary.
  *
@@ -40,12 +40,12 @@ type PsEntry = {
 
 /**
  * One `ps -o ppid=,comm= -p <pid>` probe, parsed. Returns null when `ps`
- * produced fewer than two whitespace-split fields (the Python `len(out) < 2`
+ * produced fewer than two whitespace-split fields (the reference `len(out) < 2`
  * break — a dead/exited pid). Split on the FIRST run of whitespace only, so an
- * exe path with spaces stays intact (Python `.split(maxsplit=1)`).
+ * exe path with spaces stays intact (the reference `.split(maxsplit=1)`).
  *
  * Injectable so tests can feed canned ancestry without spawning `ps` (mirrors
- * the Python tests monkeypatching `idea_mac.subprocess.run`).
+ * the reference tests monkeypatching `idea_mac.subprocess.run`).
  */
 export type PsProbe = (pid: number) => Promise<PsEntry | null>
 
@@ -55,7 +55,7 @@ const defaultPsProbe: PsProbe = async (pid) => {
     })
     const out = await new Response(proc.stdout).text()
     await proc.exited
-    // Python: out.split(maxsplit=1) — leading whitespace stripped, split once.
+    // Reference: out.split(maxsplit=1) — leading whitespace stripped, split once.
     const trimmed = out.replace(/^\s+/, "")
     const match = trimmed.match(/^(\S+)\s+([\s\S]*)$/)
     if (match === null) {
@@ -101,7 +101,7 @@ export const resolveExecPath = async (
             break
         }
         const { ppid, exe } = entry
-        // basename: everything after the last "/" (Python str.rpartition("/")[2]).
+        // basename: everything after the last "/" (the reference str.rpartition("/")[2]).
         const base = exe.slice(exe.lastIndexOf("/") + 1)
         if (IDE_BINARIES.has(base)) {
             return exe
@@ -164,7 +164,7 @@ export const resolveLogDir = async (
         matches.push({ path, mtime: st.mtimeMs })
     }
 
-    // Newest mtime first (Python sorted(..., key=mtime, reverse=True)).
+    // Newest mtime first (the reference sorted(..., key=mtime, reverse=True)).
     matches.sort((a, b) => b.mtime - a.mtime)
     const newest = matches[0]
     if (newest === undefined) {

@@ -3,7 +3,7 @@
  * injectors.
  *
  * Same stdin/event/no-op contract as lib/hook.ts `runHook`, but the emitted
- * envelope is serialized with lib/pyjson.ts to match Python's BARE
+ * envelope is serialized with lib/pyjson.ts to match the reference BARE
  * `json.dumps({...})` defaults (", "/": " separators + ensure_ascii). See
  * pyjson.ts for why hook.ts's compact emitter isn't byte-identical to these
  * injectors. Event precedence is identical to runHook:
@@ -30,7 +30,7 @@ export type RunInjectionOptions = {
     write?: (line: string) => void
 }
 
-/** Read stdin, resolve the event, emit the Python-faithful envelope (or `{}`). */
+/** Read stdin, resolve the event, emit the reference-faithful envelope (or `{}`). */
 export const runInjectionHook = async (options: RunInjectionOptions): Promise<void> => {
     const { event, render } = options
     const stdin = options.stdin ?? Bun.stdin

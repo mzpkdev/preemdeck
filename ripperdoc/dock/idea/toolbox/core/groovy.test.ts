@@ -1,7 +1,7 @@
 /**
- * groovy.test.ts — the shared ideScript bridge. Ports the escape rules + the
- * run_groovy scaffolding contract from the Python suite (test_preview.py drives
- * run_groovy through set_preview; here we test it directly via its deps seam).
+ * groovy.test.ts — the shared ideScript bridge. Covers the escape rules + the
+ * run_groovy scaffolding contract (set_preview drives run_groovy in production;
+ * here we test it directly via its deps seam).
  *
  * MOCK PATTERN A — dependency injection: runGroovy takes `launch`/`reapLater`/
  * `warn` seams. A launch spy reads the generated temp script back (proving the
