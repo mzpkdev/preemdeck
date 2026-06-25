@@ -2,9 +2,10 @@
  * index.test.ts — the cross-platform core surface (not mac-specific). Port of
  * test_core.py.
  *
- * Two guarantees: the Linux stub throws NotImplementedError for every entry
- * point, and the public API re-exported from `index` is present and wired to the
- * running platform (this host is darwin, so it routes to idea_mac).
+ * Two guarantees: the Linux module's still-unimplemented entry points (inIdea,
+ * resolveLogDir) throw NotImplementedError, and the public API re-exported from
+ * `index` is present and wired to the running platform (this host is darwin, so
+ * it routes to idea_mac).
  */
 
 import { describe, expect, test } from "bun:test"
@@ -12,12 +13,12 @@ import * as ideaLinux from "./idea-linux.ts"
 import * as ideaMac from "./idea-mac.ts"
 import * as core from "./index.ts"
 
-describe("linux stub", () => {
+describe("linux module", () => {
+    // resolveExecPath is implemented (its /proc ancestry walk is covered in
+    // idea-linux.test.ts); inIdea and resolveLogDir are not yet, so they still
+    // throw NotImplementedError.
     test("inIdea throws NotImplementedError", () => {
         expect(() => ideaLinux.inIdea()).toThrow("not implemented for Linux")
-    })
-    test("resolveExecPath throws NotImplementedError", () => {
-        expect(() => ideaLinux.resolveExecPath()).toThrow("not implemented for Linux")
     })
     test("resolveLogDir throws NotImplementedError", () => {
         expect(() => ideaLinux.resolveLogDir()).toThrow("not implemented for Linux")
