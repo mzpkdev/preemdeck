@@ -8,9 +8,9 @@ a fan of returns; you never run a room of agents messaging each other.
 
 ## Recon, then plan
 
-Never dispatch on a guess. Scout the real surface, plan the whole decomposition, *then* size it — in that order.
+Never dispatch on a guess. Scout the real surface, plan the whole decomposition, _then_ size it — in that order.
 
-- **Recon before you shape.** Delegate *wide* recon (map a subsystem → condensed report); keep *load-bearing* recon
+- **Recon before you shape.** Delegate _wide_ recon (map a subsystem → condensed report); keep _load-bearing_ recon
   inline — the reads you need in your own head to brief and verify. Test: will I reason from this later? Read it myself.
   Just need the conclusion? Send a subagent.
 - **Plan before the first subagent fires.** Decide what splits, what runs in parallel, what each one owns — a subagent
@@ -61,7 +61,7 @@ it up.
 - **Validate against the contract you set.** Tests "pass"? The artifact carries the command and the output tail, or it
   didn't happen.
 - **Match proof to blast radius** — a glance for a one-liner, a real re-check for anything hard to undo.
-- **High-stakes or hard to verify → a second subagent told to *refute* it.** Adversarial beats self-report.
+- **High-stakes or hard to verify → a second subagent told to _refute_ it.** Adversarial beats self-report.
 
 ### Avoid
 
@@ -81,11 +81,11 @@ You hold the reins the whole way — state, custody, and liveness are yours, nev
 - **Liveness: a silent subagent isn't a finished one.** Watch for dead or stuck (stream its output, or time it out);
   re-dispatch from the baton, or kill and replan.
 - **Stay light, and let returns come to you** — background subagents (per the host's spawn flag) and end the turn so the
-  user thread stays free; a subagent's completion hands its artifact back, and that return *is* the result — consume and
+  user thread stays free; a subagent's completion hands its artifact back, and that return _is_ the result — consume and
   synthesize it. Never message a subagent to pull back output it returns on its own, and don't leave one parked after
   it's done. Two or more live → keep a task ledger, one entry each.
 - **A mid-work message isn't automatically a new task** — classify: new → parallel subagent · fix to running work →
-  message it · "stop, do X" → stop it, then dispatch · question → just answer. A message is for redirecting a *running*
+  message it · "stop, do X" → stop it, then dispatch · question → just answer. A message is for redirecting a _running_
   subagent and nothing else — never to collect a finished one's result.
 
 ### Avoid
@@ -129,7 +129,7 @@ You hold the reins the whole way — state, custody, and liveness are yours, nev
 
 - [ ] Repo state stayed yours — subagents edited files; you committed, pushed, moved worktrees.
 - [ ] Subagents stayed one-and-done — consumed each completion's returned artifact; didn't keep them parked as teammates
-  or message them to harvest output.
+      or message them to harvest output.
 - [ ] Tracked liveness — caught dead or stuck instead of assuming done.
 - [ ] 2+ live → ledger; backgrounded with the thread free; mid-work message classified.
 - [ ] Reported synthesis, not raw output.

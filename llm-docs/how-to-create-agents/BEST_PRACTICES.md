@@ -3,7 +3,7 @@
 Patterns that produce reliable subagents across Claude, Codex, and Gemini. A subagent runs cold — no memory of the
 parent's turn. Brief it like a colleague who walked in late.
 
-______________________________________________________________________
+---
 
 ## Single responsibility
 
@@ -21,7 +21,7 @@ description: Adversarial security review of staged diff. Returns numbered findin
 
 The parent LLM picks an agent by reading `description`. Overloaded descriptions confuse selection on every host.
 
-______________________________________________________________________
+---
 
 ## Naming
 
@@ -46,7 +46,7 @@ possible. The name shows up in error messages on Claude/Codex and in `@name` inv
 Prefix with the plugin when shipping to a shared marketplace — `name: payments-reviewer`, not `name: reviewer`. Subagent
 names are not namespaced on Claude or Codex; two plugins shipping `reviewer` collide.
 
-______________________________________________________________________
+---
 
 ## Description triggers
 
@@ -63,10 +63,10 @@ description: |
   Use before merge. NOT for style review or test failures.
 ```
 
-Subagents on Gemini never auto-invoke — they're user-driven via `@name`. The description is what tells the user *when*
+Subagents on Gemini never auto-invoke — they're user-driven via `@name`. The description is what tells the user _when_
 to pick this agent, so write it for a human reader too.
 
-______________________________________________________________________
+---
 
 ## Prompt density
 
@@ -74,17 +74,18 @@ Brief the agent on the contract, not the implementation. Tell it what to return,
 
 ```markdown
 # Avoid — leans on parent context the agent doesn't have
+
 "Based on the findings, decide what to do."
 
 # Prefer — concrete inputs, concrete return
-"Read the diff at /tmp/staged.diff. For each function changed,
-list one risk in the form `file:line — risk`. Return at most ten
-lines. If none, return `OK.`"
+
+"Read the diff at /tmp/staged.diff. For each function changed, list one risk in the form `file:line — risk`. Return at
+most ten lines. If none, return `OK.`"
 ```
 
-Lead with the contract: *inputs, steps, return shape*. Cut every sentence that doesn't shape one of those.
+Lead with the contract: _inputs, steps, return shape_. Cut every sentence that doesn't shape one of those.
 
-______________________________________________________________________
+---
 
 ## Model selection
 
@@ -98,7 +99,7 @@ Match the model to the task's depth. Heavier models are slower and cost more. Do
 
 Override per-agent with the `model` field. The default is the parent's model.
 
-______________________________________________________________________
+---
 
 ## Tool scoping
 
@@ -122,7 +123,7 @@ sandbox_mode = "read-only"
 
 A reviewer never needs `Write`. A gatherer never needs `Edit`. Scope down at the boundary, not in the prompt.
 
-______________________________________________________________________
+---
 
 ## Briefing
 
@@ -142,10 +143,10 @@ invoke(reviewer, prompt=(
 ))
 ```
 
-Include: the task, the inputs (paths, not pasted file contents), any constraint that affects judgment. *Trust the
-inside, brief the outside.*
+Include: the task, the inputs (paths, not pasted file contents), any constraint that affects judgment. _Trust the
+inside, brief the outside._
 
-______________________________________________________________________
+---
 
 ## Output contract
 
@@ -153,10 +154,11 @@ Declare the return shape in the system prompt. Parsing fails silently when the a
 
 ```markdown
 ## What to return
+
 A JSON object with these keys:
-  - findings: array of { file, line, issue }
-  - verdict: "PASS" or "FAIL"
-Nothing else. No preamble, no closing remark.
+
+- findings: array of { file, line, issue }
+- verdict: "PASS" or "FAIL" Nothing else. No preamble, no closing remark.
 ```
 
 Pick one of three shapes — don't mix:
@@ -177,7 +179,7 @@ On failure, hold the contract — name the cause as `FAIL: <reason>` rather than
 needs something to act on. Parents should never trust intent reports either: verify by parsing, or by re-reading the
 underlying state.
 
-______________________________________________________________________
+---
 
 ## Quick checklist
 

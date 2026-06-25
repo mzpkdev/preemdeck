@@ -4,7 +4,7 @@ Fillable skeleton for a new skill. Inside a plugin all three hosts read the same
 Only `name` and `description` port unchanged across hosts. Cross-host details in
 [CLAUDE_CODEX_GEMINI.md](../CLAUDE_CODEX_GEMINI.md).
 
-______________________________________________________________________
+---
 
 ## Where the file lives
 
@@ -20,7 +20,7 @@ read it.
 
 Ship inside a plugin if you want one path. A standalone skill installs three times.
 
-______________________________________________________________________
+---
 
 ## Frontmatter — what ports
 
@@ -44,7 +44,7 @@ Two fields universal. Everything else is Claude-only and silently drops on Codex
 Fold richer guidance into `description`; it ports everywhere. Reaching for a Claude-only field forks the SKILL.md per
 host.
 
-______________________________________________________________________
+---
 
 ## The portable SKILL.md
 
@@ -64,30 +64,36 @@ description: |
 <One-sentence framing.>
 
 ## When to use
+
 - <Signal 1 — concrete user phrase or repo state>.
 - <Signal 2>.
 - <Signal 3>.
 
 ## When NOT to use
+
 - <Near-miss A — which skill or tool wins instead>.
 - <Near-miss B>.
 
 ## How to run
+
 1. <First concrete step — read this file, run that command>.
 2. <Second step — produce this artifact>.
 3. <Third step — verify, report>.
 
 ## What to return
-<Exact output shape: format, sections, length budget. See [BEST_PRACTICES.md — Reply shape](BEST_PRACTICES.md#reply-shape).>
+
+<Exact output shape: format, sections, length budget. See
+[BEST_PRACTICES.md — Reply shape](BEST_PRACTICES.md#reply-shape).>
 
 ## Examples
+
 <One worked example: input phrase → action → output.>
 ```
 
 Six sections, same order every time: purpose · when · when NOT · how · return · example. Cut every sentence that doesn't
 shape one of those six.
 
-______________________________________________________________________
+---
 
 ## Description anatomy
 
@@ -115,28 +121,28 @@ description: |
 
 A parent LLM weighs the opening tokens hardest. A user scanning autocomplete reads the first line. Front-load.
 
-______________________________________________________________________
+---
 
 ## Claude-only sugar — and the portable substitute
 
 Several conveniences only run on Claude. Reaching for them forks the skill or silently no-ops on Codex / Gemini.
 
-| Claude sugar                   | What it does                              | Portable substitute                                                    |
-| ------------------------------ | ----------------------------------------- | ---------------------------------------------------------------------- |
-| `` !`<cmd>` `` (preload)       | Runs command, inlines output              | Step-1 in the body: "Run `<cmd>` and parse the output."                |
-| ```` ```! ```` (preload block) | Same, for multi-line scripts              | Explicit body step; write intermediate output to `${TMPDIR}`           |
-| `$ARGUMENTS`, `$N`, `$name`    | Slash-command arg substitution            | Tell the assistant to read positional args from the prompt             |
-| `${CLAUDE_SKILL_DIR}`          | Path to the skill folder                  | `Path(__file__).resolve().parent` from a sidecar script                |
-| `allowed-tools:`               | Per-skill tool allowlist                  | Phrase the body to use only the tools you want                         |
-| `disable-model-invocation`     | Hide from auto-invocation                 | Strong exclusion in description; ship as slash command only            |
-| `paths:`                       | Auto-activate when matching files touched | Trigger via description phrase + slash-command companion               |
-| `hooks:` in frontmatter        | Skill-scoped hooks                        | Promote to manifest-level `hooks` block in each host's plugin manifest |
-| `argument-hint:`               | Slash-command arg autocomplete            | Spell out args in the description's example line                       |
+| Claude sugar                | What it does                              | Portable substitute                                                    |
+| --------------------------- | ----------------------------------------- | ---------------------------------------------------------------------- |
+| `` !`<cmd>` `` (preload)    | Runs command, inlines output              | Step-1 in the body: "Run `<cmd>` and parse the output."                |
+| ` ```! ` (preload block)    | Same, for multi-line scripts              | Explicit body step; write intermediate output to `${TMPDIR}`           |
+| `$ARGUMENTS`, `$N`, `$name` | Slash-command arg substitution            | Tell the assistant to read positional args from the prompt             |
+| `${CLAUDE_SKILL_DIR}`       | Path to the skill folder                  | `Path(__file__).resolve().parent` from a sidecar script                |
+| `allowed-tools:`            | Per-skill tool allowlist                  | Phrase the body to use only the tools you want                         |
+| `disable-model-invocation`  | Hide from auto-invocation                 | Strong exclusion in description; ship as slash command only            |
+| `paths:`                    | Auto-activate when matching files touched | Trigger via description phrase + slash-command companion               |
+| `hooks:` in frontmatter     | Skill-scoped hooks                        | Promote to manifest-level `hooks` block in each host's plugin manifest |
+| `argument-hint:`            | Slash-command arg autocomplete            | Spell out args in the description's example line                       |
 
 The portable substitute is almost always "instruct the model in the body" — what Claude does via frontmatter, the body
 does via prose.
 
-______________________________________________________________________
+---
 
 ## Slash-command sibling
 
@@ -152,9 +158,10 @@ Codex, **TOML** on Gemini.
 
 ```markdown
 # commands/<name>.md (Claude / Codex)
+
 ---
-description: <Mirrors the SKILL.md description.>
----
+
+## description: <Mirrors the SKILL.md description.>
 
 Invoke the `<name>` skill against the current working tree.
 ```
@@ -169,7 +176,7 @@ Invoke the <name> skill against the current working tree.
 
 Two files, same intent. Update both when the body changes; drift is silent.
 
-______________________________________________________________________
+---
 
 ## Where artifacts go
 
@@ -179,15 +186,14 @@ Skills that write files need a path that resolves on all three hosts. No env var
 ```markdown
 ## Step 0 — Locate the project root
 
-Run `git rev-parse --show-toplevel` and bind the result to `${ROOT}`.
-Write artifacts to `${ROOT}/.preemdeck/<skill>/<verb>.<ext>`.
-If the cwd is not in a git repo, fall back to `${TMPDIR}/preemdeck/<skill>/`.
+Run `git rev-parse --show-toplevel` and bind the result to `${ROOT}`. Write artifacts to
+`${ROOT}/.preemdeck/<skill>/<verb>.<ext>`. If the cwd is not in a git repo, fall back to `${TMPDIR}/preemdeck/<skill>/`.
 ```
 
 Sidecar scripts can self-locate with `Path(__file__).resolve().parents[N]`. Use the placeholder only where you have no
 other option — typically inside hook config strings.
 
-______________________________________________________________________
+---
 
 ## Quick checklist
 

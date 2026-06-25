@@ -1,5 +1,7 @@
 ---
-description: Show the swarm strategy directive — prints skills/swarm/directive.md. Trigger ONLY when the user types /swarm. NEVER auto-invoke.
+description:
+  Show the swarm strategy directive — prints skills/swarm/directive.md. Trigger ONLY when the user types /swarm. NEVER
+  auto-invoke.
 user-invocable: true
 disable-model-invocation: true
 ---
