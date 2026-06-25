@@ -21,12 +21,9 @@ import { inIdea, type PsProbe, resolveExecPath, resolveLogDir } from "./idea-mac
 const WEBSTORM = "/Applications/WebStorm.app/Contents/MacOS/webstorm"
 
 // Real ancestry observed under WebStorm: pid -> (ppid, exe).
-// The leaf is Python.app (also a .app/Contents/MacOS path) and must be skipped.
+// The leaf is the toolbox's own Bun runtime — a non-IDE binary that must be skipped.
 const ANCESTRY: Record<number, [number, string]> = {
-    7539: [
-        7537,
-        "/opt/homebrew/Cellar/python@3.14/3.14.5/Frameworks/Python.framework/Versions/3.14/Resources/Python.app/Contents/MacOS/Python"
-    ],
+    7539: [7537, "/Users/dev/.preemdeck/.runtime/bin/bun"],
     7537: [81159, "/bin/zsh"],
     81159: [24643, "claude"],
     24643: [57130, "/bin/zsh"],
@@ -84,8 +81,8 @@ describe("resolveExecPath", () => {
         expect(await resolveExecPath(fakeProbe(ANCESTRY), 7539)).toBe(WEBSTORM)
     })
 
-    test("skips the Python.app ancestor", async () => {
-        expect(await resolveExecPath(fakeProbe(ANCESTRY), 7539)).not.toContain("Python.app")
+    test("skips the non-IDE leaf (the Bun runtime)", async () => {
+        expect(await resolveExecPath(fakeProbe(ANCESTRY), 7539)).not.toContain(".runtime/bin/bun")
     })
 
     test("throws IdeaError when no JetBrains binary is in the chain", async () => {
