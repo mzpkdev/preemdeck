@@ -42,66 +42,66 @@ export const MACOS_APPLESCRIPT = `display notification (system attribute "${ENV_
  * resolve false. Never throws.
  */
 export const runCmd = async (cmd: string[], env?: Record<string, string>): Promise<boolean> => {
-  try {
-    const result = await spawn(cmd, { timeoutMs: 20_000, env })
-    return !result.timedOut && result.exitCode === 0
-  } catch {
-    return false
-  }
+    try {
+        const result = await spawn(cmd, { timeoutMs: 20_000, env })
+        return !result.timedOut && result.exitCode === 0
+    } catch {
+        return false
+    }
 }
 
 /** Whether an executable is on PATH — the Bun analogue of shutil.which. */
 const which = (name: string): boolean => {
-  return Bun.which(name) !== null
+    return Bun.which(name) !== null
 }
 
 /** macOS: terminal-notifier if installed (and it fires), else osascript. */
 export const notifyMacos = async (
-  message: string,
-  title: string,
-  deps: {
-    run?: (cmd: string[], env?: Record<string, string>) => Promise<boolean>
-    has?: (name: string) => boolean
-  } = {},
+    message: string,
+    title: string,
+    deps: {
+        run?: (cmd: string[], env?: Record<string, string>) => Promise<boolean>
+        has?: (name: string) => boolean
+    } = {}
 ): Promise<string | null> => {
-  const run = deps.run ?? runCmd
-  const has = deps.has ?? which
-  if (has("terminal-notifier") && (await run(["terminal-notifier", "-title", title, "-message", message]))) {
-    return "terminal-notifier"
-  }
-  const env = { [ENV_TITLE]: title, [ENV_MESSAGE]: message }
-  if (await run(["osascript", "-e", MACOS_APPLESCRIPT], env)) {
-    return "osascript"
-  }
-  return null
+    const run = deps.run ?? runCmd
+    const has = deps.has ?? which
+    if (has("terminal-notifier") && (await run(["terminal-notifier", "-title", title, "-message", message]))) {
+        return "terminal-notifier"
+    }
+    const env = { [ENV_TITLE]: title, [ENV_MESSAGE]: message }
+    if (await run(["osascript", "-e", MACOS_APPLESCRIPT], env)) {
+        return "osascript"
+    }
+    return null
 }
 
 /** Linux: notify-send (libnotify). Title/body are argv. "notify-send" or null. */
 export const notifyLinux = async (
-  message: string,
-  title: string,
-  run: (cmd: string[], env?: Record<string, string>) => Promise<boolean> = runCmd,
+    message: string,
+    title: string,
+    run: (cmd: string[], env?: Record<string, string>) => Promise<boolean> = runCmd
 ): Promise<string | null> => {
-  if (await run(["notify-send", title, message])) return "notify-send"
-  return null
+    if (await run(["notify-send", title, message])) return "notify-send"
+    return null
 }
 
 /** The per-OS notifier for the current platform (null worker on exotic OSes). */
 export const platformWorker = (
-  platform: string = process.platform,
+    platform: string = process.platform
 ): ((message: string, title: string) => Promise<string | null>) => {
-  if (platform === "darwin") return (message, title) => notifyMacos(message, title)
-  if (platform === "linux") return (message, title) => notifyLinux(message, title)
-  return async () => null // exotic platform: no desktop notifier to fall back to
+    if (platform === "darwin") return (message, title) => notifyMacos(message, title)
+    if (platform === "linux") return (message, title) => notifyLinux(message, title)
+    return async () => null // exotic platform: no desktop notifier to fall back to
 }
 
 /** Raise an OS-wide desktop notification; return the mechanism, or null. */
 export const notify = async (
-  message: string,
-  title: string = DEFAULT_TITLE,
-  worker: (message: string, title: string) => Promise<string | null> = platformWorker(),
+    message: string,
+    title: string = DEFAULT_TITLE,
+    worker: (message: string, title: string) => Promise<string | null> = platformWorker()
 ): Promise<string | null> => {
-  return worker(message, title)
+    return worker(message, title)
 }
 
 /**
@@ -111,46 +111,46 @@ export const notify = async (
  * else 0.
  */
 export const main = async (argv: string[]): Promise<number> => {
-  const prog = "os-notify"
-  let parsed: ReturnType<
-    typeof parseArgs<{
-      options: { title: { type: "string" }; verbose: { type: "boolean"; short: "v" } }
-      allowPositionals: true
-    }>
-  >
-  try {
-    parsed = parseArgs({
-      args: argv,
-      options: {
-        title: { type: "string", default: DEFAULT_TITLE },
-        verbose: { type: "boolean", short: "v" },
-      },
-      allowPositionals: true,
-    })
-  } catch (err) {
-    usageError(prog, err instanceof Error ? err.message : String(err))
-  }
-  const positionals = parsed.positionals
-  if (positionals.length !== 1) {
-    process.stderr.write(`usage: ${prog} [-h] [--title TITLE] [-v] message\n`)
-    process.exit(2)
-  }
-  const message = positionals[0] as string
-  const title = (parsed.values.title as string | undefined) ?? DEFAULT_TITLE
-  const verbose = parsed.values.verbose === true
+    const prog = "os-notify"
+    let parsed: ReturnType<
+        typeof parseArgs<{
+            options: { title: { type: "string" }; verbose: { type: "boolean"; short: "v" } }
+            allowPositionals: true
+        }>
+    >
+    try {
+        parsed = parseArgs({
+            args: argv,
+            options: {
+                title: { type: "string", default: DEFAULT_TITLE },
+                verbose: { type: "boolean", short: "v" }
+            },
+            allowPositionals: true
+        })
+    } catch (err) {
+        usageError(prog, err instanceof Error ? err.message : String(err))
+    }
+    const positionals = parsed.positionals
+    if (positionals.length !== 1) {
+        process.stderr.write(`usage: ${prog} [-h] [--title TITLE] [-v] message\n`)
+        process.exit(2)
+    }
+    const message = positionals[0] as string
+    const title = (parsed.values.title as string | undefined) ?? DEFAULT_TITLE
+    const verbose = parsed.values.verbose === true
 
-  const mechanism = await notify(message, title)
-  if (mechanism === null) {
-    // No notifier available -> exit 1, but don't lose the message: echo to stderr.
-    process.stderr.write(`notify: no desktop notification mechanism available; ${title}: ${message}\n`)
-    return 1
-  }
-  if (verbose) {
-    process.stderr.write(`notify: ${mechanism}\n`)
-  }
-  return 0
+    const mechanism = await notify(message, title)
+    if (mechanism === null) {
+        // No notifier available -> exit 1, but don't lose the message: echo to stderr.
+        process.stderr.write(`notify: no desktop notification mechanism available; ${title}: ${message}\n`)
+        return 1
+    }
+    if (verbose) {
+        process.stderr.write(`notify: ${mechanism}\n`)
+    }
+    return 0
 }
 
 if (import.meta.main) {
-  process.exit(await main(Bun.argv.slice(2)))
+    process.exit(await main(Bun.argv.slice(2)))
 }

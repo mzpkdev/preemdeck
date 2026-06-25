@@ -33,9 +33,9 @@ const PROG = "plan-preview"
 
 /** cmdore metadata for the commandless CLI; version mirrors the idea plugin manifest. */
 const METADATA = {
-  name: PROG,
-  version: "0.1.0",
-  description: "Open an agent's freshly-presented plan in the IDE's rendered markdown preview.",
+    name: PROG,
+    version: "0.1.0",
+    description: "Open an agent's freshly-presented plan in the IDE's rendered markdown preview."
 } as const
 
 type HookData = Record<string, unknown>
@@ -45,21 +45,21 @@ type HookData = Record<string, unknown>
  * isTTY so a host that leaves stdin attached to the terminal never blocks.
  */
 export const readHookInput = async (): Promise<HookData> => {
-  let raw: string
-  try {
-    if (process.stdin.isTTY) {
-      return {}
+    let raw: string
+    try {
+        if (process.stdin.isTTY) {
+            return {}
+        }
+        raw = await Bun.stdin.text()
+    } catch {
+        return {}
     }
-    raw = await Bun.stdin.text()
-  } catch {
-    return {}
-  }
-  try {
-    const data = raw.trim() ? JSON.parse(raw) : {}
-    return data !== null && typeof data === "object" && !Array.isArray(data) ? (data as HookData) : {}
-  } catch {
-    return {}
-  }
+    try {
+        const data = raw.trim() ? JSON.parse(raw) : {}
+        return data !== null && typeof data === "object" && !Array.isArray(data) ? (data as HookData) : {}
+    } catch {
+        return {}
+    }
 }
 
 /**
@@ -69,15 +69,15 @@ export const readHookInput = async (): Promise<HookData> => {
  * are host-exclusive, so the order is just defensive.
  */
 const openPlan = async (toolInput: HookData): Promise<void> => {
-  const planPath = toolInput.plan_path
-  if (typeof planPath === "string" && planPath.trim()) {
-    await open(planPath, { preview: true })
-    return
-  }
-  const plan = toolInput.plan
-  if (typeof plan === "string" && plan.trim()) {
-    await openInline(plan, { suffix: ".md", preview: true })
-  }
+    const planPath = toolInput.plan_path
+    if (typeof planPath === "string" && planPath.trim()) {
+        await open(planPath, { preview: true })
+        return
+    }
+    const plan = toolInput.plan
+    if (typeof plan === "string" && plan.trim()) {
+        await openInline(plan, { suffix: ".md", preview: true })
+    }
 }
 
 /**
@@ -87,19 +87,19 @@ const openPlan = async (toolInput: HookData): Promise<void> => {
  * Gemini`) but unused — the stdin field present is what selects the path.
  */
 const planPreviewCommand = defineCommand({
-  name: PROG,
-  description: METADATA.description,
-  arguments: [{ name: "host", description: "invoking host name (ignored; the stdin field selects the path)" }],
-  run: async () => {
-    if (!inIdea()) {
-      return // not inside a JetBrains IDE: nothing to open, and no error
+    name: PROG,
+    description: METADATA.description,
+    arguments: [{ name: "host", description: "invoking host name (ignored; the stdin field selects the path)" }],
+    run: async () => {
+        if (!inIdea()) {
+            return // not inside a JetBrains IDE: nothing to open, and no error
+        }
+        const data = await readHookInput()
+        const toolInput = data.tool_input
+        if (toolInput !== null && typeof toolInput === "object" && !Array.isArray(toolInput)) {
+            await openPlan(toolInput as HookData)
+        }
     }
-    const data = await readHookInput()
-    const toolInput = data.tool_input
-    if (toolInput !== null && typeof toolInput === "object" && !Array.isArray(toolInput)) {
-      await openPlan(toolInput as HookData)
-    }
-  },
 })
 
 /**
@@ -108,14 +108,14 @@ const planPreviewCommand = defineCommand({
  * pre-tool hook must never error or block the host.
  */
 export const main = async (argv: string[] = Bun.argv.slice(2)): Promise<number> => {
-  try {
-    await execute(planPreviewCommand, { argv, metadata: METADATA, onError: "throw" })
-  } catch {
-    // best-effort: a pre-tool hook must never error or block the host
-  }
-  return 0
+    try {
+        await execute(planPreviewCommand, { argv, metadata: METADATA, onError: "throw" })
+    } catch {
+        // best-effort: a pre-tool hook must never error or block the host
+    }
+    return 0
 }
 
 if (import.meta.main) {
-  process.exit(await main())
+    process.exit(await main())
 }

@@ -26,39 +26,39 @@ const SKILLS_DIR = join(dirname(import.meta.dir), "skills")
 
 /** Walk up from `start` (inclusive) toward the root; first preemdeck.json wins. */
 export const findConfig = async (start: string): Promise<string | null> => {
-  let dir = start
-  for (;;) {
-    const candidate = join(dir, CONFIG_NAME)
-    if ((await exists(candidate)) && (await stat(candidate)).isFile()) return candidate
-    const parent = dirname(dir)
-    if (parent === dir) return null
-    dir = parent
-  }
+    let dir = start
+    for (;;) {
+        const candidate = join(dir, CONFIG_NAME)
+        if ((await exists(candidate)) && (await stat(candidate)).isFile()) return candidate
+        const parent = dirname(dir)
+        if (parent === dir) return null
+        dir = parent
+    }
 }
 
 /** Active values from the config's `directive` field, in slot order, deduped. */
 export const selectVariants = async (config: string): Promise<string[]> => {
-  let data: unknown
-  try {
-    data = JSON.parse(await readFile(config, "utf8"))
-  } catch {
-    return []
-  }
-  if (data === null || typeof data !== "object" || Array.isArray(data)) return []
-  const field = (data as Record<string, unknown>)[DIRECTIVE_KEY]
-  let values: unknown[]
-  if (typeof field === "string") {
-    values = [field]
-  } else if (field !== null && typeof field === "object" && !Array.isArray(field)) {
-    values = Object.values(field as Record<string, unknown>)
-  } else {
-    return []
-  }
-  const out: string[] = []
-  for (const v of values) {
-    if (typeof v === "string" && v && !out.includes(v)) out.push(v)
-  }
-  return out
+    let data: unknown
+    try {
+        data = JSON.parse(await readFile(config, "utf8"))
+    } catch {
+        return []
+    }
+    if (data === null || typeof data !== "object" || Array.isArray(data)) return []
+    const field = (data as Record<string, unknown>)[DIRECTIVE_KEY]
+    let values: unknown[]
+    if (typeof field === "string") {
+        values = [field]
+    } else if (field !== null && typeof field === "object" && !Array.isArray(field)) {
+        values = Object.values(field as Record<string, unknown>)
+    } else {
+        return []
+    }
+    const out: string[] = []
+    for (const v of values) {
+        if (typeof v === "string" && v && !out.includes(v)) out.push(v)
+    }
+    return out
 }
 
 /**
@@ -67,40 +67,40 @@ export const selectVariants = async (config: string): Promise<string[]> => {
  * can't escape the skills dir.
  */
 export const loadModeText = async (skillsDir: string, value: string): Promise<string | null> => {
-  if (pyName(value) !== value) return null
-  const body = join(skillsDir, value, "directive.md")
-  if (!(await exists(body)) || !(await stat(body)).isFile()) return null
-  const text = (await readFile(body, "utf8")).trim()
-  return text || null
+    if (pyName(value) !== value) return null
+    const body = join(skillsDir, value, "directive.md")
+    if (!(await exists(body)) || !(await stat(body)).isFile()) return null
+    const text = (await readFile(body, "utf8")).trim()
+    return text || null
 }
 
 /** Return the value following the first `--event` flag, or null. */
 export const extractEvent = (argv: string[]): string | null => {
-  for (let i = 0; i < argv.length; i++) {
-    if (argv[i] === "--event" && i + 1 < argv.length) return argv[i + 1] as string
-  }
-  return null
+    for (let i = 0; i < argv.length; i++) {
+        if (argv[i] === "--event" && i + 1 < argv.length) return argv[i + 1] as string
+    }
+    return null
 }
 
 /** Build the concatenated directive bodies for the active config, or "" / null. */
 export const renderBodies = async (searchStart: string, skillsDir: string): Promise<string | null> => {
-  const config = await findConfig(searchStart)
-  if (config === null) return null
-  const bodies: string[] = []
-  for (const v of await selectVariants(config)) {
-    const t = await loadModeText(skillsDir, v)
-    if (t) bodies.push(t)
-  }
-  if (bodies.length === 0) return null
-  return bodies.join("\n\n")
+    const config = await findConfig(searchStart)
+    if (config === null) return null
+    const bodies: string[] = []
+    for (const v of await selectVariants(config)) {
+        const t = await loadModeText(skillsDir, v)
+        if (t) bodies.push(t)
+    }
+    if (bodies.length === 0) return null
+    return bodies.join("\n\n")
 }
 
 if (import.meta.main) {
-  const cliEvent = extractEvent(Bun.argv.slice(2))
-  const bodies = await renderBodies(SEARCH_START, SKILLS_DIR)
-  await runInjectionHook({
-    event: cliEvent ?? undefined,
-    render: () => bodies,
-  })
-  process.exit(0)
+    const cliEvent = extractEvent(Bun.argv.slice(2))
+    const bodies = await renderBodies(SEARCH_START, SKILLS_DIR)
+    await runInjectionHook({
+        event: cliEvent ?? undefined,
+        render: () => bodies
+    })
+    process.exit(0)
 }

@@ -24,9 +24,9 @@ const PROG = "diff-file"
 
 /** cmdore metadata for the commandless CLI; version mirrors the idea plugin manifest. */
 const METADATA = {
-  name: PROG,
-  version: "0.1.0",
-  description: "Diff two files in the running JetBrains IDE.",
+    name: PROG,
+    version: "0.1.0",
+    description: "Diff two files in the running JetBrains IDE."
 } as const
 
 /**
@@ -42,12 +42,12 @@ export const launch = effect.fn(rawLaunch, "ide.launch")
  * Returns the LEFT (`target`) pane's text on the wait path, else null.
  */
 export const diffFile = async (target: string, suggestion: string, wait = false): Promise<string | null> => {
-  const targetAbs = await resolveStrict(target)
-  const suggestionAbs = await resolveStrict(suggestion)
-  const args = ["diff", targetAbs, suggestionAbs]
-  // 2-way always watches `target` (LEFT). launch() owns the native --wait.
-  await launch(args, { wait })
-  return wait ? await readFile(targetAbs, { encoding: "utf8" }) : null
+    const targetAbs = await resolveStrict(target)
+    const suggestionAbs = await resolveStrict(suggestion)
+    const args = ["diff", targetAbs, suggestionAbs]
+    // 2-way always watches `target` (LEFT). launch() owns the native --wait.
+    await launch(args, { wait })
+    return wait ? await readFile(targetAbs, { encoding: "utf8" }) : null
 }
 
 /**
@@ -55,23 +55,23 @@ export const diffFile = async (target: string, suggestion: string, wait = false)
  * the --wait path writes the LEFT pane's text to stdout verbatim.
  */
 const diffFileCommand = defineCommand({
-  name: PROG,
-  description: METADATA.description,
-  arguments: [
-    { name: "target", description: "LEFT pane file", required: true },
-    { name: "suggestion", description: "RIGHT pane file", required: true },
-  ],
-  options: [{ name: "wait", arity: 0, description: "block until the tab closes, then print the LEFT pane back" }],
-  run: async ({ target, suggestion, wait }) => {
-    // Cheap CLI gate: fail fast/clean outside a JetBrains terminal.
-    if (!inIdea()) {
-      throw new IdeaError("no JetBrains IDE in the process ancestry")
+    name: PROG,
+    description: METADATA.description,
+    arguments: [
+        { name: "target", description: "LEFT pane file", required: true },
+        { name: "suggestion", description: "RIGHT pane file", required: true }
+    ],
+    options: [{ name: "wait", arity: 0, description: "block until the tab closes, then print the LEFT pane back" }],
+    run: async ({ target, suggestion, wait }) => {
+        // Cheap CLI gate: fail fast/clean outside a JetBrains terminal.
+        if (!inIdea()) {
+            throw new IdeaError("no JetBrains IDE in the process ancestry")
+        }
+        const contents = await diffFile(target, suggestion, wait)
+        if (contents !== null) {
+            process.stdout.write(contents)
+        }
     }
-    const contents = await diffFile(target, suggestion, wait)
-    if (contents !== null) {
-      process.stdout.write(contents)
-    }
-  },
 })
 
 /**
@@ -81,25 +81,25 @@ const diffFileCommand = defineCommand({
  * CmdoreError (missing/unknown arg) -> its own exitCode. Else rethrow.
  */
 export const main = async (argv: string[] = Bun.argv.slice(2)): Promise<number> => {
-  try {
-    await execute(diffFileCommand, { argv, metadata: METADATA, onError: "throw" })
-  } catch (error) {
-    if (error instanceof CmdoreError) {
-      process.stderr.write(`${PROG}: ${error.message}\n`)
-      return error.exitCode
+    try {
+        await execute(diffFileCommand, { argv, metadata: METADATA, onError: "throw" })
+    } catch (error) {
+        if (error instanceof CmdoreError) {
+            process.stderr.write(`${PROG}: ${error.message}\n`)
+            return error.exitCode
+        }
+        if (
+            error instanceof IdeaError ||
+            (error instanceof Error && typeof (error as NodeJS.ErrnoException).code === "string")
+        ) {
+            process.stderr.write(`${PROG}: ${error.message}\n`)
+            return 1
+        }
+        throw error
     }
-    if (
-      error instanceof IdeaError ||
-      (error instanceof Error && typeof (error as NodeJS.ErrnoException).code === "string")
-    ) {
-      process.stderr.write(`${PROG}: ${error.message}\n`)
-      return 1
-    }
-    throw error
-  }
-  return 0
+    return 0
 }
 
 if (import.meta.main) {
-  process.exit(await main())
+    process.exit(await main())
 }

@@ -20,49 +20,49 @@ const DEFAULT_EVENT = "UserPromptSubmit"
  * event, with seams (`stdin`/`write`) so tests can drive it without real IO.
  */
 export type RunInjectionOptions = {
-  /** Fallback event when stdin omits hook_event_name (the manifest's --event). */
-  event?: string
-  /** Produce additionalContext; non-empty string injects, null/"" is a no-op. */
-  render: (payload: Record<string, unknown>) => string | null
-  /** Stdin source. Defaults to Bun.stdin. Override in tests. */
-  stdin?: { text(): Promise<string> }
-  /** Sink for the JSON line. Defaults to console.log. Override in tests. */
-  write?: (line: string) => void
+    /** Fallback event when stdin omits hook_event_name (the manifest's --event). */
+    event?: string
+    /** Produce additionalContext; non-empty string injects, null/"" is a no-op. */
+    render: (payload: Record<string, unknown>) => string | null
+    /** Stdin source. Defaults to Bun.stdin. Override in tests. */
+    stdin?: { text(): Promise<string> }
+    /** Sink for the JSON line. Defaults to console.log. Override in tests. */
+    write?: (line: string) => void
 }
 
 /** Read stdin, resolve the event, emit the Python-faithful envelope (or `{}`). */
 export const runInjectionHook = async (options: RunInjectionOptions): Promise<void> => {
-  const { event, render } = options
-  const stdin = options.stdin ?? Bun.stdin
-  const write = options.write ?? ((line: string) => console.log(line))
+    const { event, render } = options
+    const stdin = options.stdin ?? Bun.stdin
+    const write = options.write ?? ((line: string) => console.log(line))
 
-  let payload: Record<string, unknown> = {}
-  try {
-    const raw = (await stdin.text()) || "{}"
-    const parsed: unknown = JSON.parse(raw)
-    if (parsed !== null && typeof parsed === "object" && !Array.isArray(parsed)) {
-      payload = parsed as Record<string, unknown>
+    let payload: Record<string, unknown> = {}
+    try {
+        const raw = (await stdin.text()) || "{}"
+        const parsed: unknown = JSON.parse(raw)
+        if (parsed !== null && typeof parsed === "object" && !Array.isArray(parsed)) {
+            payload = parsed as Record<string, unknown>
+        }
+    } catch {
+        payload = {}
     }
-  } catch {
-    payload = {}
-  }
 
-  let eventName = event && event.length > 0 ? event : DEFAULT_EVENT
-  const fromPayload = payload.hook_event_name
-  if (typeof fromPayload === "string" && fromPayload.length > 0) {
-    eventName = fromPayload
-  }
+    let eventName = event && event.length > 0 ? event : DEFAULT_EVENT
+    const fromPayload = payload.hook_event_name
+    if (typeof fromPayload === "string" && fromPayload.length > 0) {
+        eventName = fromPayload
+    }
 
-  let text: string | null
-  try {
-    text = render(payload)
-  } catch {
-    text = null
-  }
+    let text: string | null
+    try {
+        text = render(payload)
+    } catch {
+        text = null
+    }
 
-  if (text == null || text.length === 0) {
-    write("{}")
-    return
-  }
-  write(injectionEnvelope(eventName, text))
+    if (text == null || text.length === 0) {
+        write("{}")
+        return
+    }
+    write(injectionEnvelope(eventName, text))
 }

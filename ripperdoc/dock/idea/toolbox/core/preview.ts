@@ -54,7 +54,7 @@ export const HTML_PREVIEW_EXTS: ReadonlySet<string> = new Set([".html", ".htm", 
  * sleep); the instanceof guard makes non-preview filetypes a clean no-op.
  */
 const groovySetLayout = (path: string): string => {
-  return `import com.intellij.openapi.application.ApplicationManager
+    return `import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.fileEditor.FileEditorManager
 import com.intellij.openapi.fileEditor.TextEditorWithPreview
 import com.intellij.openapi.project.ProjectManager
@@ -85,7 +85,7 @@ ApplicationManager.getApplication().invokeLater {
  * no-ops (the file is already open from the prior launch).
  */
 const groovyWebPreview = (path: string): string => {
-  return `import com.intellij.openapi.application.ApplicationManager
+    return `import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.fileEditor.FileEditorManager
 import com.intellij.openapi.project.ProjectManager
 import com.intellij.openapi.util.registry.Registry
@@ -131,7 +131,7 @@ ApplicationManager.getApplication().invokeLater {
  * block has NO trailing newline. Both are load-bearing for byte-parity.
  */
 const webpreviewOpenBodyRaw = (url: string, title: string, projectVar: string): string => {
-  return `if (!(com.intellij.openapi.util.registry.Registry.is("ide.web.preview.enabled") && com.intellij.openapi.util.registry.Registry.is("ide.browser.jcef.enabled"))) return
+    return `if (!(com.intellij.openapi.util.registry.Registry.is("ide.web.preview.enabled") && com.intellij.openapi.util.registry.Registry.is("ide.browser.jcef.enabled"))) return
 def url = com.intellij.util.Urls.newFromEncoded("${url}")
 def dummy = new com.intellij.testFramework.LightVirtualFile("${title}")
 def previewFile = new com.intellij.ide.browsers.actions.WebPreviewVirtualFile(dummy, url)
@@ -144,15 +144,15 @@ com.intellij.openapi.fileEditor.FileEditorManager.getInstance(${projectVar}).ope
  * deeper nesting level. Both default so a top-level script body needs neither.
  */
 export type WebpreviewOpenBodyOptions = {
-  /**
-   * Name of the in-scope Project the open targets. Defaults to `project` (the
-   * script path's local), but a closure nested inside a scope that already binds
-   * `project` (notify's action) must pass a non-colliding name, since Groovy
-   * forbids re-declaring an enclosing-scope variable.
-   */
-  projectVar?: string
-  /** Prefixed to every line so the block aligns when spliced into a deeper nesting level. */
-  indent?: string
+    /**
+     * Name of the in-scope Project the open targets. Defaults to `project` (the
+     * script path's local), but a closure nested inside a scope that already binds
+     * `project` (notify's action) must pass a non-colliding name, since Groovy
+     * forbids re-declaring an enclosing-scope variable.
+     */
+    projectVar?: string
+    /** Prefixed to every line so the block aligns when spliced into a deeper nesting level. */
+    indent?: string
 }
 
 /**
@@ -165,20 +165,20 @@ export type WebpreviewOpenBodyOptions = {
  * `escapeGroovy`).
  */
 export const webpreviewOpenBody = (
-  urlLiteral: string,
-  titleLiteral: string,
-  options: WebpreviewOpenBodyOptions = {},
+    urlLiteral: string,
+    titleLiteral: string,
+    options: WebpreviewOpenBodyOptions = {}
 ): string => {
-  const projectVar = options.projectVar ?? "project"
-  const indent = options.indent ?? ""
-  const body = webpreviewOpenBodyRaw(urlLiteral, titleLiteral, projectVar)
-  if (indent === "") {
+    const projectVar = options.projectVar ?? "project"
+    const indent = options.indent ?? ""
+    const body = webpreviewOpenBodyRaw(urlLiteral, titleLiteral, projectVar)
+    if (indent === "") {
+        return body
+    }
     return body
-  }
-  return body
-    .split("\n")
-    .map((line) => indent + line)
-    .join("\n")
+        .split("\n")
+        .map((line) => indent + line)
+        .join("\n")
 }
 
 /**
@@ -189,7 +189,7 @@ export const webpreviewOpenBody = (
  * throwable lands in idea.log rather than escaping the ideScript run.
  */
 const groovyUrlPreview = (body: string): string => {
-  return `import com.intellij.openapi.application.ApplicationManager
+    return `import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.project.ProjectManager
 
 ApplicationManager.getApplication().invokeLater {
@@ -212,11 +212,11 @@ ${body}
  * always gets a non-empty label.
  */
 const titleFor = (url: string): string => {
-  const parts = parseUrl(url)
-  if (parts.hostname) {
-    return parts.port !== null ? `${parts.hostname}:${parts.port}` : parts.hostname
-  }
-  return url
+    const parts = parseUrl(url)
+    if (parts.hostname) {
+        return parts.port !== null ? `${parts.hostname}:${parts.port}` : parts.hostname
+    }
+    return url
 }
 
 /**
@@ -227,9 +227,9 @@ const titleFor = (url: string): string => {
  * markdown SHOW_PREVIEW flip.
  */
 const groovyFor = (path: string): string => {
-  const literal = escapeGroovy(path)
-  const ext = extname(path).toLowerCase()
-  return HTML_PREVIEW_EXTS.has(ext) ? groovyWebPreview(literal) : groovySetLayout(literal)
+    const literal = escapeGroovy(path)
+    const ext = extname(path).toLowerCase()
+    return HTML_PREVIEW_EXTS.has(ext) ? groovyWebPreview(literal) : groovySetLayout(literal)
 }
 
 /**
@@ -247,7 +247,7 @@ const groovyFor = (path: string): string => {
  * `deps` is forwarded to runGroovy for hermetic tests.
  */
 export const setPreview = async (path: string, deps: RunGroovyDeps = {}): Promise<void> => {
-  await runGroovy(groovyFor(path), "preview: could not set preview", deps)
+    await runGroovy(groovyFor(path), "preview: could not set preview", deps)
 }
 
 /**
@@ -266,10 +266,10 @@ export const setPreview = async (path: string, deps: RunGroovyDeps = {}): Promis
  * so the open_url CLI turns that note into a non-zero exit.
  */
 export const previewUrl = async (url: string, title?: string, deps: RunGroovyDeps = {}): Promise<void> => {
-  const label = title !== undefined ? title : titleFor(url)
-  // The open itself is the shared fragment (parity with notify's open-preview);
-  // this script only adds the EDT + project-fetch + throwable-guard wrapper. The
-  // body sits two levels deep (invokeLater + try), so indent it to 8 spaces.
-  const body = webpreviewOpenBody(escapeGroovy(url), escapeGroovy(label), { indent: " ".repeat(8) })
-  await runGroovy(groovyUrlPreview(body), "preview: could not open URL preview", deps)
+    const label = title !== undefined ? title : titleFor(url)
+    // The open itself is the shared fragment (parity with notify's open-preview);
+    // this script only adds the EDT + project-fetch + throwable-guard wrapper. The
+    // body sits two levels deep (invokeLater + try), so indent it to 8 spaces.
+    const body = webpreviewOpenBody(escapeGroovy(url), escapeGroovy(label), { indent: " ".repeat(8) })
+    await runGroovy(groovyUrlPreview(body), "preview: could not open URL preview", deps)
 }

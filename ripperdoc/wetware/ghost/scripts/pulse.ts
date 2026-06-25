@@ -16,7 +16,7 @@ const DEFAULT_EVENT = "UserPromptSubmit"
 
 /** The plugin root: CLAUDE_PLUGIN_ROOT || PLUGIN_ROOT || the script dir's parent. */
 export const pluginRoot = (): string => {
-  return process.env.CLAUDE_PLUGIN_ROOT || process.env.PLUGIN_ROOT || dirname(import.meta.dir)
+    return process.env.CLAUDE_PLUGIN_ROOT || process.env.PLUGIN_ROOT || dirname(import.meta.dir)
 }
 
 /**
@@ -24,26 +24,26 @@ export const pluginRoot = (): string => {
  * `.md`, else null.
  */
 export const readSource = async (root: string, datName: string, mdName: string): Promise<string | null> => {
-  const dat = join(root, datName)
-  if (await exists(dat)) {
-    return Buffer.from((await readFile(dat)).toString("utf8"), "base64").toString("utf8")
-  }
-  const md = join(root, mdName)
-  if (await exists(md)) {
-    return await readFile(md, "utf8")
-  }
-  return null
+    const dat = join(root, datName)
+    if (await exists(dat)) {
+        return Buffer.from((await readFile(dat)).toString("utf8"), "base64").toString("utf8")
+    }
+    const md = join(root, mdName)
+    if (await exists(md)) {
+        return await readFile(md, "utf8")
+    }
+    return null
 }
 
 if (import.meta.main) {
-  const root = pluginRoot()
-  const content = await readSource(root, "pulse.dat", "PULSE.md")
-  await runInjectionHook({
-    event: DEFAULT_EVENT,
-    render: () => {
-      if (!content) return null
-      return content.trim()
-    },
-  })
-  process.exit(0)
+    const root = pluginRoot()
+    const content = await readSource(root, "pulse.dat", "PULSE.md")
+    await runInjectionHook({
+        event: DEFAULT_EVENT,
+        render: () => {
+            if (!content) return null
+            return content.trim()
+        }
+    })
+    process.exit(0)
 }

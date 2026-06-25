@@ -17,13 +17,13 @@
  */
 
 const SHORT_ESCAPES: Record<string, string> = {
-  '"': '\\"',
-  "\\": "\\\\",
-  "\b": "\\b",
-  "\f": "\\f",
-  "\n": "\\n",
-  "\r": "\\r",
-  "\t": "\\t",
+    '"': '\\"',
+    "\\": "\\\\",
+    "\b": "\\b",
+    "\f": "\\f",
+    "\n": "\\n",
+    "\r": "\\r",
+    "\t": "\\t"
 }
 
 /**
@@ -34,20 +34,20 @@ const SHORT_ESCAPES: Record<string, string> = {
  * NOT escaped. Matches CPython byte-for-byte.
  */
 export const pyJsonString = (s: string): string => {
-  let out = '"'
-  for (let i = 0; i < s.length; i++) {
-    const ch = s[i] as string
-    const code = s.charCodeAt(i)
-    const short = SHORT_ESCAPES[ch]
-    if (short !== undefined) {
-      out += short
-    } else if (code < 0x20 || code > 0x7e) {
-      out += `\\u${code.toString(16).padStart(4, "0")}`
-    } else {
-      out += ch
+    let out = '"'
+    for (let i = 0; i < s.length; i++) {
+        const ch = s[i] as string
+        const code = s.charCodeAt(i)
+        const short = SHORT_ESCAPES[ch]
+        if (short !== undefined) {
+            out += short
+        } else if (code < 0x20 || code > 0x7e) {
+            out += `\\u${code.toString(16).padStart(4, "0")}`
+        } else {
+            out += ch
+        }
     }
-  }
-  return `${out}"`
+    return `${out}"`
 }
 
 /**
@@ -55,4 +55,4 @@ export const pyJsonString = (s: string): string => {
  * `json.dumps({"hookSpecificOutput": {"hookEventName": e, "additionalContext": t}})`.
  */
 export const injectionEnvelope = (eventName: string, additionalContext: string): string =>
-  `{"hookSpecificOutput": {"hookEventName": ${pyJsonString(eventName)}, "additionalContext": ${pyJsonString(additionalContext)}}}`
+    `{"hookSpecificOutput": {"hookEventName": ${pyJsonString(eventName)}, "additionalContext": ${pyJsonString(additionalContext)}}}`

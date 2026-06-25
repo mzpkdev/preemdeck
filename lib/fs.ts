@@ -9,10 +9,10 @@ import { access } from "node:fs/promises"
 
 /** True if `path` exists (file or directory), false on any access error. */
 export const exists = async (path: string): Promise<boolean> => {
-  try {
-    await access(path)
-    return true
-  } catch {
-    return false
-  }
+    try {
+        await access(path)
+        return true
+    } catch {
+        return false
+    }
 }

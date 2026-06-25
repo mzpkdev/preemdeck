@@ -38,9 +38,9 @@ const PROG = "turn-notify"
 
 /** cmdore metadata for the commandless CLI; version mirrors the idea plugin manifest. */
 const METADATA = {
-  name: PROG,
-  version: "0.1.0",
-  description: "Pop a turn-end notification balloon tagged with the firing session.",
+    name: PROG,
+    version: "0.1.0",
+    description: "Pop a turn-end notification balloon tagged with the firing session."
 } as const
 
 /**
@@ -60,31 +60,31 @@ type HookData = Record<string, unknown>
  * isTTY so a host that leaves stdin attached to the terminal never blocks.
  */
 export const readHookInput = async (): Promise<HookData> => {
-  let raw: string
-  try {
-    if (process.stdin.isTTY) {
-      return {}
+    let raw: string
+    try {
+        if (process.stdin.isTTY) {
+            return {}
+        }
+        raw = await Bun.stdin.text()
+    } catch {
+        return {}
     }
-    raw = await Bun.stdin.text()
-  } catch {
-    return {}
-  }
-  try {
-    const data = raw.trim() ? JSON.parse(raw) : {}
-    return data !== null && typeof data === "object" && !Array.isArray(data) ? (data as HookData) : {}
-  } catch {
-    return {}
-  }
+    try {
+        const data = raw.trim() ? JSON.parse(raw) : {}
+        return data !== null && typeof data === "object" && !Array.isArray(data) ? (data as HookData) : {}
+    } catch {
+        return {}
+    }
 }
 
 /** Drop leading/trailing chars from the set, both ends. */
 const stripChars = (s: string, chars: string): string => {
-  const set = new Set(chars)
-  let start = 0
-  let end = s.length
-  while (start < end && set.has(s[start] as string)) start += 1
-  while (end > start && set.has(s[end - 1] as string)) end -= 1
-  return s.slice(start, end)
+    const set = new Set(chars)
+    let start = 0
+    let end = s.length
+    while (start < end && set.has(s[start] as string)) start += 1
+    while (end > start && set.has(s[end - 1] as string)) end -= 1
+    return s.slice(start, end)
 }
 
 /**
@@ -95,31 +95,31 @@ const stripChars = (s: string, chars: string): string => {
  * an ellipsis.
  */
 export const cleanGist = (text: string): string => {
-  let line = ""
-  for (const raw of text.trim().split("\n")) {
-    const candidate = raw.trim()
-    if (!candidate || candidate[0] === ">" || candidate[0] === "#") {
-      continue
+    let line = ""
+    for (const raw of text.trim().split("\n")) {
+        const candidate = raw.trim()
+        if (!candidate || candidate[0] === ">" || candidate[0] === "#") {
+            continue
+        }
+        line = candidate
+        break
     }
-    line = candidate
-    break
-  }
-  if (!line) {
-    line = text.trim()
-  }
-  line = line.replace(LINK, "$1")
-  line = line.replace(MD, "")
-  line = stripChars(line.replace(WS, " "), " -•\t")
-  // Code-point-aware truncation (so multi-byte glyphs aren't split).
-  const cps = [...line]
-  if (cps.length > GIST_MAX) {
-    const head = cps.slice(0, GIST_MAX).join("")
-    // Drop the last partial word (whole string if no space).
-    const lastSpace = head.lastIndexOf(" ")
-    const trimmed = lastSpace === -1 ? head : head.slice(0, lastSpace)
-    line = `${trimmed.replace(/\s+$/, "")}…`
-  }
-  return line
+    if (!line) {
+        line = text.trim()
+    }
+    line = line.replace(LINK, "$1")
+    line = line.replace(MD, "")
+    line = stripChars(line.replace(WS, " "), " -•\t")
+    // Code-point-aware truncation (so multi-byte glyphs aren't split).
+    const cps = [...line]
+    if (cps.length > GIST_MAX) {
+        const head = cps.slice(0, GIST_MAX).join("")
+        // Drop the last partial word (whole string if no space).
+        const lastSpace = head.lastIndexOf(" ")
+        const trimmed = lastSpace === -1 ? head : head.slice(0, lastSpace)
+        line = `${trimmed.replace(/\s+$/, "")}…`
+    }
+    return line
 }
 
 /**
@@ -127,11 +127,11 @@ export const cleanGist = (text: string): string => {
  * null for an absent/blank field or Gemini's "[no response text]" sentinel.
  */
 export const payloadGist = (data: HookData): string | null => {
-  const raw = data.last_assistant_message || data.prompt_response
-  if (typeof raw !== "string" || !raw.trim() || raw.trim() === "[no response text]") {
-    return null
-  }
-  return cleanGist(raw) || null
+    const raw = data.last_assistant_message || data.prompt_response
+    if (typeof raw !== "string" || !raw.trim() || raw.trim() === "[no response text]") {
+        return null
+    }
+    return cleanGist(raw) || null
 }
 
 /**
@@ -140,20 +140,20 @@ export const payloadGist = (data: HookData): string | null => {
  * spawn error/timeout. The short timeout keeps it inside the host's 5s budget.
  */
 export const gitBranch = async (cwd: string | null | undefined): Promise<string | null> => {
-  if (!cwd) {
-    return null
-  }
-  let result: Awaited<ReturnType<typeof spawn>>
-  try {
-    result = await spawn(["git", "-C", cwd, "rev-parse", "--abbrev-ref", "HEAD"], { timeoutMs: 2000 })
-  } catch {
-    return null
-  }
-  const branch = result.stdout.trim()
-  if (result.exitCode !== 0 || !branch || branch === "HEAD") {
-    return null
-  }
-  return branch
+    if (!cwd) {
+        return null
+    }
+    let result: Awaited<ReturnType<typeof spawn>>
+    try {
+        result = await spawn(["git", "-C", cwd, "rev-parse", "--abbrev-ref", "HEAD"], { timeoutMs: 2000 })
+    } catch {
+        return null
+    }
+    const branch = result.stdout.trim()
+    if (result.exitCode !== 0 || !branch || branch === "HEAD") {
+        return null
+    }
+    return branch
 }
 
 /**
@@ -162,7 +162,7 @@ export const gitBranch = async (cwd: string | null | undefined): Promise<string 
  * error branches (detached HEAD, exit 128, git-not-found) inject a stub.
  */
 export type TurnNotifyDeps = {
-  gitBranch: (cwd: string | null | undefined) => Promise<string | null>
+    gitBranch: (cwd: string | null | undefined) => Promise<string | null>
 }
 
 /** The default dependency set: the real git-branch read. */
@@ -170,9 +170,9 @@ export const DEFAULT_DEPS: TurnNotifyDeps = { gitBranch }
 
 /** `<project> · <branch>` — project from cwd basename, host label as fallback head. */
 export const title = (host: string, cwd: string | null | undefined, branch: string | null): string => {
-  const project = cwd ? basename(cwd.replace(/\/+$/, "")) : ""
-  const head = project || host
-  return branch ? `${head} · ${branch}` : head
+    const project = cwd ? basename(cwd.replace(/\/+$/, "")) : ""
+    const head = project || host
+    return branch ? `${head} · ${branch}` : head
 }
 
 /**
@@ -181,16 +181,16 @@ export const title = (host: string, cwd: string | null | undefined, branch: stri
  * supplies the branch READ (real by default, injected in the error-branch tests).
  */
 const emit = async (host: string, deps: TurnNotifyDeps): Promise<void> => {
-  if (!inIdea()) {
-    return // not inside a JetBrains IDE: nothing to pop, and no error
-  }
-  const data = await readHookInput()
-  const cwd = (data.cwd as string | undefined) || process.env.PWD
-  const gist = payloadGist(data)
-  const branch = await deps.gitBranch(cwd)
-  const titleText = title(host, cwd, branch)
-  const body = gist || `${host} finished responding`
-  await notify(htmlEscape(body), { title: htmlEscape(titleText) })
+    if (!inIdea()) {
+        return // not inside a JetBrains IDE: nothing to pop, and no error
+    }
+    const data = await readHookInput()
+    const cwd = (data.cwd as string | undefined) || process.env.PWD
+    const gist = payloadGist(data)
+    const branch = await deps.gitBranch(cwd)
+    const titleText = title(host, cwd, branch)
+    const body = gist || `${host} finished responding`
+    await notify(htmlEscape(body), { title: htmlEscape(titleText) })
 }
 
 /**
@@ -200,14 +200,14 @@ const emit = async (host: string, deps: TurnNotifyDeps): Promise<void> => {
  * defaults to "Agent" when absent.
  */
 const buildCommand = (deps: TurnNotifyDeps) =>
-  defineCommand({
-    name: PROG,
-    description: METADATA.description,
-    arguments: [{ name: "host", description: "invoking host label (heads the title / fallback body)" }],
-    run: async ({ host }) => {
-      await emit(typeof host === "string" && host ? host : "Agent", deps)
-    },
-  })
+    defineCommand({
+        name: PROG,
+        description: METADATA.description,
+        arguments: [{ name: "host", description: "invoking host label (heads the title / fallback body)" }],
+        run: async ({ host }) => {
+            await emit(typeof host === "string" && host ? host : "Agent", deps)
+        }
+    })
 
 /**
  * Hook entrypoint: best-effort, SILENT, ALWAYS exits 0. Hands argv to cmdore
@@ -216,17 +216,17 @@ const buildCommand = (deps: TurnNotifyDeps) =>
  * block the host. `deps` injects the git-branch READ in tests.
  */
 export const main = async (
-  argv: string[] = Bun.argv.slice(2),
-  deps: TurnNotifyDeps = DEFAULT_DEPS,
+    argv: string[] = Bun.argv.slice(2),
+    deps: TurnNotifyDeps = DEFAULT_DEPS
 ): Promise<number> => {
-  try {
-    await execute(buildCommand(deps), { argv, metadata: METADATA, onError: "throw" })
-  } catch {
-    // best-effort: a turn-end hook must never error or block the host
-  }
-  return 0
+    try {
+        await execute(buildCommand(deps), { argv, metadata: METADATA, onError: "throw" })
+    } catch {
+        // best-effort: a turn-end hook must never error or block the host
+    }
+    return 0
 }
 
 if (import.meta.main) {
-  process.exit(await main())
+    process.exit(await main())
 }

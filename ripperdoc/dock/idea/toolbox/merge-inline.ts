@@ -33,52 +33,52 @@ const PROG = "merge-inline"
 
 /** cmdore metadata for the commandless CLI; version mirrors the idea plugin manifest. */
 const METADATA = {
-  name: PROG,
-  version: "0.1.0",
-  description: "3-way merge of inline strings (optional base) in the running JetBrains IDE.",
+    name: PROG,
+    version: "0.1.0",
+    description: "3-way merge of inline strings (optional base) in the running JetBrains IDE."
 } as const
 
 /** Options for {@link mergeInline}: the temp-file suffix (drives IDE syntax highlighting) and the wait toggle. */
 export type MergeInlineOptions = {
-  suffix?: string
-  wait?: boolean
+    suffix?: string
+    wait?: boolean
 }
 
 /** Merge inline strings by spilling each to a temp file, then delegating to mergeFile. */
 export const mergeInline = async (
-  target: string,
-  suggestion: string,
-  base: string | null = null,
-  options: MergeInlineOptions = {},
+    target: string,
+    suggestion: string,
+    base: string | null = null,
+    options: MergeInlineOptions = {}
 ): Promise<string | null> => {
-  const suffix = options.suffix ?? ".txt"
-  const wait = options.wait ?? false
-  const temps: string[] = []
-  try {
-    const targetTmp = await writeTemp(target, suffix)
-    temps.push(targetTmp)
-    const suggestionTmp = await writeTemp(suggestion, suffix)
-    temps.push(suggestionTmp)
-    let baseTmp: string | null = null
-    if (base !== null) {
-      baseTmp = await writeTemp(base, suffix)
-      temps.push(baseTmp)
+    const suffix = options.suffix ?? ".txt"
+    const wait = options.wait ?? false
+    const temps: string[] = []
+    try {
+        const targetTmp = await writeTemp(target, suffix)
+        temps.push(targetTmp)
+        const suggestionTmp = await writeTemp(suggestion, suffix)
+        temps.push(suggestionTmp)
+        let baseTmp: string | null = null
+        if (base !== null) {
+            baseTmp = await writeTemp(base, suffix)
+            temps.push(baseTmp)
+        }
+        const result = await mergeFile(targetTmp, suggestionTmp, baseTmp, wait)
+        if (!wait) {
+            // Fire-and-forget: the IDE still has the input temps open; defer the reap.
+            // The output temp is mergeFile's to reap, so it's not in `temps`.
+            reapLater(temps)
+        }
+        return result
+    } finally {
+        // wait=true: mergeFile already returned, input temps are spent — remove now.
+        if (wait) {
+            for (const path of temps) {
+                await unlink(path)
+            }
+        }
     }
-    const result = await mergeFile(targetTmp, suggestionTmp, baseTmp, wait)
-    if (!wait) {
-      // Fire-and-forget: the IDE still has the input temps open; defer the reap.
-      // The output temp is mergeFile's to reap, so it's not in `temps`.
-      reapLater(temps)
-    }
-    return result
-  } finally {
-    // wait=true: mergeFile already returned, input temps are spent — remove now.
-    if (wait) {
-      for (const path of temps) {
-        await unlink(path)
-      }
-    }
-  }
 }
 
 /**
@@ -86,26 +86,26 @@ export const mergeInline = async (
  * on the --wait path writes the merged output to stdout verbatim.
  */
 const mergeInlineCommand = defineCommand({
-  name: PROG,
-  description: METADATA.description,
-  arguments: [
-    { name: "target", description: "local / LEFT text", required: true },
-    { name: "suggestion", description: "remote / RIGHT text", required: true },
-    { name: "base", description: "optional common ancestor (BASE) text" },
-  ],
-  options: [
-    { name: "suffix", arity: 1, hint: "ext", description: "temp-file suffix (drives IDE syntax highlighting)" },
-    { name: "wait", arity: 0, description: "block until Apply and print the merged output back" },
-  ],
-  run: async ({ target, suggestion, base, suffix, wait }) => {
-    if (!inIdea()) {
-      throw new IdeaError("no JetBrains IDE in the process ancestry")
+    name: PROG,
+    description: METADATA.description,
+    arguments: [
+        { name: "target", description: "local / LEFT text", required: true },
+        { name: "suggestion", description: "remote / RIGHT text", required: true },
+        { name: "base", description: "optional common ancestor (BASE) text" }
+    ],
+    options: [
+        { name: "suffix", arity: 1, hint: "ext", description: "temp-file suffix (drives IDE syntax highlighting)" },
+        { name: "wait", arity: 0, description: "block until Apply and print the merged output back" }
+    ],
+    run: async ({ target, suggestion, base, suffix, wait }) => {
+        if (!inIdea()) {
+            throw new IdeaError("no JetBrains IDE in the process ancestry")
+        }
+        const result = await mergeInline(target, suggestion, base ?? null, { suffix: suffix ?? ".txt", wait })
+        if (result !== null) {
+            process.stdout.write(result)
+        }
     }
-    const result = await mergeInline(target, suggestion, base ?? null, { suffix: suffix ?? ".txt", wait })
-    if (result !== null) {
-      process.stdout.write(result)
-    }
-  },
 })
 
 /**
@@ -115,25 +115,25 @@ const mergeInlineCommand = defineCommand({
  * CmdoreError (missing/unknown arg) -> its own exitCode. Else rethrow.
  */
 export const main = async (argv: string[] = Bun.argv.slice(2)): Promise<number> => {
-  try {
-    await execute(mergeInlineCommand, { argv, metadata: METADATA, onError: "throw" })
-  } catch (error) {
-    if (error instanceof CmdoreError) {
-      process.stderr.write(`${PROG}: ${error.message}\n`)
-      return error.exitCode
+    try {
+        await execute(mergeInlineCommand, { argv, metadata: METADATA, onError: "throw" })
+    } catch (error) {
+        if (error instanceof CmdoreError) {
+            process.stderr.write(`${PROG}: ${error.message}\n`)
+            return error.exitCode
+        }
+        if (
+            error instanceof IdeaError ||
+            (error instanceof Error && typeof (error as NodeJS.ErrnoException).code === "string")
+        ) {
+            process.stderr.write(`${PROG}: ${error.message}\n`)
+            return 1
+        }
+        throw error
     }
-    if (
-      error instanceof IdeaError ||
-      (error instanceof Error && typeof (error as NodeJS.ErrnoException).code === "string")
-    ) {
-      process.stderr.write(`${PROG}: ${error.message}\n`)
-      return 1
-    }
-    throw error
-  }
-  return 0
+    return 0
 }
 
 if (import.meta.main) {
-  process.exit(await main())
+    process.exit(await main())
 }

@@ -13,129 +13,129 @@ import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import {
-  BIOME_SUFFIXES,
-  biomeCmd,
-  CONTAINMENT_ROOT,
-  extractFilePath,
-  FORMATTERS,
-  readPayload,
-  resolveInsideRoot,
-  suffix,
+    BIOME_SUFFIXES,
+    biomeCmd,
+    CONTAINMENT_ROOT,
+    extractFilePath,
+    FORMATTERS,
+    readPayload,
+    resolveInsideRoot,
+    suffix
 } from "./format-on-edit.ts"
 
 const fakeStdin = (text: string) => ({ text: () => Promise.resolve(text) })
 
 describe("readPayload", () => {
-  test("parses a JSON object", async () => {
-    expect(await readPayload(fakeStdin('{"a":1}'))).toEqual({ a: 1 })
-  })
+    test("parses a JSON object", async () => {
+        expect(await readPayload(fakeStdin('{"a":1}'))).toEqual({ a: 1 })
+    })
 
-  test("empty / invalid / array / non-object stdin -> null (no-op)", async () => {
-    expect(await readPayload(fakeStdin(""))).toBeNull()
-    expect(await readPayload(fakeStdin("}{ not json"))).toBeNull()
-    expect(await readPayload(fakeStdin("[1,2,3]"))).toBeNull()
-    expect(await readPayload(fakeStdin("42"))).toBeNull()
-    expect(await readPayload(fakeStdin("null"))).toBeNull()
-  })
+    test("empty / invalid / array / non-object stdin -> null (no-op)", async () => {
+        expect(await readPayload(fakeStdin(""))).toBeNull()
+        expect(await readPayload(fakeStdin("}{ not json"))).toBeNull()
+        expect(await readPayload(fakeStdin("[1,2,3]"))).toBeNull()
+        expect(await readPayload(fakeStdin("42"))).toBeNull()
+        expect(await readPayload(fakeStdin("null"))).toBeNull()
+    })
 })
 
 describe("extractFilePath", () => {
-  test("probes file_path first", () => {
-    expect(extractFilePath({ tool_input: { file_path: "/a/b.ts" } })).toBe("/a/b.ts")
-  })
+    test("probes file_path first", () => {
+        expect(extractFilePath({ tool_input: { file_path: "/a/b.ts" } })).toBe("/a/b.ts")
+    })
 
-  test("falls back to absolute_path then path (Gemini's differing key)", () => {
-    expect(extractFilePath({ tool_input: { absolute_path: "/a/c.ts" } })).toBe("/a/c.ts")
-    expect(extractFilePath({ tool_input: { path: "/a/d.ts" } })).toBe("/a/d.ts")
-  })
+    test("falls back to absolute_path then path (Gemini's differing key)", () => {
+        expect(extractFilePath({ tool_input: { absolute_path: "/a/c.ts" } })).toBe("/a/c.ts")
+        expect(extractFilePath({ tool_input: { path: "/a/d.ts" } })).toBe("/a/d.ts")
+    })
 
-  test("first non-empty string wins (empty string skipped)", () => {
-    expect(extractFilePath({ tool_input: { file_path: "", path: "/a/e.ts" } })).toBe("/a/e.ts")
-  })
+    test("first non-empty string wins (empty string skipped)", () => {
+        expect(extractFilePath({ tool_input: { file_path: "", path: "/a/e.ts" } })).toBe("/a/e.ts")
+    })
 
-  test("missing / non-dict tool_input, or no usable key -> null", () => {
-    expect(extractFilePath({})).toBeNull()
-    expect(extractFilePath({ tool_input: null })).toBeNull()
-    expect(extractFilePath({ tool_input: "x" })).toBeNull()
-    expect(extractFilePath({ tool_input: ["a"] })).toBeNull()
-    expect(extractFilePath({ tool_input: { other: "/a/f.ts" } })).toBeNull()
-    expect(extractFilePath({ tool_input: { file_path: 123 } })).toBeNull()
-  })
+    test("missing / non-dict tool_input, or no usable key -> null", () => {
+        expect(extractFilePath({})).toBeNull()
+        expect(extractFilePath({ tool_input: null })).toBeNull()
+        expect(extractFilePath({ tool_input: "x" })).toBeNull()
+        expect(extractFilePath({ tool_input: ["a"] })).toBeNull()
+        expect(extractFilePath({ tool_input: { other: "/a/f.ts" } })).toBeNull()
+        expect(extractFilePath({ tool_input: { file_path: 123 } })).toBeNull()
+    })
 })
 
 describe("suffix", () => {
-  test("lowercased extension, dotfiles have none", () => {
-    expect(suffix("/a/b.TS")).toBe(".ts")
-    expect(suffix("/a/b.JSON")).toBe(".json")
-    expect(suffix("/a/b.Markdown")).toBe(".markdown")
-    expect(suffix("/a/no_ext")).toBe("")
-    expect(suffix("/a/.bashrc")).toBe("")
-    expect(suffix("/a.b/c.py")).toBe(".py")
-  })
+    test("lowercased extension, dotfiles have none", () => {
+        expect(suffix("/a/b.TS")).toBe(".ts")
+        expect(suffix("/a/b.JSON")).toBe(".json")
+        expect(suffix("/a/b.Markdown")).toBe(".markdown")
+        expect(suffix("/a/no_ext")).toBe("")
+        expect(suffix("/a/.bashrc")).toBe("")
+        expect(suffix("/a.b/c.py")).toBe(".py")
+    })
 })
 
 describe("FORMATTERS map", () => {
-  test(".ts and .json both route to biome (via biomeCmd, lazily resolved)", async () => {
-    expect(BIOME_SUFFIXES.has(".ts")).toBe(true)
-    expect(BIOME_SUFFIXES.has(".json")).toBe(true)
-    const cmd = await biomeCmd()
-    expect(cmd.join(" ")).toContain("biome")
-    expect(cmd).toContain("format")
-    expect(cmd).toContain("--write")
-  })
+    test(".ts and .json both route to biome (via biomeCmd, lazily resolved)", async () => {
+        expect(BIOME_SUFFIXES.has(".ts")).toBe(true)
+        expect(BIOME_SUFFIXES.has(".json")).toBe(true)
+        const cmd = await biomeCmd()
+        expect(cmd.join(" ")).toContain("biome")
+        expect(cmd).toContain("format")
+        expect(cmd).toContain("--write")
+    })
 
-  test(".py -> uv run ruff format", () => {
-    expect(FORMATTERS[".py"]).toEqual(["uv", "run", "--quiet", "ruff", "format"])
-  })
+    test(".py -> uv run ruff format", () => {
+        expect(FORMATTERS[".py"]).toEqual(["uv", "run", "--quiet", "ruff", "format"])
+    })
 
-  test(".md / .markdown -> uv run mdformat", () => {
-    expect(FORMATTERS[".md"]).toEqual(["uv", "run", "--quiet", "mdformat"])
-    expect(FORMATTERS[".markdown"]).toEqual(["uv", "run", "--quiet", "mdformat"])
-  })
+    test(".md / .markdown -> uv run mdformat", () => {
+        expect(FORMATTERS[".md"]).toEqual(["uv", "run", "--quiet", "mdformat"])
+        expect(FORMATTERS[".markdown"]).toEqual(["uv", "run", "--quiet", "mdformat"])
+    })
 
-  test("no formatter for unknown suffixes", () => {
-    expect(FORMATTERS[".rs"]).toBeUndefined()
-    expect(FORMATTERS[""]).toBeUndefined()
-  })
+    test("no formatter for unknown suffixes", () => {
+        expect(FORMATTERS[".rs"]).toBeUndefined()
+        expect(FORMATTERS[""]).toBeUndefined()
+    })
 })
 
 describe("resolveInsideRoot (PATTERN E — real tmp fixture)", () => {
-  let dir: string
+    let dir: string
 
-  beforeEach(async () => {
-    // A tmp dir UNDER the containment root so the relative_to() guard passes.
-    dir = await mkdtemp(join(CONTAINMENT_ROOT, ".fmt-test-"))
-  })
+    beforeEach(async () => {
+        // A tmp dir UNDER the containment root so the relative_to() guard passes.
+        dir = await mkdtemp(join(CONTAINMENT_ROOT, ".fmt-test-"))
+    })
 
-  afterEach(async () => {
-    await rm(dir, { recursive: true, force: true })
-  })
+    afterEach(async () => {
+        await rm(dir, { recursive: true, force: true })
+    })
 
-  test("an existing file under the root resolves to its absolute path", async () => {
-    const f = join(dir, "x.ts")
-    await writeFile(f, "const x=1;\n")
-    expect(await resolveInsideRoot(f)).toBe(f)
-  })
+    test("an existing file under the root resolves to its absolute path", async () => {
+        const f = join(dir, "x.ts")
+        await writeFile(f, "const x=1;\n")
+        expect(await resolveInsideRoot(f)).toBe(f)
+    })
 
-  test("a non-existent path -> null", async () => {
-    expect(await resolveInsideRoot(join(dir, "nope.ts"))).toBeNull()
-  })
+    test("a non-existent path -> null", async () => {
+        expect(await resolveInsideRoot(join(dir, "nope.ts"))).toBeNull()
+    })
 
-  test("a directory (not a file) -> null", async () => {
-    const sub = join(dir, "subdir")
-    await mkdir(sub)
-    expect(await resolveInsideRoot(sub)).toBeNull()
-  })
+    test("a directory (not a file) -> null", async () => {
+        const sub = join(dir, "subdir")
+        await mkdir(sub)
+        expect(await resolveInsideRoot(sub)).toBeNull()
+    })
 
-  test("a file OUTSIDE the containment root -> null", async () => {
-    // tmpdir() is /var/folders/... on macOS, /tmp on Linux — not under $HOME.
-    const outside = await mkdtemp(join(tmpdir(), "fmt-outside-"))
-    try {
-      const f = join(outside, "y.ts")
-      await writeFile(f, "const y=1;\n")
-      expect(await resolveInsideRoot(f)).toBeNull()
-    } finally {
-      await rm(outside, { recursive: true, force: true })
-    }
-  })
+    test("a file OUTSIDE the containment root -> null", async () => {
+        // tmpdir() is /var/folders/... on macOS, /tmp on Linux — not under $HOME.
+        const outside = await mkdtemp(join(tmpdir(), "fmt-outside-"))
+        try {
+            const f = join(outside, "y.ts")
+            await writeFile(f, "const y=1;\n")
+            expect(await resolveInsideRoot(f)).toBeNull()
+        } finally {
+            await rm(outside, { recursive: true, force: true })
+        }
+    })
 })

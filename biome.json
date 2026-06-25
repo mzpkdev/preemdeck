@@ -1,40 +1,40 @@
 {
-  "$schema": "https://biomejs.dev/schemas/2.3.0/schema.json",
-  "vcs": {
-    "enabled": true,
-    "clientKind": "git",
-    "useIgnoreFile": true
-  },
-  "files": {
-    "includes": [
-      "lib/**/*.ts",
-      "scripts/**/*.ts",
-      "ripperdoc/**/*.ts",
-      "*.json",
-      "!**/node_modules",
-      "!**/.runtime",
-      "!**/experiments",
-      "!uv.lock",
-      "!bun.lock"
-    ]
-  },
-  "formatter": {
-    "enabled": true,
-    "indentStyle": "space",
-    "indentWidth": 2,
-    "lineWidth": 120
-  },
-  "javascript": {
+    "$schema": "https://biomejs.dev/schemas/2.3.0/schema.json",
+    "vcs": {
+        "enabled": true,
+        "clientKind": "git",
+        "useIgnoreFile": true
+    },
+    "files": {
+        "includes": [
+            "lib/**/*.ts",
+            "scripts/**/*.ts",
+            "ripperdoc/**/*.ts",
+            "*.json",
+            "!**/node_modules",
+            "!**/.runtime",
+            "!**/experiments",
+            "!uv.lock",
+            "!bun.lock"
+        ]
+    },
     "formatter": {
-      "quoteStyle": "double",
-      "semicolons": "asNeeded",
-      "trailingCommas": "all"
+        "enabled": true,
+        "indentStyle": "space",
+        "indentWidth": 4,
+        "lineWidth": 120
+    },
+    "javascript": {
+        "formatter": {
+            "quoteStyle": "double",
+            "semicolons": "asNeeded",
+            "trailingCommas": "none"
+        }
+    },
+    "linter": {
+        "enabled": true,
+        "rules": {
+            "recommended": true
+        }
     }
-  },
-  "linter": {
-    "enabled": true,
-    "rules": {
-      "recommended": true
-    }
-  }
 }

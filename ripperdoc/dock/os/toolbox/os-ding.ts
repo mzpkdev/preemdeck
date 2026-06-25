@@ -23,10 +23,10 @@ const MACOS_SOUND = "/System/Library/Sounds/Glass.aiff"
  * player is tried first, degrading to raw ALSA playback as a last resort.
  */
 export const LINUX_CANDIDATES: string[][] = [
-  ["canberra-gtk-play", "--id", "bell"],
-  ["paplay", "/usr/share/sounds/freedesktop/stereo/bell.oga"],
-  ["paplay", "/usr/share/sounds/freedesktop/stereo/complete.oga"],
-  ["aplay", "-q", "/usr/share/sounds/alsa/Front_Center.wav"],
+    ["canberra-gtk-play", "--id", "bell"],
+    ["paplay", "/usr/share/sounds/freedesktop/stereo/bell.oga"],
+    ["paplay", "/usr/share/sounds/freedesktop/stereo/complete.oga"],
+    ["aplay", "-q", "/usr/share/sounds/alsa/Front_Center.wav"]
 ]
 
 /**
@@ -34,55 +34,55 @@ export const LINUX_CANDIDATES: string[][] = [
  * binary, non-zero exit, or timeout all resolve false. Never throws.
  */
 export const runCmd = async (cmd: string[]): Promise<boolean> => {
-  try {
-    const result = await spawn(cmd, { timeoutMs: 10_000 })
-    return !result.timedOut && result.exitCode === 0
-  } catch {
-    return false
-  }
+    try {
+        const result = await spawn(cmd, { timeoutMs: 10_000 })
+        return !result.timedOut && result.exitCode === 0
+    } catch {
+        return false
+    }
 }
 
 /** Write the ASCII BEL ("\a") to stderr — the universal last-resort "ding". */
 export const terminalBell = (): void => {
-  process.stderr.write("\x07")
+    process.stderr.write("\x07")
 }
 
 /** macOS: afplay a built-in sound; fall back to an osascript beep; else null. */
 export const dingMacos = async (run: (cmd: string[]) => Promise<boolean> = runCmd): Promise<string | null> => {
-  if (await run(["afplay", MACOS_SOUND])) return "afplay"
-  if (await run(["osascript", "-e", "beep"])) return "osascript"
-  return null
+    if (await run(["afplay", MACOS_SOUND])) return "afplay"
+    if (await run(["osascript", "-e", "beep"])) return "osascript"
+    return null
 }
 
 /** Linux: the first candidate player that's installed and exits 0; else null. */
 export const dingLinux = async (run: (cmd: string[]) => Promise<boolean> = runCmd): Promise<string | null> => {
-  for (const cmd of LINUX_CANDIDATES) {
-    if (await run(cmd)) return cmd[0] as string
-  }
-  return null
+    for (const cmd of LINUX_CANDIDATES) {
+        if (await run(cmd)) return cmd[0] as string
+    }
+    return null
 }
 
 /** The per-OS mechanism for the current platform (null worker on exotic OSes). */
 export const platformWorker = (
-  platform: string = process.platform,
-  run: (cmd: string[]) => Promise<boolean> = runCmd,
+    platform: string = process.platform,
+    run: (cmd: string[]) => Promise<boolean> = runCmd
 ): (() => Promise<string | null>) => {
-  if (platform === "darwin") return () => dingMacos(run)
-  if (platform === "linux") return () => dingLinux(run)
-  return async () => null // exotic platform: no native mechanism, fall to bell
+    if (platform === "darwin") return () => dingMacos(run)
+    if (platform === "linux") return () => dingLinux(run)
+    return async () => null // exotic platform: no native mechanism, fall to bell
 }
 
 /** Play the host OS's "ding"; return the mechanism, or "bell" as the floor. */
 export const ding = async (
-  worker: () => Promise<string | null> = platformWorker(),
-  bell: () => void = terminalBell,
+    worker: () => Promise<string | null> = platformWorker(),
+    bell: () => void = terminalBell
 ): Promise<string> => {
-  const mechanism = await worker()
-  if (mechanism === null) {
-    bell()
-    return "bell"
-  }
-  return mechanism
+    const mechanism = await worker()
+    if (mechanism === null) {
+        bell()
+        return "bell"
+    }
+    return mechanism
 }
 
 /**
@@ -91,14 +91,14 @@ export const ding = async (
  * that drives this.
  */
 export const main = async (argv: string[]): Promise<number> => {
-  const verbose = argv.includes("-v") || argv.includes("--verbose")
-  const mechanism = await ding()
-  if (verbose) {
-    process.stderr.write(`ding: ${mechanism}\n`)
-  }
-  return 0
+    const verbose = argv.includes("-v") || argv.includes("--verbose")
+    const mechanism = await ding()
+    if (verbose) {
+        process.stderr.write(`ding: ${mechanism}\n`)
+    }
+    return 0
 }
 
 if (import.meta.main) {
-  process.exit(await main(Bun.argv.slice(2)))
+    process.exit(await main(Bun.argv.slice(2)))
 }
