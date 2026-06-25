@@ -7,8 +7,18 @@ import { boolean } from "./core/coercers.ts"
 import { resolveStrict } from "./tmp.ts"
 
 /**
- * Open a 2-way (`target` vs `suggestion`) diff in the running JetBrains IDE.
- * Returns the LEFT (`target`) pane's text on the wait path, else null.
+ * Open a 2-way (`target` vs `suggestion`) diff in the running JetBrains IDE. The
+ * launch is wrapped in `effect()` so `--dry-run` skips the real IDE call; the
+ * `wait` read-back is a plain read of the LEFT (`target`) pane and stays unwrapped.
+ *
+ * @param target - LEFT pane file; resolved to an absolute path before launching.
+ * @param suggestion - RIGHT pane file; resolved to an absolute path before launching.
+ * @param wait - block until the tab closes, then read the LEFT pane back.
+ * @returns the LEFT (`target`) pane's utf8 contents on the `wait` path, else null.
+ *
+ * @example
+ * await diffFile("src/app.ts", "src/app.next.ts") // show the diff, fire-and-forget
+ * const left = await diffFile("src/app.ts", "src/app.next.ts", true) // block until closed, then read the LEFT pane
  */
 export const diffFile = async (target: string, suggestion: string, wait = false): Promise<string | null> => {
     const targetAbs = await resolveStrict(target)
