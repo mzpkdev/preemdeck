@@ -13,7 +13,7 @@ export type OpenOptions = {
     preview?: boolean
 }
 
-export const open = async (file: string, options?: OpenOptions): Promise<string | null> => {
+export const openFile = async (file: string, options?: OpenOptions): Promise<string | null> => {
     const { line = 1, column = null, wait = false, preview = false } = options ?? {}
     const target = path.resolve(file)
     const args = ["--line", String(line)]
@@ -45,7 +45,7 @@ const command = defineCommand({
     ],
     run: async ({ path: file, line, column, wait, preview }) => {
         assertIdea()
-        const contents = await open(file, { line, column, wait, preview })
+        const contents = await openFile(file, { line, column, wait, preview })
         if (contents !== null) {
             process.stdout.write(contents)
         }

@@ -1,45 +1,9 @@
 #!/usr/bin/env bun
-/**
- * notify.ts — pop an in-IDE notification balloon in the running JetBrains IDE.
- *
- * A sibling to openUrl: instead of opening a tab, it raises a transient
- * notification balloon via the platform's Notification API, driven through the
- * same ideScript bridge. On the EDT it constructs a Notification(group, title,
- * content, type) and hands it to Notifications.Bus.notify(n, project). The group
- * id is "idea.toolbox"; the NotificationType is chosen from a whitelist (never
- * interpolated from raw user input) and filled in as a bare enum token.
- *
- * The balloon can carry clickable action buttons from a vetted registry
- * (NOTIFICATION_ACTIONS) via the repeatable `--action name[=arg]` flag.
- * "open-preview" reuses the SAME shared webpreviewOpenBody fragment as previewUrl
- * so the two can't drift. The action `name` is whitelisted; the `arg` is escaped;
- * the label is a static registry string. title/content/each action arg are
- * embedded as escaped Groovy string literals via escapeGroovy.
- *
- * Execution rides core's runGroovy scaffolding, which NEVER rejects: a missing
- * live IDE / unimplemented platform / spawn error is swallowed with a short
- * stderr note. The CLI is a cmdore commandless command: cmdore owns parsing,
- * help, the global flags, and exit codes. The whitelisted --type/--action are
- * validated by Standard Schemas (a bad value -> CmdoreError). main() wraps
- * execute() with onError:"throw" so it keeps the repo CLI shape (return a number;
- * process.exit only under the import.meta.main guard), gates a live IDE up front
- * (the inIdea gate), and maps IdeaError / CmdoreError to the notify: stderr line.
- */
-
 import type { StandardSchemaV1 } from "cmdore"
-import { CmdoreError, defineCommand, effect, execute } from "cmdore"
+import { defineCommand, effect, execute } from "cmdore"
 import type { Action } from "../../../../lib/args.ts"
-import { IdeaError } from "./core/errors.ts"
-import { escapeGroovy, inIdea, runGroovy as rawRunGroovy, webpreviewOpenBody } from "./core/index.ts"
-
-const PROG = "notify"
-
-/** cmdore metadata for the commandless CLI; version mirrors the idea plugin manifest. */
-const METADATA = {
-    name: PROG,
-    version: "0.1.0",
-    description: "Pop an in-IDE notification balloon in the running JetBrains IDE."
-} as const
+import { assertIdea } from "./assert-idea.ts"
+import { escapeGroovy, runGroovy, webpreviewOpenBody } from "./core/index.ts"
 
 /** The notification group id the balloon registers under. */
 export const NOTIFY_GROUP_ID = "idea.toolbox"
@@ -149,15 +113,6 @@ export const groovyFor = (title: string, message: string, typeToken: string, act
     )
 }
 
-/**
- * The write side-effect, wrapped as a cmdore `effect.fn` so it is skipped on
- * `--dry-run` (when cmdore flips `effect.enabled` off) and mockable in tests by
- * the WRAPPER REFERENCE (`effect.mock(runGroovy, …)`) — no per-file mutable seam.
- * runGroovy itself NEVER rejects: it degrades a missing IDE / spawn error to a
- * stderr note. The IDE Groovy bridge is the toolbox's one pure write.
- */
-export const runGroovy = effect.fn(rawRunGroovy, "ide.runGroovy")
-
 /** Options for {@link notify}: balloon title, the --type token (info/warning/error), and the action registry entries. */
 export type NotifyOptions = {
     title?: string
@@ -170,13 +125,15 @@ export const notify = async (message: string, options: NotifyOptions = {}): Prom
     const title = options.title ?? "PreemDeck"
     const typeToken = options.typeToken ?? "info"
     const actions = options.actions ?? []
-    await runGroovy(groovyFor(title, message, typeToken, actions), "notify: could not pop notification")
+    // runGroovy never rejects (it degrades a missing IDE / spawn error to a stderr
+    // note); --dry-run flips effect off so the IDE write is skipped.
+    await effect(() => runGroovy(groovyFor(title, message, typeToken, actions), "notify: could not pop notification"))
 }
 
 /**
  * A Standard Schema for the whitelisted `--type` token. cmdore hands it the raw
  * arity-1 string; an off-whitelist value fails validation, which cmdore surfaces
- * as a CmdoreError carrying this message.
+ * as a CmdoreError (exit 2) carrying this message.
  */
 const typeSchema: StandardSchemaV1<string> = {
     "~standard": {
@@ -218,7 +175,7 @@ const parseAction = (value: string): { value: Action } | { message: string } => 
 /**
  * A Standard Schema for the repeatable `--action` flag. cmdore accumulates the
  * repeated occurrences into a `string[]` (in CLI order); this validates + splits
- * each, short-circuiting to a CmdoreError on the first bad entry.
+ * each, short-circuiting to a CmdoreError (exit 2) on the first bad entry.
  */
 const actionsSchema: StandardSchemaV1<Action[]> = {
     "~standard": {
@@ -239,14 +196,9 @@ const actionsSchema: StandardSchemaV1<Action[]> = {
     }
 }
 
-/**
- * The cmdore command behind the CLI. Gates on a live IDE (cheap fail-fast before
- * runGroovy's deeper launcher resolution), then pops the balloon for `message`
- * with the validated title/type/actions.
- */
-const notifyCommand = defineCommand({
-    name: PROG,
-    description: METADATA.description,
+const command = defineCommand({
+    name: "notify",
+    description: "Pop an in-IDE notification balloon in the running JetBrains IDE.",
     arguments: [{ name: "message", description: "the balloon message", required: true }],
     options: [
         { name: "title", arity: 1, hint: "title", description: "balloon title", defaultValue: () => "PreemDeck" },
@@ -267,37 +219,11 @@ const notifyCommand = defineCommand({
         }
     ],
     run: async ({ message, title, type, action }) => {
-        if (!inIdea()) {
-            throw new IdeaError("no JetBrains IDE in the process ancestry")
-        }
+        assertIdea()
         await notify(message, { title, typeToken: type, actions: action })
     }
 })
 
-/**
- * CLI entrypoint. Hands argv to cmdore (parsing, help, global flags), then maps
- * the two domain failures to the notify: stderr line and their exit codes:
- * IdeaError -> 1, CmdoreError (bad flag / missing message / off-whitelist
- * --type/--action) -> its own exitCode. Anything else is a bug and rethrown.
- */
-export const main = async (argv: string[] = Bun.argv.slice(2)): Promise<number> => {
-    try {
-        await execute(notifyCommand, { argv, metadata: METADATA, onError: "throw" })
-    } catch (error) {
-        if (error instanceof IdeaError) {
-            process.stderr.write(`${PROG}: ${error.message}\n`)
-            return 1
-        }
-        if (error instanceof CmdoreError) {
-            process.stderr.write(`${PROG}: ${error.message}\n`)
-            return error.exitCode
-        }
-        throw error
-    }
-    return 0
-}
-
 if (import.meta.main) {
-    const code = await main(Bun.argv.slice(2))
-    process.exit(code)
+    process.exit(await execute(command, { metadata: command }))
 }

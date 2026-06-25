@@ -6,7 +6,7 @@
  * open_inline / diff_inline / merge_file / merge_inline mint temps identically.
  */
 
-import { mkdtemp, open, realpath, writeFile } from "node:fs/promises"
+import { open, realpath, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 
@@ -23,12 +23,12 @@ export const resolveStrict = async (path: string): Promise<string> => {
 
 /**
  * Create a fresh empty temp file ending in `suffix` and return its path (the fd
- * is opened and immediately closed, like os.close(fd) after mkstemp). A
- * per-call private dir guarantees uniqueness without racing on the filename.
+ * is opened and immediately closed, like os.close(fd) after mkstemp). The UUIDv4
+ * filename guarantees uniqueness without racing — a flat file directly in
+ * tmpdir(), so reapLater fully cleans it up (no per-call dir residue left behind).
  */
 export const mkstemp = async (suffix = ".txt"): Promise<string> => {
-    const dir = await mkdtemp(join(tmpdir(), "idea-tmp-"))
-    const path = join(dir, `${crypto.randomUUID()}${suffix}`)
+    const path = join(tmpdir(), `idea-tmp-${crypto.randomUUID()}${suffix}`)
     // Match mkstemp: the file exists (created) before we hand back the path.
     const handle = await open(path, "w")
     await handle.close()
