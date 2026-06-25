@@ -45,7 +45,7 @@ The subagent boots with none of your context. The brief is a mini system-prompt 
 
 ### Avoid
 
-> Go look at the auth module — read `auth.py`, then `session.py`, then the tests. CRITICAL: don't miss a single refresh
+> Go look at the auth module — read `auth.ts`, then `session.ts`, then the tests. CRITICAL: don't miss a single refresh
 > site. [pastes 400 lines]
 
 ### Prefer

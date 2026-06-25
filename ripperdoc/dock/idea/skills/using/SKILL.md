@@ -85,7 +85,7 @@ Pick the tool from what the user asked for:
 
 | The user says…                                                             | Tool              |
 | -------------------------------------------------------------------------- | ----------------- |
-| "open `<file>` in the IDE", "jump to line N", "pull up `app.py`"           | `open-file.ts`    |
+| "open `<file>` in the IDE", "jump to line N", "pull up `app.ts`"           | `open-file.ts`    |
 | "open `<url>`", "preview localhost:3000", "show that page in the IDE"      | `open-url.ts`     |
 | "show me this snippet/string", "open this text", "render this markdown"    | `open-inline.ts`  |
 | "diff these two files", "show the diff", "review this change side by side" | `diff-file.ts`    |
@@ -124,7 +124,7 @@ prints the file's full text (whether or not it was edited).
 **When to use:** the user wants a real file opened, or wants to land on a specific line.
 
 ```bash
-"$HOME/.preemdeck/scripts/preemdeck-bun" "$TB/open-file.ts" src/app.py --line 42      # jump to line 42, fire-and-forget
+"$HOME/.preemdeck/scripts/preemdeck-bun" "$TB/open-file.ts" src/app.ts --line 42      # jump to line 42, fire-and-forget
 "$HOME/.preemdeck/scripts/preemdeck-bun" "$TB/open-file.ts" notes.md --wait           # block until closed, then print the file
 "$HOME/.preemdeck/scripts/preemdeck-bun" "$TB/open-file.ts" README.md --preview       # open, then flip to rendered preview
 ```
@@ -159,7 +159,7 @@ any generated text you're holding as a string (no need to write a file first).
 
 - `inline` — the literal string to open.
 - `--suffix SUFFIX` — temp-file suffix; the IDE uses it to pick syntax highlighting (default `.txt`). E.g.
-  `--suffix .py`, `--suffix .md`.
+  `--suffix .ts`, `--suffix .md`.
 - `--wait` — block until the tab closes, then print the (possibly edited) contents to stdout.
 - `--preview` — after opening, flip to rendered preview (pair with `--suffix .md`/`.html`).
 
@@ -167,7 +167,7 @@ any generated text you're holding as a string (no need to write a file first).
 the user's edits.
 
 ```bash
-"$HOME/.preemdeck/scripts/preemdeck-bun" "$TB/open-inline.ts" "$snippet" --suffix .py        # open with .py highlighting
+"$HOME/.preemdeck/scripts/preemdeck-bun" "$TB/open-inline.ts" "$snippet" --suffix .ts        # open with .ts highlighting
 "$HOME/.preemdeck/scripts/preemdeck-bun" "$TB/open-inline.ts" "$snippet" --wait              # block until closed, then print
 "$HOME/.preemdeck/scripts/preemdeck-bun" "$TB/open-inline.ts" "$md" --suffix .md --preview   # open, then flip to rendered preview
 ```
@@ -191,8 +191,8 @@ path fails before launch (exit 1).
 user's/current file on the LEFT (`target`) so `--wait` reads back the reconciled result.
 
 ```bash
-"$HOME/.preemdeck/scripts/preemdeck-bun" "$TB/diff-file.ts" mine.py theirs.py          # open the diff, fire-and-forget
-"$HOME/.preemdeck/scripts/preemdeck-bun" "$TB/diff-file.ts" mine.py theirs.py --wait   # block until closed, then print LEFT
+"$HOME/.preemdeck/scripts/preemdeck-bun" "$TB/diff-file.ts" mine.ts theirs.ts          # open the diff, fire-and-forget
+"$HOME/.preemdeck/scripts/preemdeck-bun" "$TB/diff-file.ts" mine.ts theirs.ts --wait   # block until closed, then print LEFT
 ```
 
 ## diff-inline.ts — 2-way diff of two strings
@@ -212,7 +212,7 @@ Same as `diff-file.ts` but each side is a string (spilled to a temp file). `targ
 vs a proposed rewrite.
 
 ```bash
-"$HOME/.preemdeck/scripts/preemdeck-bun" "$TB/diff-inline.ts" "$old" "$new" --suffix .py   # diff with .py highlighting
+"$HOME/.preemdeck/scripts/preemdeck-bun" "$TB/diff-inline.ts" "$old" "$new" --suffix .ts   # diff with .ts highlighting
 "$HOME/.preemdeck/scripts/preemdeck-bun" "$TB/diff-inline.ts" "$old" "$new" --wait         # block until closed, then print LEFT
 ```
 
@@ -235,8 +235,8 @@ and then prints the merged result. Inputs are resolved strictly (missing path �
 **When to use:** the user wants to reconcile two file versions, optionally against a base.
 
 ```bash
-"$HOME/.preemdeck/scripts/preemdeck-bun" "$TB/merge-file.ts" mine.py theirs.py base.py   # 3-way merge with a base
-"$HOME/.preemdeck/scripts/preemdeck-bun" "$TB/merge-file.ts" mine.py theirs.py --wait    # block until applied, then print
+"$HOME/.preemdeck/scripts/preemdeck-bun" "$TB/merge-file.ts" mine.ts theirs.ts base.ts   # 3-way merge with a base
+"$HOME/.preemdeck/scripts/preemdeck-bun" "$TB/merge-file.ts" mine.ts theirs.ts --wait    # block until applied, then print
 ```
 
 ## merge-inline.ts — 3-way merge of strings (optional base)
@@ -256,7 +256,7 @@ proposed snippet into their version** without writing files first.
 **When to use:** "merge this suggestion into my code." Add `--wait` to capture the applied result.
 
 ```bash
-"$HOME/.preemdeck/scripts/preemdeck-bun" "$TB/merge-inline.ts" "$mine" "$theirs" "$base" --suffix .py   # merge with a base
+"$HOME/.preemdeck/scripts/preemdeck-bun" "$TB/merge-inline.ts" "$mine" "$theirs" "$base" --suffix .ts   # merge with a base
 "$HOME/.preemdeck/scripts/preemdeck-bun" "$TB/merge-inline.ts" "$mine" "$theirs" --wait                 # block until applied, print
 ```
 
