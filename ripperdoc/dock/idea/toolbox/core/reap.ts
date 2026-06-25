@@ -1,6 +1,6 @@
 /**
  * reap.ts — deferred temp-file cleanup for the toolbox's fire-and-forget
- * (no-wait) modes. Port of core/_reap.py.
+ * (no-wait) modes.
  *
  * No-wait callers spawn the IDE async and have no signal for when the handed-off
  * temp is safe to delete. But the IDE reads the file into memory within ~1s of
@@ -8,7 +8,7 @@
  * working (it shows a dismissible "deleted from disk" marker). So instead of
  * leaking the temp, schedule an unlink a short delay after launch.
  *
- * The Python original spawns a NON-DAEMON thread: the interpreter waits for it
+ * The original spawns a NON-DAEMON thread: the interpreter waits for it
  * at process exit, so cleanup is guaranteed rather than killed. The faithful JS
  * analog is a plain (REF'd) `setTimeout` — a pending ref'd timer keeps Bun's
  * event loop alive, so the process stays up until the unlink runs. Do NOT

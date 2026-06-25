@@ -1,8 +1,8 @@
 /**
- * update.test.ts — bun-test port of tests/test_update.py.
+ * update.test.ts — bun-test suite for update.ts.
  *
  * MOCK PATTERN E — tmp fixture: `installedHarnesses` reads the manifest from a
- *   repoRoot we control (the Python tests monkeypatch update.REPO_ROOT; the TS
+ *   repoRoot we control (the original tests monkeypatch update.REPO_ROOT; the TS
  *   port threads repoRoot as a parameter, so we point it at an mkdtemp dir).
  * spawn seam — override install's `_internals.spawn` (NOT mock.module on the
  *   shared ./lib/proc.ts, which leaks into lib/proc.test.ts) so gitPull never

@@ -1,8 +1,8 @@
 /**
- * reap.test.ts — hermetic, no real wall-clock delay. Port of test_reap.py.
+ * reap.test.ts — hermetic, no real wall-clock delay.
  *
  * reapLater arms a ref'd setTimeout that, after `delayMs`, unlinks each path. The
- * Python suite gated the seam with a controllable sleep; here we use bun's fake
+ * original suite gated the seam with a controllable sleep; here we use bun's fake
  * timers (`setSystemTime` + manual tick via `jest.useFakeTimers`-style control is
  * not exposed, so we drive the timer with `mock` of setTimeout). MOCK PATTERN:
  * spy on the global `setTimeout` to capture the scheduled callback + delay, run

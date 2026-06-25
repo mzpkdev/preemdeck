@@ -110,7 +110,7 @@ const resolveInsideRoot = async (filePath: string): Promise<string | null> => {
         return null
     }
     // relative(root, abs) escaping the root starts with ".." (or is absolute on a
-    // different drive) — mirrors Python's path.relative_to(root) ValueError guard.
+    // different drive) — mirrors the reference path.relative_to(root) ValueError guard.
     const rel = relative(CONTAINMENT_ROOT, abs)
     if (rel === "" || rel.startsWith("..") || resolve(CONTAINMENT_ROOT, rel) !== abs) {
         return null

@@ -1,11 +1,10 @@
 #!/usr/bin/env bun
 /**
- * update.ts — preemdeck updater (TS port of update.py, behavior-identical v1).
+ * update.ts — preemdeck updater (behavior-identical v1).
  *
  * Pulls the latest source (git -C ~/.preemdeck pull --ff-only) and re-runs the
  * install for every harness recorded in the manifest. Manifest-driven: the
  * decoupled layout means the harness can't be inferred from the directory name.
- * Additive port — update.py stays the live entrypoint until the flip phase.
  */
 
 import { join } from "node:path";
@@ -55,7 +54,7 @@ export async function gitPull(repoRoot: string, dryRun: boolean): Promise<void> 
   }
   const result = await _internals.spawn(["git", "-C", repoRoot, "pull", "--ff-only"]);
   // Stream child output through (subprocess.run with check=True inherits stdio in
-  // Python; here we forward captured streams, then raise on non-zero like check=True).
+  // the original; here we forward captured streams, then raise on non-zero like check=True).
   if (result.stdout) process.stdout.write(result.stdout);
   if (result.stderr) process.stderr.write(result.stderr);
   if (result.exitCode !== 0) {

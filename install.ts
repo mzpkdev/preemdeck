@@ -1,13 +1,12 @@
 #!/usr/bin/env bun
 /**
- * install.ts — preemdeck installer (TS port of install.py, behavior-identical v1).
+ * install.ts — preemdeck installer (behavior-identical v1).
  *
  * Registers the marketplace (claude/codex) or installs per-extension (gemini) for
  * ONE harness, copies the per-harness overlay into the host config dir, and writes
- * the install manifest. Additive port: install.py stays the live entrypoint until
- * the flip phase. Subprocess shell-outs go through lib/proc.ts `spawn` (the
+ * the install manifest. Subprocess shell-outs go through lib/proc.ts `spawn` (the
  * timeout/kill is solved there); the .bak/.bak.<ts> backup scheme, the schema-1
- * manifest shape, and every printed line are byte-identical to the Python.
+ * manifest shape, and every printed line are byte-identical to the original.
  */
 
 import { copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
@@ -140,7 +139,7 @@ export async function runCli(cmd: string[], dryRun: boolean): Promise<[boolean, 
     result = await _internals.spawn(cmd, { timeoutMs: 10_000 });
   } catch (err) {
     // Bun.spawn rejects (ENOENT) when cmd[0] is not on PATH — the lib/proc.ts
-    // spawn does not swallow it. Mirror the Python FileNotFoundError branch.
+    // spawn does not swallow it. Mirror the original's FileNotFoundError branch.
     if (isNotFound(err)) {
       return [false, `${cmd[0]} not on PATH`];
     }
@@ -372,7 +371,7 @@ export async function bootstrapNodeModules(repoRoot: string, dryRun: boolean): P
   }
 }
 
-/** Whether `bin` resolves on PATH (mirrors Python shutil.which truthiness). */
+/** Whether `bin` resolves on PATH (mirrors the original's shutil.which truthiness). */
 async function onPath(bin: string): Promise<boolean> {
   const result = await _internals.spawn(["sh", "-c", `command -v "$1" >/dev/null 2>&1`, "sh", bin]);
   return result.exitCode === 0;
