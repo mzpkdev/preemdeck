@@ -21,7 +21,7 @@ import { unlink } from "node:fs/promises"
 import { CmdoreError, defineCommand, execute } from "cmdore"
 import { IdeaError } from "./core/errors.ts"
 import { inIdea, reapLater } from "./core/index.ts"
-import { openFile } from "./open-file.ts"
+import { open } from "./open-file.ts"
 import { writeTemp } from "./tmp.ts"
 
 const PROG = "open-inline"
@@ -54,7 +54,7 @@ export const openInline = async (content: string, options: OpenInlineOptions = {
 
   const path = await writeTemp(content, suffix)
   try {
-    const contents = await openFile(path, { wait, preview })
+    const contents = await open(path, { wait, preview })
     if (wait) {
       return contents
     }

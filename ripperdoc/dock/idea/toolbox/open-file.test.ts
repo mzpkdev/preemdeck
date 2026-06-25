@@ -1,160 +1,89 @@
 /**
- * open-file.test.ts — hermetic suite. The WRITES (launch, setPreview) are mocked
- * via cmdore's `effect.mock` keyed by the wrapper reference; nothing spawns. The
- * `inIdea` gate is forced through the `PREEMDECK_FORCE_IN_IDEA` env override. The
- * `--wait` read-back uses the REAL FS: tests write a real tmp file, the mocked
- * launch writes EDITED to it on the wait path, then the real readFile reads it.
+ * open-file.test.ts — e2e: spawn the CLI as a real subprocess and assert on its
+ * exit code, stdout, and stderr. The real IDE launch is neutralized with
+ * --dry-run (cmdore flips effect.enabled off, so the launch effect is skipped),
+ * while arg parsing, the inIdea gate, the --wait read-back, and exit codes all
+ * run for real. PREEMDECK_FORCE_IN_IDEA drives the live-IDE gate.
  */
 
-import { afterEach, beforeEach, describe, expect, spyOn, test } from "bun:test"
+import { afterEach, beforeEach, describe, expect, test } from "bun:test"
 import { mkdtemp, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
-import { effect } from "cmdore"
-import { launch, main, openFile, setPreview } from "./open-file.ts"
 
+const CLI = join(import.meta.dir, "open-file.ts")
 const ORIGINAL = "ORIGINAL\n"
-const EDITED = "EDITED\n"
-let dir = ""
-let calls: Array<{ args: string[]; wait: boolean }>
 
-/**
- * Mock the `launch` wrapper by reference: record argv + wait, spawn nothing; on
- * the wait path, optionally write `edits` to the resolved target (last argv).
- */
-const mockLaunch = (edits?: string): void => {
-  effect.mock(launch, async (args: string[], options: { wait?: boolean } = {}) => {
-    const wait = options.wait ?? false
-    calls.push({ args, wait })
-    if (wait && edits !== undefined) {
-      await writeFile(args[args.length - 1] as string, edits)
-    }
-    return { pid: 4321 } as unknown as Bun.Subprocess
+type Result = { code: number; stdout: string; stderr: string }
+
+const run = async (args: string[], env: Record<string, string> = {}): Promise<Result> => {
+  const proc = Bun.spawn([process.execPath, CLI, ...args], {
+    stdin: "ignore",
+    stdout: "pipe",
+    stderr: "pipe",
+    env: { ...process.env, PREEMDECK_FORCE_IN_IDEA: "1", ...env },
   })
+  const [stdout, stderr] = await Promise.all([new Response(proc.stdout).text(), new Response(proc.stderr).text()])
+  const code = await proc.exited
+  return { code, stdout, stderr }
 }
 
+let dir = ""
 beforeEach(async () => {
   dir = await mkdtemp(join(tmpdir(), "preemdeck-openfile-"))
-  calls = []
-  process.env.PREEMDECK_FORCE_IN_IDEA = "1"
-  effect.reset()
-  mockLaunch()
 })
 afterEach(async () => {
-  delete process.env.PREEMDECK_FORCE_IN_IDEA
-  effect.reset()
   await rm(dir, { recursive: true, force: true })
 })
 
-describe("openFile", () => {
-  test("fire-and-forget by default: launch wait=false, returns null", async () => {
+describe("open-file CLI", () => {
+  test("--dry-run on a live IDE exits 0 and writes nothing to stdout", async () => {
     const target = join(dir, "thing.py")
     await writeFile(target, ORIGINAL)
-    expect(await openFile(target)).toBeNull()
-    expect(calls[0]?.wait).toBe(false)
-    expect(calls[0]?.args).toEqual(["--line", "1", target])
+    const { code, stdout, stderr } = await run(["--dry-run", target])
+    expect(code).toBe(0)
+    expect(stdout).toBe("")
+    expect(stderr).toBe("")
   })
 
-  test("threads line + column into argv", async () => {
+  test("--wait prints the file contents back to stdout", async () => {
     const target = join(dir, "thing.py")
     await writeFile(target, ORIGINAL)
-    await openFile(target, { line: 42, column: 7 })
-    expect(calls[0]?.args).toEqual(["--line", "42", "--column", "7", target])
+    const { code, stdout } = await run(["--wait", "--dry-run", target])
+    expect(code).toBe(0)
+    expect(stdout).toBe(ORIGINAL)
   })
 
-  test("wait=true reads the file back (edited)", async () => {
+  test("no live IDE exits 1 with the IdeaError on stderr", async () => {
     const target = join(dir, "thing.py")
     await writeFile(target, ORIGINAL)
-    mockLaunch(EDITED)
-    expect(await openFile(target, { wait: true })).toBe(EDITED)
-    expect(calls[0]?.wait).toBe(true)
+    const { code, stdout, stderr } = await run([target], { PREEMDECK_FORCE_IN_IDEA: "0" })
+    expect(code).toBe(1)
+    expect(stdout).toBe("")
+    expect(stderr).toContain("no JetBrains IDE in the process ancestry")
   })
 
-  test("wait=true untouched returns original", async () => {
-    const target = join(dir, "thing.py")
-    await writeFile(target, ORIGINAL)
-    expect(await openFile(target, { wait: true })).toBe(ORIGINAL)
+  test("bad --line exits 2 with the coercion message on stderr", async () => {
+    const { code, stderr } = await run(["--line", "abc", "foo.txt"])
+    expect(code).toBe(2)
+    expect(stderr).toContain("--line must be an integer, got 'abc'")
   })
 
-  test("preview=true calls setPreview after launch", async () => {
-    const target = join(dir, "thing.md")
-    await writeFile(target, ORIGINAL)
-    const previewed: string[] = []
-    effect.mock(setPreview, async (p: string) => {
-      previewed.push(p)
-    })
-    await openFile(target, { preview: true })
-    expect(previewed.length).toBe(1)
-  })
-})
-
-describe("main", () => {
-  test("no --wait prints nothing, returns 0", async () => {
-    const target = join(dir, "thing.py")
-    await writeFile(target, ORIGINAL)
-    const outSpy = spyOn(process.stdout, "write").mockImplementation((() => true) as never)
-    try {
-      expect(await main([target])).toBe(0)
-      expect(outSpy.mock.calls.length).toBe(0)
-    } finally {
-      outSpy.mockRestore()
-    }
+  test("unknown flag exits 2", async () => {
+    const { code, stderr } = await run(["--bogus", "foo.txt"])
+    expect(code).toBe(2)
+    expect(stderr).toContain('An option "--bogus" is unknown.')
   })
 
-  test("--wait prints the file contents verbatim", async () => {
-    const target = join(dir, "thing.py")
-    await writeFile(target, ORIGINAL)
-    mockLaunch(EDITED)
-    const outSpy = spyOn(process.stdout, "write").mockImplementation((() => true) as never)
-    try {
-      expect(await main([target, "--wait"])).toBe(0)
-      expect(outSpy.mock.calls.map((c: unknown[]) => String(c[0])).join("")).toBe(EDITED)
-    } finally {
-      outSpy.mockRestore()
-    }
+  test("missing required path exits 2", async () => {
+    const { code, stderr } = await run([])
+    expect(code).toBe(2)
+    expect(stderr).toContain('An argument "path" is required.')
   })
 
-  test("no live IDE -> 1", async () => {
-    // Force the real gate shut; run() throws IdeaError before any launch.
-    process.env.PREEMDECK_FORCE_IN_IDEA = "0"
-    const target = join(dir, "thing.py")
-    await writeFile(target, ORIGINAL)
-    const errSpy = spyOn(process.stderr, "write").mockImplementation((() => true) as never)
-    try {
-      expect(await main([target])).toBe(1)
-      expect(errSpy.mock.calls.map((c: unknown[]) => String(c[0])).join("")).toContain("open-file:")
-    } finally {
-      errSpy.mockRestore()
-    }
-  })
-
-  test("bad --line -> CmdoreError mapped to exit 2 + open-file: stderr", async () => {
-    const errSpy = spyOn(process.stderr, "write").mockImplementation((() => true) as never)
-    try {
-      expect(await main(["--line", "abc", "foo.txt"])).toBe(2)
-      const err = errSpy.mock.calls.map((c: unknown[]) => String(c[0])).join("")
-      expect(err).toContain("open-file:")
-      expect(err).toContain("--line must be an integer, got 'abc'")
-    } finally {
-      errSpy.mockRestore()
-    }
-  })
-
-  test("--dry-run records the launch but skips the real spawn", async () => {
-    const target = join(dir, "thing.py")
-    await writeFile(target, ORIGINAL)
-    // No mock for launch: on dry-run cmdore flips effect.enabled off, so the
-    // unmocked wrapper records the call and returns undefined without spawning.
-    effect.reset()
-    const outSpy = spyOn(process.stdout, "write").mockImplementation((() => true) as never)
-    try {
-      expect(await main([target, "--dry-run"])).toBe(0)
-      // Recorded the intended call...
-      expect(effect.log.some((entry) => entry.wrapper === launch)).toBe(true)
-      // ...but the recorder stub never ran (the real launch was skipped).
-      expect(calls.length).toBe(0)
-    } finally {
-      outSpy.mockRestore()
-    }
+  test("--help exits 0 and prints usage to stdout", async () => {
+    const { code, stdout } = await run(["--help"])
+    expect(code).toBe(0)
+    expect(stdout).toContain("open-file")
   })
 })

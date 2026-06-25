@@ -26,7 +26,7 @@
 
 import { defineCommand, execute } from "cmdore"
 import { inIdea } from "./core/index.ts"
-import { openFile } from "./open-file.ts"
+import { open } from "./open-file.ts"
 import { openInline } from "./open-inline.ts"
 
 const PROG = "plan-preview"
@@ -71,7 +71,7 @@ export const readHookInput = async (): Promise<HookData> => {
 const openPlan = async (toolInput: HookData): Promise<void> => {
   const planPath = toolInput.plan_path
   if (typeof planPath === "string" && planPath.trim()) {
-    await openFile(planPath, { preview: true })
+    await open(planPath, { preview: true })
     return
   }
   const plan = toolInput.plan

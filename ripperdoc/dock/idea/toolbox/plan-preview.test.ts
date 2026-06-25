@@ -1,200 +1,145 @@
 /**
- * plan-preview.test.ts — hermetic, reach-through suite. plan-preview is a
- * COMPOSITE: the Claude path runs openInline -> openFile and the Gemini path runs
- * openFile, both FOR REAL. Only the LEAF write wrappers open-file bottoms out in
- * are mocked, by cmdore wrapper reference: `launch` (the IDE spawn) and
- * `setPreview` (the preview flip) — one pair of mocks covers BOTH paths. Nothing
- * spawns.
+ * plan-preview.test.ts — e2e: spawn the CLI as a real subprocess, pipe the hook
+ * JSON in on stdin, and assert on its exit code, stdout, and stderr. The real IDE
+ * launch is neutralized with --dry-run (cmdore flips effect.enabled off, so the
+ * launch/setPreview effects reached through open() are skipped), while stdin
+ * parsing, the inIdea gate, the plan/plan_path branching, and the exit code all
+ * run for real. PREEMDECK_FORCE_IN_IDEA drives the live-IDE gate.
  *
- * Stdin is real: the hook payload is fed by spying Bun.stdin.text() (+ forcing
- * isTTY off), so readHookInput runs end to end. The `inIdea` gate is forced
- * through the PREEMDECK_FORCE_IN_IDEA env override. Both opens are fire-and-forget
- * (no wait), so the Claude path's real reapLater is neutralized by spying
- * setTimeout (no real 3s ref'd timer is armed). main() is SILENT and ALWAYS 0.
+ * Contract under test: plan-preview is best-effort and SILENT — every input
+ * yields exit 0 with empty stdout AND empty stderr (a pre-tool hook must never
+ * error or block the host). Only --help breaks the silence, printing usage to
+ * stdout (still exit 0).
+ *
+ * The inline-plan path spills a temp `.md` (writeTemp is unwrapped, so it runs
+ * even under --dry-run) and arms a deferred reap; the CLI's process.exit(0) then
+ * kills that timer, so the temp leaks. We make this hermetic at the test layer by
+ * snapshotting the os-tmpdir `idea-tmp-*` dirs before each test and removing any
+ * that appear afterward. The plan_path path opens the file directly and leaks
+ * nothing.
  */
 
-import { afterEach, beforeEach, describe, expect, spyOn, test } from "bun:test"
-import { mkdtemp, rm, writeFile } from "node:fs/promises"
+import { readdir, rm, writeFile } from "node:fs/promises"
+import { mkdtemp } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
-import { effect } from "cmdore"
-import { launch, setPreview } from "./open-file.ts"
-import { main, readHookInput } from "./plan-preview.ts"
+import { afterEach, beforeEach, describe, expect, test } from "bun:test"
+
+const CLI = join(import.meta.dir, "plan-preview.ts")
+
+type Result = { code: number; stdout: string; stderr: string }
+
+/** Spawn the CLI and feed `payload` on stdin (write then end — Bun.spawn rejects a bare string for stdin). */
+const run = async (payload: string, args: string[] = [], env: Record<string, string> = {}): Promise<Result> => {
+  const proc = Bun.spawn([process.execPath, CLI, ...args], {
+    stdin: "pipe",
+    stdout: "pipe",
+    stderr: "pipe",
+    env: { ...process.env, PREEMDECK_FORCE_IN_IDEA: "1", ...env },
+  })
+  proc.stdin.write(payload)
+  proc.stdin.end()
+  const [stdout, stderr] = await Promise.all([new Response(proc.stdout).text(), new Response(proc.stderr).text()])
+  const code = await proc.exited
+  return { code, stdout, stderr }
+}
+
+/** The set of `idea-tmp-*` dir names currently in the os tmpdir (writeTemp's mint root). */
+const ideaTemps = async (): Promise<Set<string>> => {
+  const entries = await readdir(tmpdir()).catch(() => [] as string[])
+  return new Set(entries.filter((name) => name.startsWith("idea-tmp-")))
+}
 
 let dir = ""
-let launched: string[][]
-let previewed: string[]
-let timerSpy: ReturnType<typeof spyOn>
-const savedTTY = process.stdin.isTTY
-
-/** Mock the LEAF write wrappers by reference: record the resolved target launch/preview saw; spawn nothing. */
-const mockLeaves = (): void => {
-  launched = []
-  previewed = []
-  effect.mock(launch, async (args: string[]) => {
-    launched.push(args)
-    return { pid: 4321 } as unknown as Bun.Subprocess
-  })
-  effect.mock(setPreview, async (p: string) => {
-    previewed.push(p)
-  })
-}
-
-/** Feed `payload` to the hook's stdin (real readHookInput path): isTTY off + Bun.stdin.text() resolves the JSON. */
-const feedStdin = (payload: string): ReturnType<typeof spyOn> => {
-  ;(process.stdin as { isTTY?: boolean }).isTTY = false
-  return spyOn(Bun.stdin, "text").mockResolvedValue(payload)
-}
-
-beforeEach(() => {
-  process.env.PREEMDECK_FORCE_IN_IDEA = "1"
-  effect.reset()
-  mockLeaves()
-  // Both plan-preview opens are no-wait: neutralize the Claude path's real reap
-  // timer so no ref'd 3s timer outlives the suite (the temp leaks; reaped below).
-  timerSpy = spyOn(globalThis, "setTimeout").mockImplementation(((fn: () => void) => {
-    void fn
-    return 0 as unknown as ReturnType<typeof setTimeout>
-  }) as never)
+let tempsBefore: Set<string>
+beforeEach(async () => {
+  dir = await mkdtemp(join(tmpdir(), "preemdeck-planpreview-"))
+  tempsBefore = await ideaTemps()
 })
 afterEach(async () => {
-  delete process.env.PREEMDECK_FORCE_IN_IDEA
-  effect.reset()
-  timerSpy.mockRestore()
-  ;(process.stdin as { isTTY?: boolean }).isTTY = savedTTY
-  if (dir) {
-    await rm(dir, { recursive: true, force: true })
-    dir = ""
+  await rm(dir, { recursive: true, force: true })
+  // The inline-plan path leaks a temp dir (process.exit kills the reap timer);
+  // remove whatever appeared during this test so the suite leaves nothing behind.
+  const after = await ideaTemps()
+  for (const name of after) {
+    if (!tempsBefore.has(name)) {
+      await rm(join(tmpdir(), name), { recursive: true, force: true })
+    }
   }
 })
 
-describe("readHookInput", () => {
-  test("parses JSON", async () => {
-    const stdinSpy = feedStdin('{"tool_input": {"plan": "hi"}}')
-    try {
-      expect(await readHookInput()).toEqual({ tool_input: { plan: "hi" } })
-    } finally {
-      stdinSpy.mockRestore()
-    }
+describe("plan-preview CLI", () => {
+  test("Claude inline plan exits 0, silently (launch skipped under --dry-run)", async () => {
+    const payload = JSON.stringify({ tool_input: { plan: "# Plan\n\n- step" } })
+    const { code, stdout, stderr } = await run(payload, ["--dry-run"])
+    expect(code).toBe(0)
+    expect(stdout).toBe("")
+    expect(stderr).toBe("")
   })
 
-  test("garbage and empty yield {}", async () => {
-    let stdinSpy = feedStdin("not json")
-    try {
-      expect(await readHookInput()).toEqual({})
-      stdinSpy.mockRestore()
-      stdinSpy = feedStdin("")
-      expect(await readHookInput()).toEqual({})
-    } finally {
-      stdinSpy.mockRestore()
-    }
-  })
-})
-
-describe("main", () => {
-  test("Claude inline plan string -> openInline -> openFile -> launch, with preview, exits 0", async () => {
-    const plan = "# Plan\n\n- step"
-    const stdinSpy = feedStdin(JSON.stringify({ tool_input: { plan } }))
-    try {
-      expect(await main()).toBe(0)
-      // openInline spilled to a real .md temp and opened it fire-and-forget...
-      expect(launched.length).toBe(1)
-      const target = launched[0]?.at(-1) as string
-      expect(target.endsWith(".md")).toBe(true)
-      // ...and the preview leaf fired on that same resolved target.
-      expect(previewed).toEqual([target])
-      // The real reapLater armed exactly one (neutralized) timer for the temp.
-      expect(timerSpy.mock.calls.length).toBe(1)
-    } finally {
-      stdinSpy.mockRestore()
-    }
-  })
-
-  test("Gemini plan_path -> openFile -> launch directly, with preview, exits 0", async () => {
-    dir = await mkdtemp(join(tmpdir(), "preemdeck-planpreview-"))
+  test("Gemini plan_path exits 0, silently", async () => {
     const planPath = join(dir, "plan.md")
     await writeFile(planPath, "# Plan\n")
-    const stdinSpy = feedStdin(JSON.stringify({ tool_input: { plan_path: planPath } }))
-    try {
-      expect(await main()).toBe(0)
-      expect(launched.length).toBe(1)
-      // openFile resolves the path; launch + preview saw the resolved target.
-      expect(launched[0]?.at(-1)).toBe(planPath)
-      expect(previewed).toEqual([planPath])
-      // openFile's own path does NOT reap (no temp); no timer armed.
-      expect(timerSpy.mock.calls.length).toBe(0)
-    } finally {
-      stdinSpy.mockRestore()
-    }
+    const payload = JSON.stringify({ tool_input: { plan_path: planPath } })
+    const { code, stdout, stderr } = await run(payload, ["--dry-run"])
+    expect(code).toBe(0)
+    expect(stdout).toBe("")
+    expect(stderr).toBe("")
   })
 
-  test("plan_path takes precedence over plan", async () => {
-    dir = await mkdtemp(join(tmpdir(), "preemdeck-planpreview-"))
+  test("plan_path is accepted alongside plan and still exits 0 silently", async () => {
     const planPath = join(dir, "plan.md")
     await writeFile(planPath, "# Plan\n")
-    const stdinSpy = feedStdin(JSON.stringify({ tool_input: { plan: "inline", plan_path: planPath } }))
-    try {
-      expect(await main()).toBe(0)
-      expect(launched.length).toBe(1)
-      expect(launched[0]?.at(-1)).toBe(planPath)
-      expect(previewed).toEqual([planPath])
-    } finally {
-      stdinSpy.mockRestore()
-    }
+    const payload = JSON.stringify({ tool_input: { plan: "inline", plan_path: planPath } })
+    const { code, stdout, stderr } = await run(payload, ["--dry-run"])
+    expect(code).toBe(0)
+    expect(stdout).toBe("")
+    expect(stderr).toBe("")
   })
 
   test.each([
-    JSON.stringify({}),
-    JSON.stringify({ tool_input: {} }),
-    JSON.stringify({ tool_input: { plan: "   " } }),
-    JSON.stringify({ tool_input: { plan_path: "" } }),
-    JSON.stringify({ tool_input: { plan: ["not", "a", "str"] } }),
-    JSON.stringify({ tool_input: "not-a-dict" }),
-    "not json",
-    "",
-  ])("no-op (no launch) for %p", async (payload) => {
-    const stdinSpy = feedStdin(payload)
-    try {
-      expect(await main()).toBe(0)
-      expect(launched).toEqual([])
-      expect(previewed).toEqual([])
-    } finally {
-      stdinSpy.mockRestore()
-    }
+    ["empty object", JSON.stringify({})],
+    ["empty tool_input", JSON.stringify({ tool_input: {} })],
+    ["whitespace plan", JSON.stringify({ tool_input: { plan: "   " } })],
+    ["empty plan_path", JSON.stringify({ tool_input: { plan_path: "" } })],
+    ["non-string plan", JSON.stringify({ tool_input: { plan: ["not", "a", "str"] } })],
+    ["non-object tool_input", JSON.stringify({ tool_input: "not-a-dict" })],
+    ["malformed JSON", "not json"],
+    ["empty stdin", ""],
+  ])("no-plan input (%s) exits 0, silently", async (_label, payload) => {
+    const { code, stdout, stderr } = await run(payload, ["--dry-run"])
+    expect(code).toBe(0)
+    expect(stdout).toBe("")
+    expect(stderr).toBe("")
   })
 
-  test("host-name positional is accepted and ignored (Claude path still opens)", async () => {
-    const stdinSpy = feedStdin(JSON.stringify({ tool_input: { plan: "# Plan" } }))
-    try {
-      // hosts may invoke `plan-preview Gemini`; cmdore binds it, dispatch ignores it.
-      expect(await main(["Gemini"])).toBe(0)
-      expect(launched.length).toBe(1)
-    } finally {
-      stdinSpy.mockRestore()
-    }
+  test("host-name positional is accepted and ignored, still exits 0 silently", async () => {
+    const payload = JSON.stringify({ tool_input: { plan: "# Plan" } })
+    const { code, stdout, stderr } = await run(payload, ["Gemini", "--dry-run"])
+    expect(code).toBe(0)
+    expect(stdout).toBe("")
+    expect(stderr).toBe("")
   })
 
-  test("gate: no IDE -> no open, exits 0", async () => {
-    process.env.PREEMDECK_FORCE_IN_IDEA = "0"
-    const stdinSpy = feedStdin(JSON.stringify({ tool_input: { plan: "# Plan" } }))
-    try {
-      expect(await main()).toBe(0)
-      expect(launched).toEqual([])
-      expect(previewed).toEqual([])
-    } finally {
-      stdinSpy.mockRestore()
-    }
+  test("gate: no live IDE exits 0 silently (no open attempted)", async () => {
+    const payload = JSON.stringify({ tool_input: { plan: "# Plan" } })
+    const { code, stdout, stderr } = await run(payload, [], { PREEMDECK_FORCE_IN_IDEA: "0" })
+    expect(code).toBe(0)
+    expect(stdout).toBe("")
+    expect(stderr).toBe("")
   })
 
-  test("swallows a leaf failure and exits 0", async () => {
-    effect.mock(launch, async () => {
-      throw new Error("IDE went away")
-    })
-    const stdinSpy = feedStdin(JSON.stringify({ tool_input: { plan: "# Plan" } }))
-    try {
-      expect(await main()).toBe(0)
-    } finally {
-      stdinSpy.mockRestore()
-    }
+  test("a cmdore parse failure is swallowed: unknown flag still exits 0 silently", async () => {
+    const payload = JSON.stringify({ tool_input: { plan: "# Plan" } })
+    const { code, stdout, stderr } = await run(payload, ["--bogus"])
+    expect(code).toBe(0)
+    expect(stdout).toBe("")
+    expect(stderr).toBe("")
+  })
+
+  test("--help exits 0 and prints usage to stdout", async () => {
+    const { code, stdout } = await run("", ["--help"])
+    expect(code).toBe(0)
+    expect(stdout).toContain("plan-preview")
   })
 })
