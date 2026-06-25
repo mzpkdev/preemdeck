@@ -21,9 +21,11 @@ import { unlink } from "node:fs/promises"
 /**
  * Default delay before the deferred unlink fires. ~3s gives the IDE ample
  * margin over its ~1s read window to pull the handed-off temp into memory
- * before the on-disk copy is reaped.
+ * before the on-disk copy is reaped. Override via PREEMDECK_REAP_DELAY_MS
+ * (e.g. "0" in tests to reap immediately); falls back to 3000 when unset/invalid.
  */
-export const REAP_DELAY_MS = 3000
+const envDelay = Number(process.env.PREEMDECK_REAP_DELAY_MS)
+export const REAP_DELAY_MS = Number.isFinite(envDelay) ? envDelay : 3000
 
 /**
  * Schedule `paths` to be unlinked `delayMs` ms from now; return at once.

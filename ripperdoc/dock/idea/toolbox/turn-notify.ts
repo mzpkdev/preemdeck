@@ -1,47 +1,10 @@
 #!/usr/bin/env bun
-/**
- * turn-notify.ts — turn-end balloon for the running JetBrains IDE, tagged with
- * the firing session.
- *
- * The Stop / AfterAgent hook entrypoint across the three hosts. It derives a
- * per-tab identity so a developer juggling concurrent agent tabs can tell WHICH
- * session yielded:
- *
- *     title:  <project> · <branch>
- *     body:   <one-line gist of the agent's last message>
- *
- * Every host hands the just-finished reply text straight to the hook in its stdin
- * payload (last_assistant_message on Claude/Codex, prompt_response on Gemini), so
- * there is no transcript to parse. <project> is the basename of the payload cwd;
- * <branch> is read live with a short `git rev-parse` in that cwd. The host label
- * (the optional argv[0] positional) heads the title when no cwd is known and is
- * the fallback body.
- *
- * The CLI is a cmdore commandless command: cmdore owns parsing, help, the global
- * flags, and the host positional. The single write reaches through the engine
- * notify() (notify.ts), which bottoms out in its runGroovy effect.fn wrapper. The
- * git-branch READ is injectable via parameter DI (the `deps` seam) for the error
- * branches. Best-effort and SILENT by contract: a missing IDE, absent/foreign
- * stdin, or a git failure yields a graceful fallback (or no balloon), and main()
- * swallows EVERY cmdore/domain failure so a turn-end hook never disrupts the host
- * and ALWAYS exits 0. Dynamic text is HTML-escaped before it reaches the balloon.
- */
-
-import { basename } from "node:path"
+import * as path from "node:path"
 import { defineCommand, execute } from "cmdore"
 import { spawn } from "../../../../lib/proc.ts"
 import { htmlEscape } from "../../../../lib/text.ts"
 import { inIdea } from "./core/index.ts"
 import { notify } from "./notify.ts"
-
-const PROG = "turn-notify"
-
-/** cmdore metadata for the commandless CLI; version mirrors the idea plugin manifest. */
-const METADATA = {
-    name: PROG,
-    version: "0.1.0",
-    description: "Pop a turn-end notification balloon tagged with the firing session."
-} as const
 
 /**
  * Body cap: a couple of wrapped balloon lines. Longer gists truncate on a word
@@ -158,8 +121,8 @@ export const gitBranch = async (cwd: string | null | undefined): Promise<string 
 
 /**
  * Parameter-DI seam for the value-bearing git-branch READ. The happy path runs
- * the real {@link gitBranch} (driven through a real temp repo in tests); the
- * error branches (detached HEAD, exit 128, git-not-found) inject a stub.
+ * the real {@link gitBranch}; the error branches (detached HEAD, exit 128,
+ * git-not-found) inject a stub.
  */
 export type TurnNotifyDeps = {
     gitBranch: (cwd: string | null | undefined) => Promise<string | null>
@@ -170,7 +133,7 @@ export const DEFAULT_DEPS: TurnNotifyDeps = { gitBranch }
 
 /** `<project> · <branch>` — project from cwd basename, host label as fallback head. */
 export const title = (host: string, cwd: string | null | undefined, branch: string | null): string => {
-    const project = cwd ? basename(cwd.replace(/\/+$/, "")) : ""
+    const project = cwd ? path.basename(cwd.replace(/\/+$/, "")) : ""
     const head = project || host
     return branch ? `${head} · ${branch}` : head
 }
@@ -193,40 +156,22 @@ const emit = async (host: string, deps: TurnNotifyDeps): Promise<void> => {
     await notify(htmlEscape(body), { title: htmlEscape(titleText) })
 }
 
-/**
- * The cmdore command behind the hook, built around `deps` so the git-branch READ
- * stays injectable. The optional `host` positional (hosts invoke `turn-notify
- * Gemini`) heads the title when no cwd is known and is the fallback body;
- * defaults to "Agent" when absent.
- */
-const buildCommand = (deps: TurnNotifyDeps) =>
-    defineCommand({
-        name: PROG,
-        description: METADATA.description,
-        arguments: [{ name: "host", description: "invoking host label (heads the title / fallback body)" }],
-        run: async ({ host }) => {
-            await emit(typeof host === "string" && host ? host : "Agent", deps)
+const command = defineCommand({
+    name: "turn-notify",
+    description: "Pop a turn-end notification balloon tagged with the firing session.",
+    arguments: [{ name: "host", description: "invoking host label (heads the title / fallback body)" }],
+    run: async ({ host }) => {
+        // Best-effort + SILENT by contract: a turn-end hook must never error or
+        // block the host, so swallow every internal failure and return normally.
+        try {
+            await emit(typeof host === "string" && host ? host : "Agent", DEFAULT_DEPS)
+        } catch {
+            // swallow: a missing IDE, foreign stdin, git failure, or notify error
+            // must not disrupt the host
         }
-    })
-
-/**
- * Hook entrypoint: best-effort, SILENT, ALWAYS exits 0. Hands argv to cmdore
- * (parsing, help, the host positional) but swallows EVERY failure (cmdore parse
- * errors and any notify/git failure alike) — a turn-end hook must never error or
- * block the host. `deps` injects the git-branch READ in tests.
- */
-export const main = async (
-    argv: string[] = Bun.argv.slice(2),
-    deps: TurnNotifyDeps = DEFAULT_DEPS
-): Promise<number> => {
-    try {
-        await execute(buildCommand(deps), { argv, metadata: METADATA, onError: "throw" })
-    } catch {
-        // best-effort: a turn-end hook must never error or block the host
     }
-    return 0
-}
+})
 
 if (import.meta.main) {
-    process.exit(await main())
+    process.exit(await execute(command, { metadata: command }))
 }

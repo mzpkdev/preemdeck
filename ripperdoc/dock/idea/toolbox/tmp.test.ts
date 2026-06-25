@@ -9,11 +9,11 @@
 import { afterEach, describe, expect, test } from "bun:test"
 import { realpath, rm } from "node:fs/promises"
 import { tmpdir } from "node:os"
-import { dirname, isAbsolute, join } from "node:path"
+import { basename, isAbsolute, join } from "node:path"
 import { exists } from "../../../../lib/fs.ts"
 import { mkstemp, resolveStrict, writeTemp } from "./tmp.ts"
 
-// Clean up the per-call private dirs each helper mints under the system tmp dir.
+// Clean up the flat temp files each helper mints directly under the system tmp dir.
 const minted: string[] = []
 const track = (path: string): string => {
     minted.push(path)
@@ -23,16 +23,19 @@ const track = (path: string): string => {
 afterEach(async () => {
     while (minted.length > 0) {
         const path = minted.pop()
-        if (path !== undefined) await rm(dirname(path), { recursive: true, force: true })
+        if (path !== undefined) await rm(path, { force: true })
     }
 })
 
 describe("mkstemp", () => {
-    test("creates a fresh empty file under the system temp dir, ending in the suffix", async () => {
+    test("creates a fresh empty flat file directly under the system temp dir, ending in the suffix", async () => {
         const path = track(await mkstemp(".md"))
         expect(await exists(path)).toBe(true)
         expect(path.endsWith(".md")).toBe(true)
-        expect(path.startsWith(tmpdir())).toBe(true)
+        // Flat file directly in tmpdir() (no per-call dir): its parent IS tmpdir()
+        // and the basename carries the idea-tmp- prefix, so reapLater fully cleans it.
+        expect(join(tmpdir(), basename(path))).toBe(path)
+        expect(basename(path).startsWith("idea-tmp-")).toBe(true)
         expect(await Bun.file(path).text()).toBe("") // empty, like os.close(fd) after mkstemp
     })
 
@@ -41,7 +44,7 @@ describe("mkstemp", () => {
         expect(path.endsWith(".txt")).toBe(true)
     })
 
-    test("two calls mint distinct paths (per-call private dir)", async () => {
+    test("two calls mint distinct paths (UUIDv4 filename)", async () => {
         const a = track(await mkstemp(".txt"))
         const b = track(await mkstemp(".txt"))
         expect(a).not.toBe(b)
