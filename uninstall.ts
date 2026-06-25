@@ -42,7 +42,7 @@ export interface UninstallArgs {
 }
 
 export function parseUninstallArgs(argv: string[]): UninstallArgs {
-  const prog = "uninstall.py";
+  const prog = "uninstall.ts";
   let parsed: ReturnType<
     typeof parseArgs<{
       options: { "dry-run": { type: "boolean" }; purge: { type: "boolean" } };

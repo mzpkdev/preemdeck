@@ -41,7 +41,7 @@ describe("merge-inline CLI", () => {
         })
 
         it("accepts an optional base text and --suffix under --dry-run", async () => {
-            const { code, stdout } = await run(["--dry-run", "--suffix", ".py", "mine", "theirs", "ancestor"])
+            const { code, stdout } = await run(["--dry-run", "--suffix", ".ts", "mine", "theirs", "ancestor"])
             expect(code).toBe(0)
             expect(stdout).toBe("")
         })

@@ -206,7 +206,7 @@ describe("setPreview", () => {
 
     test("non-HTML, non-previewable type still takes the setLayout route", async () => {
         const cap = captureDeps()
-        await setPreview("/Users/me/snippet.py", cap.deps)
+        await setPreview("/Users/me/snippet.ts", cap.deps)
         const g = cap.scripts[0] ?? ""
         expect(g).toContain("SHOW_PREVIEW")
         expect(g).toContain("TextEditorWithPreview")

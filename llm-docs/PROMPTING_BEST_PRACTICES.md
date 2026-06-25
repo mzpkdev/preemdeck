@@ -63,7 +63,7 @@ Pitch instructions at the right altitude — specific enough to guide, loose eno
 
 ```text
 # Avoid — too rigid, brittle on the first unseen case
-If the file ends in .py, run black; if .js, run prettier; if .go, run gofmt; ...
+If the file ends in .rs, run rustfmt; if .js, run prettier; if .go, run gofmt; ...
 
 # Avoid — too vague, the model guesses
 Format the code nicely.

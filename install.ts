@@ -384,7 +384,7 @@ export interface CliArgs {
 }
 
 export function parseInstallArgs(argv: string[]): CliArgs {
-  const prog = "install.py";
+  const prog = "install.ts";
   let parsed: ReturnType<typeof parseArgs<{ options: { "dry-run": { type: "boolean" } }; allowPositionals: true }>>;
   try {
     parsed = parseArgs({

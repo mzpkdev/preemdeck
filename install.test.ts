@@ -577,6 +577,6 @@ describe("parseInstallArgs", () => {
   test("unknown option -> exit 2", () => {
     const { code, stderr } = captureExit(() => parseInstallArgs(["claude", "--nope"]));
     expect(code).toBe(2);
-    expect(stderr).toContain("install.py:");
+    expect(stderr).toContain("install.ts:");
   });
 });

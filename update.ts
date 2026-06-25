@@ -21,7 +21,7 @@ export interface UpdateArgs {
 }
 
 export function parseUpdateArgs(argv: string[]): UpdateArgs {
-  const prog = "update.py";
+  const prog = "update.ts";
   try {
     const parsed = parseArgs({ args: argv, options: { "dry-run": { type: "boolean" } }, allowPositionals: true });
     return { dryRun: parsed.values["dry-run"] === true };
