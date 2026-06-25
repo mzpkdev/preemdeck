@@ -5,9 +5,13 @@ import { assertIdea } from "./assert-idea.ts"
 import { IdeaError, previewUrl, resolveExecPath } from "./core"
 
 /**
- * Open `url` in the running IDE's embedded JCEF web-preview tab. `resolveExecPath()`
- * is the single guard for a live IDE; the `previewUrl()` launch is wrapped in
- * `effect()` so `--dry-run` skips the real ideScript call.
+ * Open `url` in the running IDE's embedded JCEF web-preview tab. The live-IDE
+ * guard (`resolveExecPath()`) and the `previewUrl()` launch are both side
+ * effects, so they live inside one `effect()` — `--dry-run` skips the whole
+ * block, neither resolving the IDE binary nor making the real ideScript call
+ * (matching open-file.ts). Resolving outside `effect()` would make `--dry-run`
+ * require a resolvable live IDE and throw where resolveExecPath isn't
+ * implemented (e.g. Linux).
  *
  * @param url - the http/https URL to load in the preview tab.
  * @param title - optional title for the preview tab.
@@ -18,8 +22,10 @@ import { IdeaError, previewUrl, resolveExecPath } from "./core"
  * await openUrl("https://example.com", "Docs") // preview with a titled tab
  */
 export const openUrl = async (url: string, title?: string): Promise<void> => {
-    await resolveExecPath()
-    await effect(() => previewUrl(url, title))
+    await effect(async () => {
+        await resolveExecPath()
+        await previewUrl(url, title)
+    })
 }
 
 const command = defineCommand({
