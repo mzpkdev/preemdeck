@@ -1,27 +1,36 @@
 # sys
 
-System-level firmware plugin. **Scaffold only** — the manifests are wired into all three hosts and registered in both
-`firmware` marketplace files, but no behavior ships yet. Add a hook, command, or skill, then document it here.
+System-level firmware plugin. Ships **`/sys:update`** — a user-only command that self-updates preemdeck: it pulls
+`~/.preemdeck` to your channel and re-installs every recorded harness by shelling out to the repo-root `update.ts`.
+Never model-invoked on any host.
 
 ---
 
 ## What ships
 
-| File                         | Role            |
-| ---------------------------- | --------------- |
-| `.claude-plugin/plugin.json` | Claude manifest |
-| `.codex-plugin/plugin.json`  | Codex manifest  |
-| `gemini-extension.json`      | Gemini manifest |
-| `README.md`                  | This file       |
+| File                               | Role                                                      |
+| ---------------------------------- | --------------------------------------------------------- |
+| `skills/update/SKILL.md`           | `/sys:update` on Claude + Codex (user-invocable, no auto) |
+| `skills/update/agents/openai.yaml` | Codex's `disable-model-invocation` equivalent             |
+| `commands/update.toml`             | `/sys:update` on Gemini (TOML command surface)            |
+| `.claude-plugin/plugin.json`       | Claude manifest                                           |
+| `.codex-plugin/plugin.json`        | Codex manifest                                            |
+| `gemini-extension.json`            | Gemini manifest                                           |
+| `README.md`                        | This file                                                 |
 
 ---
 
-## Next
+## How it works
 
-Pick a shape and wire it in:
+`/sys:update` runs `"$HOME/.preemdeck/scripts/preemdeck-bun" "$HOME/.preemdeck/update.ts"` and relays the output. The
+command is deliberately deterministic — a fixed invocation, model-invocation disabled, body scoped to "run this, relay
+verbatim." `update.ts` (repo root) does the real work: sync to channel + re-install every recorded harness.
 
-- **Hook** — add a `hooks` block to each manifest (`UserPromptSubmit` on Claude/Codex, `BeforeAgent` on Gemini) pointing
-  at `$HOME/.preemdeck/scripts/preemdeck-bun "${CLAUDE_PLUGIN_ROOT}/scripts/<name>.ts"` (use `${extensionPath}` on
-  Gemini). Drop the script under `scripts/` with a colocated `<name>.test.ts`.
-- **Command** — add `commands/<name>.toml` (Gemini) and/or a backing `skills/<name>/SKILL.md`.
-- **Skill** — add `skills/<name>/SKILL.md` for a model- or user-invocable capability.
+Because the path is the absolute install root — not `${CLAUDE_PLUGIN_ROOT}` / `${extensionPath}` — the invocation is
+byte-identical on all three hosts. Plugins load at startup, so an update lands on the next host-CLI restart.
+
+### Why two surfaces
+
+`user-invocable` and `disable-model-invocation` are Claude-only frontmatter (Codex mirrors the latter via
+`agents/openai.yaml`). Gemini honors neither, and there a skill is model-invocable only — so the user-typed, never-auto
+command surface on Gemini is `commands/*.toml`, not a skill.
