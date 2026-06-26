@@ -1,5 +1,5 @@
 {
   "name": "sys",
-  "version": "0.1.0",
+  "version": "0.0.0",
   "description": "Self-update preemdeck via /sys:update — pull the latest source and re-install every recorded harness."
 }

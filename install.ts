@@ -181,6 +181,16 @@ export async function registerMarketplace(host: string, path: string, dryRun: bo
   return [ok, err];
 }
 
+/**
+ * Refresh a host's cached marketplace clone so a freshly published plugin version is
+ * seen. Claude reads a cached clone to resolve versions and does NOT re-fetch it on
+ * install/update (claude-code#46081), so without this the new 0.0.<n> stays invisible
+ * and the cached plugin copy goes stale. Best-effort — failure doesn't block the install.
+ */
+export async function refreshMarketplace(host: string, name: string, dryRun: boolean): Promise<[boolean, string]> {
+  return runCli([host, "plugin", "marketplace", "update", name], dryRun);
+}
+
 export async function installPlugin(
   host: string,
   spec: PluginSpec,
@@ -188,13 +198,32 @@ export async function installPlugin(
   dryRun: boolean,
 ): Promise<[boolean, string]> {
   if (host === "gemini") {
-    return runCli(["gemini", "extensions", "install", "--path", spec.sourcePath], dryRun);
+    return installGeminiExtension(spec, dryRun);
   }
-  const cmd = [host, "plugin", "install", `${spec.name}@${marketplace}`];
+  // Codex's install verb is `add`; Claude's is `install`.
+  const verb = host === "codex" ? "add" : "install";
+  const cmd = [host, "plugin", verb, `${spec.name}@${marketplace}`];
   if (host === "claude") {
     cmd.push("--scope", "user");
   }
   return runCli(cmd, dryRun);
+}
+
+/**
+ * Install (or refresh) a Gemini extension from its local source. `install --path`
+ * creates it on first run but no-ops once present and never re-copies on a version
+ * bump — so on "already installed" fall back to `extensions update <name>`, which the
+ * per-deploy version bump makes detect the change and re-copy. Takes effect next CLI start.
+ */
+async function installGeminiExtension(spec: PluginSpec, dryRun: boolean): Promise<[boolean, string]> {
+  const [ok, err] = await runCli(["gemini", "extensions", "install", "--path", spec.sourcePath], dryRun);
+  if (ok) {
+    return [ok, err];
+  }
+  if (/already|exists/i.test(err)) {
+    return runCli(["gemini", "extensions", "update", spec.name], dryRun);
+  }
+  return [ok, err];
 }
 
 /** Read the install manifest, returning an empty skeleton if absent/corrupt. */
@@ -461,6 +490,11 @@ export async function installFor(harness: string, dryRun: boolean): Promise<numb
       anySuccess = true;
       if (MARKETPLACE_HOSTS.has(harness)) {
         registeredMarketplaces.push(name);
+      }
+      if (harness === "claude") {
+        // Claude won't re-fetch the cached marketplace clone on install (claude-code#46081),
+        // so the freshly published version is invisible until the clone is refreshed.
+        await refreshMarketplace(harness, name, dryRun);
       }
       for (const spec of readPluginSpecs(path)) {
         const [pOk, pErr] = await installPlugin(harness, spec, name, dryRun);

@@ -1,6 +1,6 @@
 {
   "name": "imprint",
-  "version": "0.1.0",
+  "version": "0.0.0",
   "description": "Per-prompt behavioral imprints. Wetware burn-in for cross-host agents.",
   "contextFileName": "AGENTS.md",
   "hooks": {

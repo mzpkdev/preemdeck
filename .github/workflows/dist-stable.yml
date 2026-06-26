@@ -24,6 +24,7 @@ jobs:
         uses: actions/checkout@v5
         with:
           ref: ${{ inputs.ref }}
+          fetch-depth: 0 # full history so the patch can be derived from the commit count
 
       - name: Assemble pruned tree (allowlist)
         run: |
@@ -41,6 +42,14 @@ jobs:
           for must in ripperdoc lib install.ts package.json bun.lock; do
             [ -e "/tmp/stage/$must" ] || { echo "::error::pruned tree missing $must"; exit 1; }
           done
+
+      - name: Stamp deploy version (0.0.<commit-count>)
+        run: |
+          set -euo pipefail
+          # Source manifests are pinned at 0.0.0; stamp the patch here so every deploy
+          # advances the version string the host caches key on (static = silent no-op).
+          # Commit count → same commit yields the same version on edge and stable.
+          sh scripts/stamp-version.sh /tmp/stage "0.0.$(git rev-list --count HEAD)"
 
       - name: Install Bun (pinned runtime)
         uses: oven-sh/setup-bun@v2

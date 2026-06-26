@@ -1,6 +1,6 @@
 {
   "name": "idea",
-  "version": "0.1.0",
+  "version": "0.0.0",
   "description": "Auto-open specs, briefs, and plans in the correct JetBrains IDE",
   "hooks": {
     "AfterAgent": [

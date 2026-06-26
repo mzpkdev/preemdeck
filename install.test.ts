@@ -36,6 +36,7 @@ import {
   type PluginSpec,
   parseInstallArgs,
   readPluginSpecs,
+  refreshMarketplace,
   registerMarketplace,
   runCli,
   seedConfig,
@@ -243,6 +244,15 @@ describe("registerMarketplace", () => {
   });
 });
 
+// refreshMarketplace — command shape
+
+describe("refreshMarketplace", () => {
+  test("invokes `plugin marketplace update <name>`", async () => {
+    await refreshMarketplace("claude", "dock", false);
+    expect(spawnCalls).toEqual([["claude", "plugin", "marketplace", "update", "dock"]]);
+  });
+});
+
 // installPlugin — command shapes
 
 describe("installPlugin", () => {
@@ -253,14 +263,23 @@ describe("installPlugin", () => {
     expect(spawnCalls).toEqual([["claude", "plugin", "install", "format@chrome", "--scope", "user"]]);
   });
 
-  test("codex has no --scope flag", async () => {
+  test("codex uses the `add` verb, no --scope flag", async () => {
     await installPlugin("codex", spec, "chrome", false);
-    expect(spawnCalls).toEqual([["codex", "plugin", "install", "format@chrome"]]);
+    expect(spawnCalls).toEqual([["codex", "plugin", "add", "format@chrome"]]);
   });
 
   test("gemini uses extensions install --path", async () => {
     await installPlugin("gemini", spec, "chrome", false);
     expect(spawnCalls).toEqual([["gemini", "extensions", "install", "--path", "/some/rack/format"]]);
+  });
+
+  test("gemini falls back to `extensions update` when already installed", async () => {
+    spawnImpl = async () => result({ exitCode: 1, stderr: "extension already installed" });
+    await installPlugin("gemini", spec, "chrome", false);
+    expect(spawnCalls).toEqual([
+      ["gemini", "extensions", "install", "--path", "/some/rack/format"],
+      ["gemini", "extensions", "update", "format"],
+    ]);
   });
 });
 

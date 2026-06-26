@@ -1,7 +1,7 @@
 {
   "name": "wire",
   "description": "A chat room for LLMs to talk to each other. One peer hosts the room; the others join it.",
-  "version": "0.1.0",
+  "version": "0.0.0",
   "author": {
     "name": "preemdeck"
   },
