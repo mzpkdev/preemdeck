@@ -50,23 +50,24 @@ jobs:
       - name: Bundle plugin entries self-contained (inline lib/ + npm deps)
         run: sh scripts/bundle-dist.sh /tmp/stage
 
-      - name: Publish to dist-stable (orphan, linear, no force)
+      - name: Publish to dist-stable (fresh orphan, force-push — no history accretion)
         run: |
           set -euo pipefail
           git config user.name  "preemdeck-ci"
           git config user.email "ci@preemdeck"
-          if git ls-remote --exit-code --heads origin dist-stable >/dev/null 2>&1; then
-            git fetch --depth 1 origin dist-stable:dist-stable
-            git checkout dist-stable
-          else
-            git checkout --orphan dist-stable
-          fi
+          # Each publish is a single-commit orphan force-pushed over dist-stable, so the branch
+          # never accumulates the ~2MB/commit bundle churn. Consumers adopt it by reset
+          # (boot.sh and update.ts both fetch + hard-reset), so the non-ff push is intentional.
+          git checkout --orphan dist-stable-pub
           git rm -rqf . >/dev/null 2>&1 || true
           cp -R /tmp/stage/. .
           git add -A
-          if git diff --cached --quiet; then
-            echo "dist-stable already current — nothing to publish"
+          git commit -q -m "stable: promote ${PROMOTED_SHA}"
+          # No-op guard: skip when the tree matches the current tip, so consumers aren't made
+          # to re-pull identical bytes just because the SHA churned.
+          git fetch --depth 1 origin dist-stable >/dev/null 2>&1 || true
+          if git rev-parse -q --verify FETCH_HEAD >/dev/null 2>&1 && git diff --quiet FETCH_HEAD HEAD; then
+            echo "dist-stable content unchanged — skipping publish"
             exit 0
           fi
-          git commit -m "stable: promote ${PROMOTED_SHA}"
-          git push origin dist-stable   # plain push, never --force → consumers fast-forward
+          git push --force origin HEAD:dist-stable

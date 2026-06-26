@@ -43,23 +43,24 @@ jobs:
       - name: Bundle plugin entries self-contained (inline lib/ + npm deps)
         run: sh scripts/bundle-dist.sh /tmp/stage
 
-      - name: Publish to dist-edge (orphan, linear, no force)
+      - name: Publish to dist-edge (fresh orphan, force-push — no history accretion)
         run: |
           set -euo pipefail
           git config user.name  "preemdeck-ci"
           git config user.email "ci@preemdeck"
-          if git ls-remote --exit-code --heads origin dist-edge >/dev/null 2>&1; then
-            git fetch --depth 1 origin dist-edge:dist-edge
-            git checkout dist-edge
-          else
-            git checkout --orphan dist-edge
-          fi
+          # Each publish is a single-commit orphan force-pushed over dist-edge, so the branch
+          # never accumulates the ~2MB/commit bundle churn. Consumers adopt it by reset
+          # (boot.sh and update.ts both fetch + hard-reset), so the non-ff push is intentional.
+          git checkout --orphan dist-edge-pub
           git rm -rqf . >/dev/null 2>&1 || true
           cp -R /tmp/stage/. .
           git add -A
-          if git diff --cached --quiet; then
-            echo "dist-edge already current — nothing to publish"
+          git commit -q -m "edge: ${GITHUB_SHA::7}"
+          # No-op guard: skip when the tree matches the current tip, so consumers aren't made
+          # to re-pull identical bytes just because the SHA churned.
+          git fetch --depth 1 origin dist-edge >/dev/null 2>&1 || true
+          if git rev-parse -q --verify FETCH_HEAD >/dev/null 2>&1 && git diff --quiet FETCH_HEAD HEAD; then
+            echo "dist-edge content unchanged — skipping publish"
             exit 0
           fi
-          git commit -m "edge: ${GITHUB_SHA::7}"
-          git push origin dist-edge   # plain push, never --force → consumers fast-forward
+          git push --force origin HEAD:dist-edge

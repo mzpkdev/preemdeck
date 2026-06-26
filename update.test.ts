@@ -111,18 +111,21 @@ describe("gitPull", () => {
     try {
       await gitPull("/some/repo", true);
       const out = logSpy.mock.calls.map((c) => String(c[0])).join("\n");
-      expect(out).toContain("(dry-run) would run: git -C /some/repo pull --ff-only");
+      expect(out).toContain("(dry-run) would run: git -C /some/repo fetch --depth 1 origin && git reset --hard @{u}");
     } finally {
       logSpy.mockRestore();
     }
     expect(spawnCalls).toEqual([]);
   });
 
-  test("non-dry-run shells out to git pull --ff-only", async () => {
+  test("non-dry-run fetches + hard-resets onto the upstream (orphan-tolerant)", async () => {
     const outSpy = spyOn(process.stdout, "write").mockImplementation((() => true) as never);
     try {
       await gitPull("/some/repo", false);
-      expect(spawnCalls).toEqual([["git", "-C", "/some/repo", "pull", "--ff-only"]]);
+      expect(spawnCalls).toEqual([
+        ["git", "-C", "/some/repo", "fetch", "--depth", "1", "origin"],
+        ["git", "-C", "/some/repo", "reset", "--hard", "@{u}"],
+      ]);
     } finally {
       outSpy.mockRestore();
     }
@@ -212,11 +215,14 @@ describe("syncTo", () => {
     }
   });
 
-  test("current: delegates to git pull --ff-only", async () => {
+  test("current: fetches + hard-resets onto the upstream", async () => {
     const outSpy = spyOn(process.stdout, "write").mockImplementation((() => true) as never);
     try {
       await syncTo("/r", { mode: "current", ref: "", label: "current branch" }, false);
-      expect(spawnCalls).toEqual([["git", "-C", "/r", "pull", "--ff-only"]]);
+      expect(spawnCalls).toEqual([
+        ["git", "-C", "/r", "fetch", "--depth", "1", "origin"],
+        ["git", "-C", "/r", "reset", "--hard", "@{u}"],
+      ]);
     } finally {
       outSpy.mockRestore();
     }

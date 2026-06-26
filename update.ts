@@ -51,17 +51,14 @@ export function installedHarnesses(repoRoot: string = REPO_ROOT): string[] {
 
 export async function gitPull(repoRoot: string, dryRun: boolean): Promise<void> {
   if (dryRun) {
-    console.log(`  (dry-run) would run: git -C ${repoRoot} pull --ff-only`);
+    console.log(`  (dry-run) would run: git -C ${repoRoot} fetch --depth 1 origin && git reset --hard @{u}`);
     return;
   }
-  const result = await _internals.spawn(["git", "-C", repoRoot, "pull", "--ff-only"]);
-  // Stream child output through (subprocess.run with check=True inherits stdio in
-  // the original; here we forward captured streams, then raise on non-zero like check=True).
-  if (result.stdout) process.stdout.write(result.stdout);
-  if (result.stderr) process.stderr.write(result.stderr);
-  if (result.exitCode !== 0) {
-    throw new Error(`git pull --ff-only failed (exit ${result.exitCode})`);
-  }
+  // The dist branches are re-orphaned on every publish (force-pushed single commits), so a
+  // fast-forward pull can't follow them. Fetch the tracked upstream and hard-reset onto it —
+  // ~/.preemdeck is a managed clone with no local work to preserve (mirrors boot.sh reinstall).
+  await runGit(repoRoot, ["fetch", "--depth", "1", "origin"]);
+  await runGit(repoRoot, ["reset", "--hard", "@{u}"]);
 }
 
 // Channel name -> orphan dist branch (mirrors boot.sh's PREEMDECK_CHANNEL mapping).
