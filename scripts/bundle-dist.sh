@@ -18,7 +18,11 @@ set -eu
 STAGE="${1:-/tmp/stage}"
 
 # Resolve the npm deps the bundler will inline. CI-only: the result is baked into
-# the entries, never shipped as node_modules.
+# each entry, never shipped. Track whether node_modules already existed so a
+# CI-created one can be cleaned below — the dist publish `git add -A`s the whole
+# worktree, and node_modules carries 60MB binaries + secret-scanning tripwires.
+had_node_modules=0
+if [ -d node_modules ]; then had_node_modules=1; fi
 bun install --frozen-lockfile
 
 # Entry points = files that run as a CLI (`import.meta.main`), minus colocated
@@ -29,3 +33,7 @@ for f in $entries; do
   echo "  bundle $f"
   bun build "$f" --target=bun --outfile="$STAGE/$f"
 done
+
+# Drop node_modules only if THIS run created it (fresh CI checkout) — never nuke a
+# contributor's existing install when the script is run locally.
+if [ "$had_node_modules" = 0 ]; then rm -rf node_modules; fi
