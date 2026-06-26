@@ -14,7 +14,7 @@
  */
 
 import { afterEach, beforeEach, describe, expect, spyOn, test } from "bun:test";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -23,9 +23,11 @@ import {
   bootstrapNodeModules,
   CHECK,
   CONFIG_DIRNAMES,
+  CONFIG_FILE,
   configDir,
   copyOverlay,
   CROSS,
+  DEFAULT_CONFIG,
   installFor,
   installPlugin,
   loadManifest,
@@ -37,6 +39,7 @@ import {
   readPluginSpecs,
   registerMarketplace,
   runCli,
+  seedConfig,
   writeManifest,
 } from "./install.ts";
 import type { SpawnOptions, SpawnResult } from "./lib/proc.ts";
@@ -76,6 +79,26 @@ afterEach(() => {
 describe("manifestDir", () => {
   test("claude", () => expect(manifestDir("claude")).toBe(".claude-plugin"));
   test("codex", () => expect(manifestDir("codex")).toBe(".agents/plugins"));
+});
+
+// seedConfig
+
+describe("seedConfig", () => {
+  test("writes preemdeck.json with the built-in defaults when absent", () => {
+    seedConfig(dir, false);
+    expect(readFileSync(join(dir, CONFIG_FILE), "utf8")).toBe(DEFAULT_CONFIG);
+  });
+
+  test("never overwrites an existing preemdeck.json", () => {
+    writeFileSync(join(dir, CONFIG_FILE), '{"update":{"channel":"edge"}}\n');
+    seedConfig(dir, false);
+    expect(readFileSync(join(dir, CONFIG_FILE), "utf8")).toBe('{"update":{"channel":"edge"}}\n');
+  });
+
+  test("dry-run does not write", () => {
+    seedConfig(dir, true);
+    expect(existsSync(join(dir, CONFIG_FILE))).toBe(false);
+  });
 });
 
 // configDir

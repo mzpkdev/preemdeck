@@ -57,6 +57,14 @@ export const MANIFEST_SCHEMA = 1;
 // hardcoded skip — never install these, regardless of marketplace.json
 export const DISABLED_PLUGINS: ReadonlySet<string> = new Set(["ghost"]);
 
+// User-local config. preemdeck.json is gitignored per-install state (the directive
+// object set-mode.ts writes, plus update.channel); install.ts WRITES it from the
+// built-in DEFAULT_CONFIG on first install, so user edits survive every update — git
+// never tracks it (pull/reset can't revert it) and seedConfig never overwrites it.
+// The defaults live here, not in a tracked file.
+export const CONFIG_FILE = "preemdeck.json";
+export const DEFAULT_CONFIG = `${JSON.stringify({ directive: { strategy: "swarm", discretion: "ask" } }, null, 2)}\n`;
+
 export const CHECK = "✓";
 export const CROSS = "✗";
 
@@ -435,6 +443,27 @@ export function printSummary(harness: string, results: Record<string, string>): 
   console.log();
 }
 
+/**
+ * Write the user-local preemdeck.json from the built-in DEFAULT_CONFIG, if absent.
+ *
+ * preemdeck.json is gitignored (the directive object + update.channel); the defaults live in
+ * this install script, not a tracked file. Seed-if-absent: create it on first install, NEVER
+ * overwrite an existing one — so set-mode.ts's writes and a user's channel choice persist across
+ * updates (gitignored => pull/reset leave it alone; this won't clobber it).
+ */
+export function seedConfig(repoRoot: string, dryRun: boolean): void {
+  const dst = join(repoRoot, CONFIG_FILE);
+  if (existsSync(dst)) {
+    return;
+  }
+  if (dryRun) {
+    console.log(`  (dry-run) would write ${CONFIG_FILE} with defaults`);
+    return;
+  }
+  writeFileSync(dst, DEFAULT_CONFIG);
+  console.log(`  ${CHECK} wrote ${CONFIG_FILE} (defaults)`);
+}
+
 export async function installFor(harness: string, dryRun: boolean): Promise<number> {
   if (!(await onPath(harness))) {
     process.stderr.write(`${harness} not on PATH. Install it and re-run.\n`);
@@ -447,6 +476,7 @@ export async function installFor(harness: string, dryRun: boolean): Promise<numb
   }
   console.log();
 
+  seedConfig(REPO_ROOT, dryRun);
   await bootstrapNodeModules(REPO_ROOT, dryRun);
 
   const [ok, err, overlay] = copyOverlay(harness, REPO_ROOT, configDir(harness), dryRun);

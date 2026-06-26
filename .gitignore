@@ -11,6 +11,10 @@
 # Host CLIs (local-only overrides)
 .claude/settings.local.json
 
+# preemdeck user config — written from install.ts's built-in defaults on first install;
+# gitignored so update (pull/reset) never reverts the user's directive/channel edits
+preemdeck.json
+
 # preemdeck install manifest (generated per-install local state)
 .install-manifest.json
 

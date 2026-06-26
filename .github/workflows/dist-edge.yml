@@ -27,7 +27,7 @@ jobs:
           # default; a missing runtime essential fails loudly below (allowlist, not denylist).
           for path in ripperdoc lib scripts root \
                       install.ts update.ts uninstall.ts \
-                      package.json bun.lock boot.sh preemdeck.json tsconfig.json; do
+                      package.json bun.lock boot.sh tsconfig.json; do
             [ -e "$path" ] && cp -R "$path" "/tmp/stage/$path"
           done
           find /tmp/stage -name '*.test.ts' -delete   # drop colocated tests

@@ -80,5 +80,6 @@ Modes shipped: `swarm` (strategy), `ask` / `auto` (discretion).
 - **Value determines slot.** `set-mode.ts <value>` derives the slot from `scripts/modes.json`, so a mode can only ever
   write its own slot — there's no slot argument to get wrong. `skills/default/` ships no `directive.md`, so it is not
   itself a settable mode (and the echo skills never write).
-- `preemdeck.json` is committed at the repo root, so `update.ts`'s `git reset --hard` reverts runtime edits to it. A
-  user-set directive will need an untracked state path.
+- `preemdeck.json` is gitignored user-local state, written by `install.ts` from its built-in defaults on first install
+  (seed-if-absent). Because git never tracks it, `update.ts`'s pull and `boot.sh`'s `reset --hard` leave it alone — so
+  `set-mode.ts`'s runtime edits now persist across updates.
