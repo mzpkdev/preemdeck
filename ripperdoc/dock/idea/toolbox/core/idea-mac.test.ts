@@ -16,7 +16,7 @@ import { mkdir, mkdtemp, rm, utimes } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { IdeaError } from "./errors.ts"
-import { inIdea, type PsProbe, resolveExecPath, resolveLogDir } from "./idea-mac.ts"
+import { inIdea, type PsList, type PsProbe, resolveExecPath, resolveExecPaths, resolveLogDir } from "./idea-mac.ts"
 
 const WEBSTORM = "/Applications/WebStorm.app/Contents/MacOS/webstorm"
 
@@ -92,6 +92,34 @@ describe("resolveExecPath", () => {
     test("stops the climb at a dead/exited pid (probe returns null)", async () => {
         // A probe that always reports "no such process" -> no IDE found -> IdeaError.
         await expect(resolveExecPath(async () => null, 999)).rejects.toThrow(IdeaError)
+    })
+})
+
+describe("resolveExecPaths", () => {
+    const PYCHARM = "/Applications/PyCharm.app/Contents/MacOS/pycharm"
+    const fakeList =
+        (paths: string[]): PsList =>
+        async () =>
+            paths
+
+    test("keeps every distinct running JetBrains launcher, skipping non-IDE procs", async () => {
+        const list = fakeList([
+            "/sbin/launchd",
+            WEBSTORM,
+            "/bin/zsh",
+            PYCHARM,
+            // a helper under the same bundle, but its basename isn't an IDE launcher
+            "/Applications/WebStorm.app/Contents/MacOS/fsnotifier"
+        ])
+        expect(await resolveExecPaths(list)).toEqual([WEBSTORM, PYCHARM])
+    })
+
+    test("dedupes repeated launcher paths (one process path per running product)", async () => {
+        expect(await resolveExecPaths(fakeList([WEBSTORM, WEBSTORM, PYCHARM]))).toEqual([WEBSTORM, PYCHARM])
+    })
+
+    test("returns [] when no JetBrains IDE is running", async () => {
+        expect(await resolveExecPaths(fakeList(["/bin/zsh", "/sbin/launchd"]))).toEqual([])
     })
 })
 

@@ -156,3 +156,49 @@ export const runGroovy = async (groovy: string, note: string, deps: RunGroovyDep
         reapLater([script])
     }
 }
+
+/**
+ * Run the SAME one-shot `groovy` against EACH of `execPaths` in turn; never reject.
+ *
+ * The broadcast sibling of {@link runGroovy} (which hits only the ancestry binary):
+ * `notify --all` resolves every running JetBrains launcher and dispatches the same
+ * script to each, so one balloon pops per running IDE. The temp `.groovy` is
+ * written ONCE and reused across launches (each pinned to its product via
+ * `resolveExec`), then handed to the deferred reaper exactly once.
+ *
+ * Per target the swallow rules match runGroovy: a missing/again-resolved launcher
+ * (IdeaError), an unimplemented platform (NotImplementedError), or an OS spawn
+ * error degrades to a `{note}` stderr line and the loop continues to the next IDE;
+ * any other throwable propagates (a real bug). An empty `execPaths` is a no-op
+ * dispatch (the temp is still written and reaped).
+ */
+export const runGroovyOn = async (
+    groovy: string,
+    note: string,
+    execPaths: readonly string[],
+    deps: RunGroovyDeps = {}
+): Promise<void> => {
+    const launch = deps.launch ?? defaultLaunch
+    const reapLater = deps.reapLater ?? defaultReapLater
+    const writeTemp = deps.writeTemp ?? defaultWriteTemp
+    const warn = deps.warn ?? ((line: string) => process.stderr.write(line))
+
+    const script = await writeTemp(groovy)
+    try {
+        for (const execPath of execPaths) {
+            try {
+                // Pin this launch to one product (no ancestry walk); same script, same temp.
+                await launch(["ideScript", script], { wait: true, resolveExec: () => execPath })
+            } catch (err) {
+                if (isSwallowable(err)) {
+                    const message = err instanceof Error ? err.message : String(err)
+                    warn(`${note} (${message})\n`)
+                } else {
+                    throw err
+                }
+            }
+        }
+    } finally {
+        reapLater([script])
+    }
+}

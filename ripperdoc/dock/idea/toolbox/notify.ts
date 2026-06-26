@@ -4,7 +4,14 @@ import { defineCommand, effect, execute } from "cmdore"
 import type { Action } from "../../../../lib/args.ts"
 import { assertIdea } from "./assert-idea.ts"
 import { boolean } from "./core/coercers.ts"
-import { escapeGroovy, groovyProjectByCwd, runGroovy, webpreviewOpenBody } from "./core/index.ts"
+import {
+    escapeGroovy,
+    groovyProjectByCwd,
+    resolveExecPaths,
+    runGroovy,
+    runGroovyOn,
+    webpreviewOpenBody
+} from "./core/index.ts"
 
 /** The notification group id the balloon registers under. */
 export const NOTIFY_GROUP_ID = "idea.toolbox"
@@ -58,21 +65,20 @@ export const NOTIFICATION_ACTIONS: Record<string, ActionEntry> = {
 // Groovy run on the EDT against the live IntelliJ Platform API. {actions} is
 // zero-or-more rendered n.addAction(...) lines (empty when no --action).
 //
-// Targeting: ideScript already reached the one running process for THIS product
-// (the ancestry walk picked its binary), so getOpenProjects() is every window of
-// this IDE and nothing else. The `fire` closure builds a FRESH Notification per
-// target — a Notification is single-shot, so --all can't reuse one. With `all`,
-// pop in every open window; otherwise pick the project whose basePath is the
-// longest prefix of `cwd` (the window the terminal sits in) and fall back to a
-// null/application-level target, which IntelliJ routes to the focused frame.
+// Targeting (within ONE IDE process): this script always pops in a SINGLE window —
+// the project whose basePath is the longest prefix of `cwd` (the window the
+// terminal sits in), falling back to a null/application-level target, which
+// IntelliJ routes to the focused frame. The `--all` broadcast lives a layer up:
+// notify dispatches this same script to every running IDE's launcher (see
+// runGroovyOn), so there is no all-windows branch here. The `fire` closure builds
+// a FRESH Notification per call — a Notification is single-shot.
 const groovyNotify = (
     group: string,
     title: string,
     content: string,
     type: string,
     actions: string,
-    cwd: string,
-    all: boolean
+    cwd: string
 ): string => {
     return `import com.intellij.notification.Notification
 import com.intellij.notification.NotificationAction
@@ -87,10 +93,6 @@ ApplicationManager.getApplication().invokeLater {
         Notifications.Bus.notify(n, target)
     }
     def projects = ProjectManager.getInstance().getOpenProjects()
-    if (${all ? "true" : "false"}) {
-        if (projects.length == 0) fire(null) else projects.each { fire(it) }
-        return
-    }
     def cwd = "${cwd}"
 ${groovyProjectByCwd({ varName: "best", fallback: "null", indent: "    " })}
     fire(best)
@@ -125,17 +127,17 @@ const renderActions = (actions: Action[]): string => {
 /**
  * Render the notification Groovy for title/message/typeToken/actions.
  *
- * `cwd` selects the target window in the default (non-`all`) path — escaped like
- * every other literal so a path can't break out of the Groovy string. `all`
- * broadcasts to every open window of this IDE instead.
+ * `cwd` selects the target window (the project whose basePath is the longest
+ * prefix of it) — escaped like every other literal so a path can't break out of
+ * the Groovy string. The `--all` broadcast is handled at dispatch (one run of this
+ * same script per running IDE), not in the rendered Groovy.
  */
 export const groovyFor = (
     title: string,
     message: string,
     typeToken: string,
     actions: Action[] = [],
-    cwd = "",
-    all = false
+    cwd = ""
 ): string => {
     const constant = NOTIFICATION_TYPES[typeToken]
     if (constant === undefined) {
@@ -147,8 +149,7 @@ export const groovyFor = (
         escapeGroovy(message),
         constant,
         renderActions(actions),
-        escapeGroovy(cwd),
-        all
+        escapeGroovy(cwd)
     )
 }
 
@@ -159,7 +160,7 @@ export type NotifyOptions = {
     actions?: Action[]
     /** Working directory used to pick the terminal's window (longest basePath prefix). Defaults to `process.cwd()`. */
     cwd?: string
-    /** Broadcast to every open window of this IDE instead of just the terminal's. */
+    /** Broadcast one balloon to every running JetBrains IDE (deduped by launcher) instead of just the one that launched the terminal. */
     all?: boolean
 }
 
@@ -176,7 +177,7 @@ export type NotifyOptions = {
  * @example
  * await notify("Build finished") // plain info balloon titled "PreemDeck", in the terminal's window
  * await notify("Tests failed", { typeToken: "error", actions: [{ name: "open-file", arg: "log.txt" }] }) // error balloon with a clickable action
- * await notify("Deploy done", { all: true }) // pop in every open window of this IDE
+ * await notify("Deploy done", { all: true }) // one balloon in every running JetBrains IDE
  */
 export const notify = async (message: string, options: NotifyOptions = {}): Promise<void> => {
     const title = options.title ?? "PreemDeck"
@@ -184,11 +185,23 @@ export const notify = async (message: string, options: NotifyOptions = {}): Prom
     const actions = options.actions ?? []
     const cwd = options.cwd ?? process.cwd()
     const all = options.all ?? false
-    // runGroovy never rejects (it degrades a missing IDE / spawn error to a stderr
-    // note); --dry-run flips effect off so the IDE write is skipped.
-    await effect(() =>
-        runGroovy(groovyFor(title, message, typeToken, actions, cwd, all), "notify: could not pop notification")
-    )
+    const groovy = groovyFor(title, message, typeToken, actions, cwd)
+    const note = "notify: could not pop notification"
+    // runGroovy / runGroovyOn never reject (a missing IDE / spawn error degrades to
+    // a stderr note); --dry-run flips effect off so the IDE write is skipped.
+    await effect(async () => {
+        if (all) {
+            // Broadcast: one balloon per running JetBrains IDE. Discovery degrades to
+            // [] on any probe failure; an empty set (or the non-broadcast path) falls
+            // back to the single ancestry binary so the balloon still pops locally.
+            const execPaths = await resolveExecPaths()
+            if (execPaths.length > 0) {
+                await runGroovyOn(groovy, note, execPaths)
+                return
+            }
+        }
+        await runGroovy(groovy, note)
+    })
 }
 
 /**
@@ -281,7 +294,7 @@ const command = defineCommand({
         {
             name: "all",
             arity: 0,
-            description: "pop in every open window of this IDE, not just the terminal's",
+            description: "broadcast to every running JetBrains IDE (one balloon each), not just the launching one",
             coerce: boolean
         }
     ],

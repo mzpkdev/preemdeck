@@ -154,8 +154,10 @@ const emit = async (host: string, deps: TurnNotifyDeps): Promise<void> => {
     const titleText = title(host, cwd, branch)
     const body = gist || `${host} finished responding`
     // Pass the raw cwd (NOT html-escaped) so notify can match it against project
-    // basePaths and pop in the window the session actually ran in.
-    await notify(htmlEscape(body), { title: htmlEscape(titleText), cwd: cwd ?? undefined })
+    // basePaths and pop in the window the session actually ran in. `all` broadcasts
+    // one balloon to every running JetBrains IDE, so the turn-end alert is visible
+    // whichever IDE is focused (each still targets its own terminal/focused window).
+    await notify(htmlEscape(body), { title: htmlEscape(titleText), cwd: cwd ?? undefined, all: true })
 }
 
 const command = defineCommand({

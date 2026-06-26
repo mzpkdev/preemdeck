@@ -11,7 +11,7 @@
 
 import { describe, expect, test } from "bun:test"
 import { IdeaError, NotImplementedError } from "./errors.ts"
-import { escapeGroovy, groovyProjectByCwd, type RunGroovyDeps, runGroovy } from "./groovy.ts"
+import { escapeGroovy, groovyProjectByCwd, type RunGroovyDeps, runGroovy, runGroovyOn } from "./groovy.ts"
 
 describe("escapeGroovy", () => {
     test("escapes backslashes FIRST, then double quotes", () => {
@@ -149,6 +149,70 @@ describe("runGroovy", () => {
 
         await expect(runGroovy("x", "note", d)).rejects.toBeInstanceOf(TypeError)
         // The finally still ran, so the temp is reaped even when the error propagates.
+        expect(reaped.length).toBe(1)
+    })
+})
+
+describe("runGroovyOn", () => {
+    test("dispatches the SAME temp script to EACH exec path, blocking, via ideScript", async () => {
+        // A launch that resolves + records each target binary (the existing launchSpy
+        // ignores resolveExec; the per-target identity is what runGroovyOn adds).
+        const targets: string[] = []
+        const scripts: string[] = []
+        const launch: NonNullable<RunGroovyDeps["launch"]> = async (args, options) => {
+            targets.push((await options?.resolveExec?.()) ?? "")
+            scripts.push(await Bun.file(args[1] ?? "").text())
+            expect(options?.wait).toBe(true)
+            expect(args[0]).toBe("ideScript")
+            expect(args[1]?.endsWith(".groovy")).toBe(true)
+            return {} as Bun.Subprocess
+        }
+        const reaped: string[][] = []
+        await runGroovyOn("G", "note", ["/A/MacOS/webstorm", "/B/MacOS/pycharm"], {
+            launch,
+            reapLater: (paths) => {
+                const list = [...paths]
+                reaped.push(list)
+                for (const p of list) void Bun.file(p).unlink?.()
+            }
+        })
+
+        expect(targets).toEqual(["/A/MacOS/webstorm", "/B/MacOS/pycharm"])
+        expect(scripts).toEqual(["G", "G"]) // one temp, reused for every product
+        expect(reaped.length).toBe(1) // reaped exactly once, after all dispatches
+    })
+
+    test("swallows a per-target failure and still dispatches to the rest, reaping once", async () => {
+        // launchSpy(err) throws on EVERY call: with two targets both swallow, the loop
+        // visits both, and the temp is reaped a single time.
+        const spy = launchSpy(Object.assign(new Error("launcher missing"), { code: "ENOENT" }))
+        const { deps: d, reaped, warned } = deps(spy)
+
+        await expect(
+            runGroovyOn("x", "notify: could not pop notification", ["/A/webstorm", "/B/pycharm"], d)
+        ).resolves.toBeUndefined()
+        expect(spy.calls.length).toBe(2) // a dead first IDE did not abort the second
+        expect(warned.length).toBe(2)
+        expect(warned.join("")).toContain("notify:")
+        expect(reaped.length).toBe(1)
+    })
+
+    test("rethrows a non-swallowable error and stops (still reaps the temp)", async () => {
+        const spy = launchSpy(new TypeError("boom")) // no .code -> a real bug
+        const { deps: d, reaped } = deps(spy)
+
+        await expect(runGroovyOn("x", "note", ["/A/webstorm", "/B/pycharm"], d)).rejects.toBeInstanceOf(TypeError)
+        expect(spy.calls.length).toBe(1) // bailed on the first target
+        expect(reaped.length).toBe(1)
+    })
+
+    test("an empty target set is a no-op dispatch (temp written + reaped, no launch)", async () => {
+        const spy = launchSpy()
+        const { deps: d, reaped } = deps(spy)
+
+        await runGroovyOn("x", "note", [], d)
+
+        expect(spy.calls.length).toBe(0)
         expect(reaped.length).toBe(1)
     })
 })

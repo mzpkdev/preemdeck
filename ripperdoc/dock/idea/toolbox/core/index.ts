@@ -18,6 +18,7 @@ import * as ideaMac from "./idea-mac.ts"
 type PlatformModule = {
     inIdea: () => boolean
     resolveExecPath: () => Promise<string>
+    resolveExecPaths: () => Promise<string[]>
     resolveLogDir: () => Promise<string>
 }
 
@@ -59,6 +60,11 @@ export const resolveExecPath = async (): Promise<string> => {
     return await platformModule.resolveExecPath()
 }
 
+/** Absolute paths to EVERY running JetBrains IDE launcher (the `notify --all` broadcast set, per-OS). */
+export const resolveExecPaths = async (): Promise<string[]> => {
+    return await platformModule.resolveExecPaths()
+}
+
 /** Log dir of the IDE this process is running inside (per-OS). */
 export const resolveLogDir = async (): Promise<string> => {
     return await platformModule.resolveLogDir()
@@ -66,13 +72,14 @@ export const resolveLogDir = async (): Promise<string> => {
 
 /** Shared error types callers `catch`/`instanceof` across the toolbox. */
 export { IdeaError, NotImplementedError } from "./errors.ts"
-/** Shared ideScript bridge: escape a Groovy literal, target the terminal's window, run a one-shot script. */
+/** Shared ideScript bridge: escape a Groovy literal, target the terminal's window, run a one-shot script (against the ancestry IDE, or every running IDE via runGroovyOn). */
 export {
     escapeGroovy,
     groovyProjectByCwd,
     type ProjectByCwdOptions,
     type RunGroovyDeps,
-    runGroovy
+    runGroovy,
+    runGroovyOn
 } from "./groovy.ts"
 /**
  * Cross-platform launch (resolves resolveExecPath lazily at call time — see

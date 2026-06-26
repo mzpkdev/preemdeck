@@ -12,11 +12,12 @@
  * NotImplementedError.
  */
 
-import { readFile, readlink } from "node:fs/promises"
+import { readdir, readFile, readlink } from "node:fs/promises"
 import { IdeaError, NotImplementedError } from "./errors.ts"
-// IDE launcher basenames are platform-neutral; share the single source of truth
-// with macOS (index.ts loads both per-OS modules, so this adds no extra cost).
-import { IDE_BINARIES } from "./idea-mac.ts"
+// IDE launcher basenames + the shared dedupe filter are platform-neutral; share
+// the single source of truth with macOS (index.ts loads both per-OS modules, so
+// this adds no extra cost).
+import { filterIdeExecs, IDE_BINARIES } from "./idea-mac.ts"
 
 /** One ancestry step: a process's parent pid and its executable path. */
 type ProcEntry = {
@@ -97,6 +98,45 @@ export const resolveExecPath = async (
         }
     }
     throw new IdeaError("no JetBrains IDE in the process ancestry")
+}
+
+/**
+ * Lists the executable path (`/proc/<pid>/exe` target) of every running process.
+ * Injectable so tests can feed a canned process table without a real `/proc`
+ * (mirrors the macOS {@link PsList} seam).
+ */
+export type ProcList = () => Promise<string[]>
+
+const defaultProcList: ProcList = async () => {
+    let names: string[]
+    try {
+        names = await readdir("/proc")
+    } catch {
+        return [] // no readable /proc -> "no IDEs found", not a throw
+    }
+    const out: string[] = []
+    for (const name of names) {
+        if (!/^\d+$/.test(name)) {
+            continue // skip non-pid entries (cpuinfo, self, …)
+        }
+        try {
+            out.push(await readlink(`/proc/${name}/exe`))
+        } catch {
+            // pid exited mid-scan, or its exe is unreadable (foreign owner) — skip it
+        }
+    }
+    return out
+}
+
+/**
+ * Absolute paths to EVERY running JetBrains IDE launcher (not just the ancestry
+ * one) — the broadcast target set for `notify --all`. Scans `/proc` and keeps the
+ * distinct launcher binaries. Mirrors the macOS surface; only the probe differs
+ * (`/proc` vs `ps`). Returns `[]` when none are running; `list` is an injectable
+ * seam for hermetic tests.
+ */
+export const resolveExecPaths = async (list: ProcList = defaultProcList): Promise<string[]> => {
+    return filterIdeExecs(await list())
 }
 
 /**

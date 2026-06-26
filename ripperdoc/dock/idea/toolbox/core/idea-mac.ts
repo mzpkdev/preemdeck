@@ -115,6 +115,63 @@ export const resolveExecPath = async (
 }
 
 /**
+ * Dedupe `exePaths` down to the distinct running JetBrains IDE launcher binaries
+ * — those whose basename is in {@link IDE_BINARIES} — preserving first-seen order.
+ *
+ * The shared filter behind both platforms' `resolveExecPaths`: macOS feeds it
+ * `ps -A` comm paths, Linux feeds it `/proc/<pid>/exe` targets. A product runs as
+ * one process (multi-window is in-process), so dedupe collapses any repeats to one
+ * launcher path per running product.
+ */
+export const filterIdeExecs = (exePaths: Iterable<string>): string[] => {
+    const seen = new Set<string>()
+    const out: string[] = []
+    for (const exe of exePaths) {
+        const base = exe.slice(exe.lastIndexOf("/") + 1)
+        if (IDE_BINARIES.has(base) && !seen.has(exe)) {
+            seen.add(exe)
+            out.push(exe)
+        }
+    }
+    return out
+}
+
+/**
+ * Lists the executable path of every running process. Injectable so tests can
+ * feed a canned process table without spawning `ps` (mirrors {@link PsProbe}).
+ */
+export type PsList = () => Promise<string[]>
+
+const defaultPsList: PsList = async () => {
+    try {
+        const proc = Bun.spawn(["ps", "-A", "-o", "comm="], { stdout: "pipe" })
+        const out = await new Response(proc.stdout).text()
+        await proc.exited
+        // macOS `comm=` is the FULL untruncated path (see file header), one per line.
+        return out
+            .split("\n")
+            .map((line) => line.trim())
+            .filter((line) => line.length > 0)
+    } catch {
+        return [] // a `ps` spawn failure degrades to "no IDEs found", not a throw
+    }
+}
+
+/**
+ * Absolute paths to EVERY running JetBrains IDE launcher (not just the ancestry
+ * one) — the broadcast target set for `notify --all`. Scans the whole process
+ * table and keeps the distinct launcher binaries.
+ *
+ * Unlike {@link resolveExecPath} (the single ancestry binary), this reaches IDEs
+ * the terminal was NOT launched from — a running PyCharm alongside the WebStorm
+ * that opened this terminal. Returns `[]` when none are running (or the probe
+ * fails); `list` is an injectable seam for hermetic tests.
+ */
+export const resolveExecPaths = async (list: PsList = defaultPsList): Promise<string[]> => {
+    return filterIdeExecs(await list())
+}
+
+/**
  * Log dir of the IDE this process is running inside (active product, newest
  * version).
  *

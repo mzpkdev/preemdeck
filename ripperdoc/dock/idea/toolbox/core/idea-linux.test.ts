@@ -9,7 +9,7 @@
 
 import { describe, expect, test } from "bun:test"
 import { IdeaError } from "./errors.ts"
-import { type ProcProbe, resolveExecPath } from "./idea-linux.ts"
+import { type ProcList, type ProcProbe, resolveExecPath, resolveExecPaths } from "./idea-linux.ts"
 
 // A native JetBrains launcher path as seen via /proc/<pid>/exe on Linux.
 const WEBSTORM = "/opt/webstorm/bin/webstorm"
@@ -57,5 +57,26 @@ describe("resolveExecPath (linux)", () => {
     test("stops the climb at a dead/exited pid (probe returns null)", async () => {
         // A probe that always reports "no such process" -> no IDE found -> IdeaError.
         await expect(resolveExecPath(async () => null, 999)).rejects.toThrow(IdeaError)
+    })
+})
+
+describe("resolveExecPaths (linux)", () => {
+    const PYCHARM = "/opt/pycharm/bin/pycharm"
+    const fakeList =
+        (paths: string[]): ProcList =>
+        async () =>
+            paths
+
+    test("keeps every distinct running JetBrains launcher, skipping non-IDE procs", async () => {
+        const list = fakeList(["/usr/bin/zsh", WEBSTORM, PYCHARM, "/opt/webstorm/bin/fsnotifier"])
+        expect(await resolveExecPaths(list)).toEqual([WEBSTORM, PYCHARM])
+    })
+
+    test("dedupes repeated launcher paths (one /proc exe per running product)", async () => {
+        expect(await resolveExecPaths(fakeList([WEBSTORM, WEBSTORM]))).toEqual([WEBSTORM])
+    })
+
+    test("returns [] when no JetBrains IDE is running", async () => {
+        expect(await resolveExecPaths(fakeList(["/usr/bin/zsh", "/sbin/init"]))).toEqual([])
     })
 })
