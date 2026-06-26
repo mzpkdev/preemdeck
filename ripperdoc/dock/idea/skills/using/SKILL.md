@@ -119,7 +119,9 @@ prints the file's full text (whether or not it was edited).
 - `--column COLUMN` — 1-based column (optional).
 - `--wait` — block until the tab closes, then print the file's contents to stdout.
 - `--preview` — after opening, flip the editor to WebStorm's rendered preview (best-effort; a no-op for filetypes that
-  have no preview). Useful for Markdown/HTML.
+  have no preview). Useful for Markdown/HTML. The preview pane is rendered but the **source stays editable** — combine
+  with `--wait` to flip to preview on open, let the user switch to source and edit, then read the modified text back on
+  close. (`--preview` alone is fire-and-forget; the read-back needs `--wait`.)
 
 **When to use:** the user wants a real file opened, or wants to land on a specific line.
 
@@ -127,6 +129,7 @@ prints the file's full text (whether or not it was edited).
 "$HOME/.preemdeck/scripts/preemdeck-bun" "$TB/open-file.ts" src/app.ts --line 42      # jump to line 42, fire-and-forget
 "$HOME/.preemdeck/scripts/preemdeck-bun" "$TB/open-file.ts" notes.md --wait           # block until closed, then print the file
 "$HOME/.preemdeck/scripts/preemdeck-bun" "$TB/open-file.ts" README.md --preview       # open, then flip to rendered preview
+"$HOME/.preemdeck/scripts/preemdeck-bun" "$TB/open-file.ts" plan.md --preview --wait   # preview on open, stays editable, prints the user's edits on close
 ```
 
 ## open-url.ts — open an http(s) URL in the IDE's preview
@@ -161,15 +164,18 @@ any generated text you're holding as a string (no need to write a file first).
 - `--suffix SUFFIX` — temp-file suffix; the IDE uses it to pick syntax highlighting (default `.txt`). E.g.
   `--suffix .ts`, `--suffix .md`.
 - `--wait` — block until the tab closes, then print the (possibly edited) contents to stdout.
-- `--preview` — after opening, flip to rendered preview (pair with `--suffix .md`/`.html`).
+- `--preview` — after opening, flip to rendered preview (pair with `--suffix .md`/`.html`). Source stays editable, so
+  add `--wait` to show the rendered preview, let the user tweak the source, and read the adjusted text back.
 
 **When to use:** "show me this snippet", "open this text", "render this markdown". Add `--wait` if you want to read back
-the user's edits.
+the user's edits — e.g. "show me the plan and let me tweak it": `--suffix .md --preview --wait` renders it, stays
+editable, and returns the user's adjusted version.
 
 ```bash
 "$HOME/.preemdeck/scripts/preemdeck-bun" "$TB/open-inline.ts" "$snippet" --suffix .ts        # open with .ts highlighting
 "$HOME/.preemdeck/scripts/preemdeck-bun" "$TB/open-inline.ts" "$snippet" --wait              # block until closed, then print
 "$HOME/.preemdeck/scripts/preemdeck-bun" "$TB/open-inline.ts" "$md" --suffix .md --preview   # open, then flip to rendered preview
+"$HOME/.preemdeck/scripts/preemdeck-bun" "$TB/open-inline.ts" "$plan" --suffix .md --preview --wait   # render plan, stay editable, print the user's edits
 ```
 
 ## diff-file.ts — 2-way diff of two files
