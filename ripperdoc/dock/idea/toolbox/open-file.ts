@@ -11,6 +11,8 @@ export type OpenOptions = {
     column?: number | null
     wait?: boolean
     preview?: boolean
+    /** Working directory used to target the terminal's window on the preview flip (longest basePath prefix). Defaults to `process.cwd()`. */
+    cwd?: string
 }
 
 /**
@@ -27,7 +29,7 @@ export type OpenOptions = {
  * const text = await openFile("notes.md", { wait: true }) // block until closed, then read back
  */
 export const openFile = async (file: string, options?: OpenOptions): Promise<string | null> => {
-    const { line = 1, column = null, wait = false, preview = false } = options ?? {}
+    const { line = 1, column = null, wait = false, preview = false, cwd = process.cwd() } = options ?? {}
     const target = path.resolve(file)
     const args = ["--line", String(line)]
     if (column !== null) {
@@ -36,7 +38,7 @@ export const openFile = async (file: string, options?: OpenOptions): Promise<str
     args.push(target)
     await effect(() => launch(args, { wait }))
     if (preview) {
-        await effect(() => setPreview(target))
+        await effect(() => setPreview(target, cwd))
     }
     return wait ? await fs.readFile(file, { encoding: "utf8" }) : null
 }

@@ -11,7 +11,7 @@
 
 import { describe, expect, test } from "bun:test"
 import { IdeaError, NotImplementedError } from "./errors.ts"
-import { escapeGroovy, type RunGroovyDeps, runGroovy } from "./groovy.ts"
+import { escapeGroovy, groovyProjectByCwd, type RunGroovyDeps, runGroovy } from "./groovy.ts"
 
 describe("escapeGroovy", () => {
     test("escapes backslashes FIRST, then double quotes", () => {
@@ -29,6 +29,44 @@ describe("escapeGroovy", () => {
     })
     test("quote and backslash together", () => {
         expect(escapeGroovy('we"ird\\name')).toBe('we\\"ird\\\\name')
+    })
+})
+
+describe("groovyProjectByCwd", () => {
+    test("defaults: binds `project`, falls back to projects[0], scans `projects`/`cwd`", () => {
+        const g = groovyProjectByCwd()
+        expect(g).toContain("def project = projects[0]")
+        expect(g).toContain("def bestLen = -1")
+        expect(g).toContain("projects.each { p ->")
+        expect(g).toContain('if (bp != null && (cwd == bp || cwd.startsWith(bp + "/")) && bp.length() > bestLen) {')
+        expect(g).toContain("project = p")
+    })
+
+    test("null fallback + custom var = notify's application-level target", () => {
+        const g = groovyProjectByCwd({ varName: "best", fallback: "null" })
+        expect(g).toContain("def best = null")
+        expect(g).toContain("best = p")
+        expect(g).not.toContain("def project")
+    })
+
+    test("custom projectsVar / cwdVar are threaded through the loop", () => {
+        const g = groovyProjectByCwd({
+            varName: "actionProject",
+            fallback: "actionProjects[0]",
+            projectsVar: "actionProjects",
+            cwdVar: "actionCwd"
+        })
+        expect(g).toContain("def actionProject = actionProjects[0]")
+        expect(g).toContain("actionProjects.each { p ->")
+        expect(g).toContain('actionCwd == bp || actionCwd.startsWith(bp + "/")')
+    })
+
+    test("indent prefixes every line and there is no trailing newline", () => {
+        const g = groovyProjectByCwd({ indent: "    " })
+        for (const line of g.split("\n")) {
+            expect(line.startsWith("    ")).toBe(true)
+        }
+        expect(g.endsWith("\n")).toBe(false)
     })
 })
 

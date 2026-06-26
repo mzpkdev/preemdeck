@@ -15,16 +15,17 @@ import { IdeaError, previewUrl, resolveExecPath } from "./core"
  *
  * @param url - the http/https URL to load in the preview tab.
  * @param title - optional title for the preview tab.
+ * @param cwd - working directory used to target the terminal's window; defaults to `process.cwd()`.
  * @returns nothing; the side effect is the opened preview tab.
  *
  * @example
  * await openUrl("http://localhost:3000") // preview the dev server
  * await openUrl("https://example.com", "Docs") // preview with a titled tab
  */
-export const openUrl = async (url: string, title?: string): Promise<void> => {
+export const openUrl = async (url: string, title?: string, cwd: string = process.cwd()): Promise<void> => {
     await effect(async () => {
         await resolveExecPath()
-        await previewUrl(url, title)
+        await previewUrl(url, title, cwd)
     })
 }
 

@@ -29,6 +29,65 @@ export const escapeGroovy = (literal: string): string => {
     return literal.replaceAll("\\", "\\\\").replaceAll('"', '\\"')
 }
 
+/**
+ * Splice controls for {@link groovyProjectByCwd}: the bound variable, the
+ * no-match fallback, the projects-array and cwd-literal names already in scope,
+ * and the indent to align the block at its nesting level. All default so a
+ * top-level `projects`/`cwd` scope needs only the indent.
+ */
+export type ProjectByCwdOptions = {
+    /** Name to bind the selected project to. Default `project`. */
+    varName?: string
+    /**
+     * Value when `cwd` matches no open project — `projects[0]` (the default) when
+     * a concrete project is required (preview's FileEditorManager), or `null` for
+     * an application-level target (notify's balloon, routed to the focused frame).
+     */
+    fallback?: string
+    /** Name of the in-scope open-projects array to scan. Default `projects`. */
+    projectsVar?: string
+    /** Name of the in-scope (already-escaped) cwd String literal to match. Default `cwd`. */
+    cwdVar?: string
+    /** Prefixed to every line so the block aligns when spliced into a deeper nesting level. */
+    indent?: string
+}
+
+/**
+ * Groovy that binds `varName` to the open project whose basePath is the longest
+ * prefix of `cwdVar` — the window the terminal sits in — scanning `projectsVar`.
+ *
+ * The SINGLE SOURCE OF TRUTH for "target the terminal's window": notify and the
+ * preview helpers grew the same byte-for-byte loop, so hoisting it here keeps the
+ * targeting from drifting between them. Emits ONLY the selection — from the
+ * `def <varName> = <fallback>` line through the loop; the caller declares
+ * `def <projectsVar> = ...getOpenProjects()` and the escaped `def <cwdVar> = "..."`
+ * beforehand and reads `varName` after. No trailing newline (the caller's template
+ * supplies it). `indent` prefixes every line for a deeper nesting level.
+ */
+export const groovyProjectByCwd = (options: ProjectByCwdOptions = {}): string => {
+    const varName = options.varName ?? "project"
+    const fallback = options.fallback ?? "projects[0]"
+    const projectsVar = options.projectsVar ?? "projects"
+    const cwdVar = options.cwdVar ?? "cwd"
+    const indent = options.indent ?? ""
+    const body = `def ${varName} = ${fallback}
+def bestLen = -1
+${projectsVar}.each { p ->
+    def bp = p.getBasePath()
+    if (bp != null && (${cwdVar} == bp || ${cwdVar}.startsWith(bp + "/")) && bp.length() > bestLen) {
+        ${varName} = p
+        bestLen = bp.length()
+    }
+}`
+    if (indent === "") {
+        return body
+    }
+    return body
+        .split("\n")
+        .map((line) => indent + line)
+        .join("\n")
+}
+
 /** Seams for hermetic tests; production uses the real launch/reaper/FS. */
 export type RunGroovyDeps = {
     launch?: (args: string[], options?: LaunchOptions) => Promise<Bun.Subprocess>

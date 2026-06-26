@@ -66,8 +66,14 @@ export const resolveLogDir = async (): Promise<string> => {
 
 /** Shared error types callers `catch`/`instanceof` across the toolbox. */
 export { IdeaError, NotImplementedError } from "./errors.ts"
-/** Shared ideScript bridge: escape a Groovy literal + run a one-shot script. */
-export { escapeGroovy, type RunGroovyDeps, runGroovy } from "./groovy.ts"
+/** Shared ideScript bridge: escape a Groovy literal, target the terminal's window, run a one-shot script. */
+export {
+    escapeGroovy,
+    groovyProjectByCwd,
+    type ProjectByCwdOptions,
+    type RunGroovyDeps,
+    runGroovy
+} from "./groovy.ts"
 /**
  * Cross-platform launch (resolves resolveExecPath lazily at call time — see
  * launch.ts — so the static import cycle with this module is import-safe).

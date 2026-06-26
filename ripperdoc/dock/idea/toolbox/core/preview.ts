@@ -38,7 +38,7 @@
 
 import { extname } from "node:path"
 import { parseUrl } from "../../../../../lib/text.ts"
-import { escapeGroovy, type RunGroovyDeps, runGroovy } from "./groovy.ts"
+import { escapeGroovy, groovyProjectByCwd, type RunGroovyDeps, runGroovy } from "./groovy.ts"
 
 /**
  * HTML-family extensions that route to the JCEF web preview instead of the
@@ -48,12 +48,17 @@ import { escapeGroovy, type RunGroovyDeps, runGroovy } from "./groovy.ts"
 export const HTML_PREVIEW_EXTS: ReadonlySet<string> = new Set([".html", ".htm", ".xhtml"])
 
 /**
- * Groovy run on the EDT against the live IntelliJ Platform API. `path` is the
- * target as an already-escaped Groovy string literal. Reopening the file via
+ * Groovy run on the EDT against the live IntelliJ Platform API. `path` and `cwd`
+ * are already-escaped Groovy string literals. Reopening the file via
  * FileEditorManager.openFile(.., true) focuses it before the layout flip (no
  * sleep); the instanceof guard makes non-preview filetypes a clean no-op.
+ *
+ * Window targeting mirrors notify: reopen in the project whose basePath is the
+ * longest prefix of `cwd` (the window the terminal sits in), falling back to the
+ * first open project when `cwd` matches none — without it the preview lands in
+ * whatever window getOpenProjects() returns first, not the terminal's.
  */
-const groovySetLayout = (path: string): string => {
+const groovySetLayout = (path: string, cwd: string): string => {
     return `import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.fileEditor.FileEditorManager
 import com.intellij.openapi.fileEditor.TextEditorWithPreview
@@ -66,7 +71,8 @@ ApplicationManager.getApplication().invokeLater {
     if (vFile == null) return
     def projects = ProjectManager.getInstance().getOpenProjects()
     if (projects.length == 0) return
-    def project = projects[0]
+    def cwd = "${cwd}"
+${groovyProjectByCwd({ indent: "    " })}
     def manager = FileEditorManager.getInstance(project)
     manager.openFile(vFile, true)
     def editor = manager.getSelectedEditor(vFile)
@@ -84,7 +90,7 @@ ApplicationManager.getApplication().invokeLater {
  * that. Gated on the web-preview + JCEF registry keys; if either is off it
  * no-ops (the file is already open from the prior launch).
  */
-const groovyWebPreview = (path: string): string => {
+const groovyWebPreview = (path: string, cwd: string): string => {
     return `import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.fileEditor.FileEditorManager
 import com.intellij.openapi.project.ProjectManager
@@ -97,7 +103,8 @@ ApplicationManager.getApplication().invokeLater {
     try {
         def projects = ProjectManager.getInstance().getOpenProjects()
         if (projects.length == 0) return
-        def project = projects[0]
+        def cwd = "${cwd}"
+${groovyProjectByCwd({ indent: "        " })}
         def vFile = LocalFileSystem.getInstance().refreshAndFindFileByPath("${path}")
         if (vFile == null) return
         if (!(Registry.is("ide.web.preview.enabled") && Registry.is("ide.browser.jcef.enabled"))) return
@@ -184,11 +191,13 @@ export const webpreviewOpenBody = (
 /**
  * Groovy for an arbitrary http/https URL: open it straight into the IDE's
  * embedded JCEF web-preview tab. `body` is the shared WebPreview-open fragment
- * (see `webpreviewOpenBody`). The wrapper here is the script-specific part: run
- * on the EDT, grab the first open project, and guard the whole body so a stray
- * throwable lands in idea.log rather than escaping the ideScript run.
+ * (see `webpreviewOpenBody`); `cwd` is an already-escaped Groovy literal. The
+ * wrapper here is the script-specific part: run on the EDT, pick the terminal's
+ * window (longest basePath prefix of `cwd`, fallback first project), and guard
+ * the whole body so a stray throwable lands in idea.log rather than escaping the
+ * ideScript run.
  */
-const groovyUrlPreview = (body: string): string => {
+const groovyUrlPreview = (body: string, cwd: string): string => {
     return `import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.project.ProjectManager
 
@@ -196,7 +205,8 @@ ApplicationManager.getApplication().invokeLater {
     try {
         def projects = ProjectManager.getInstance().getOpenProjects()
         if (projects.length == 0) return
-        def project = projects[0]
+        def cwd = "${cwd}"
+${groovyProjectByCwd({ indent: "        " })}
 ${body}
     } catch (Throwable t) {
         t.printStackTrace()
@@ -220,16 +230,19 @@ const titleFor = (url: string): string => {
 }
 
 /**
- * Render the preview Groovy with `path` embedded as a safe string literal.
+ * Render the preview Groovy with `path` and `cwd` embedded as safe string
+ * literals.
  *
  * Dispatches by extension: HTML-family targets (`HTML_PREVIEW_EXTS`, matched
  * case-insensitively) get the JCEF web-preview Groovy; everything else gets the
- * markdown SHOW_PREVIEW flip.
+ * markdown SHOW_PREVIEW flip. Both route the open to the project whose basePath
+ * is the longest prefix of `cwd` (the terminal's window).
  */
-const groovyFor = (path: string): string => {
+const groovyFor = (path: string, cwd: string): string => {
     const literal = escapeGroovy(path)
+    const cwdLiteral = escapeGroovy(cwd)
     const ext = extname(path).toLowerCase()
-    return HTML_PREVIEW_EXTS.has(ext) ? groovyWebPreview(literal) : groovySetLayout(literal)
+    return HTML_PREVIEW_EXTS.has(ext) ? groovyWebPreview(literal, cwdLiteral) : groovySetLayout(literal, cwdLiteral)
 }
 
 /**
@@ -244,10 +257,13 @@ const groovyFor = (path: string): string => {
  * a short stderr note, so the caller's open is never turned into a failure.
  * Non-preview filetypes are a clean no-op (guarded inside the Groovy).
  *
- * `deps` is forwarded to runGroovy for hermetic tests.
+ * `cwd` picks the target window — the open project whose basePath is the longest
+ * prefix of it (the window the terminal sits in); empty (the default) leaves the
+ * open in the first project, matching the pre-targeting behavior. `deps` is
+ * forwarded to runGroovy for hermetic tests.
  */
-export const setPreview = async (path: string, deps: RunGroovyDeps = {}): Promise<void> => {
-    await runGroovy(groovyFor(path), "preview: could not set preview", deps)
+export const setPreview = async (path: string, cwd = "", deps: RunGroovyDeps = {}): Promise<void> => {
+    await runGroovy(groovyFor(path, cwd), "preview: could not set preview", deps)
 }
 
 /**
@@ -264,12 +280,15 @@ export const setPreview = async (path: string, deps: RunGroovyDeps = {}): Promis
  * Like setPreview, NEVER throws: no live IDE / stub platform / spawn failure is
  * swallowed with a stderr note. Unlike setPreview there is no in-IDE fallback,
  * so the open_url CLI turns that note into a non-zero exit.
+ *
+ * `cwd` picks the target window (longest basePath prefix); empty (the default)
+ * leaves the open in the first project, matching the pre-targeting behavior.
  */
-export const previewUrl = async (url: string, title?: string, deps: RunGroovyDeps = {}): Promise<void> => {
+export const previewUrl = async (url: string, title?: string, cwd = "", deps: RunGroovyDeps = {}): Promise<void> => {
     const label = title !== undefined ? title : titleFor(url)
     // The open itself is the shared fragment (parity with notify's open-preview);
-    // this script only adds the EDT + project-fetch + throwable-guard wrapper. The
-    // body sits two levels deep (invokeLater + try), so indent it to 8 spaces.
+    // this script only adds the EDT + window-targeting + throwable-guard wrapper.
+    // The body sits two levels deep (invokeLater + try), so indent it to 8 spaces.
     const body = webpreviewOpenBody(escapeGroovy(url), escapeGroovy(label), { indent: " ".repeat(8) })
-    await runGroovy(groovyUrlPreview(body), "preview: could not open URL preview", deps)
+    await runGroovy(groovyUrlPreview(body, escapeGroovy(cwd)), "preview: could not open URL preview", deps)
 }

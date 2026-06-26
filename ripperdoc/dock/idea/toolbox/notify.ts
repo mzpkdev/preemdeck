@@ -4,7 +4,7 @@ import { defineCommand, effect, execute } from "cmdore"
 import type { Action } from "../../../../lib/args.ts"
 import { assertIdea } from "./assert-idea.ts"
 import { boolean } from "./core/coercers.ts"
-import { escapeGroovy, runGroovy, webpreviewOpenBody } from "./core/index.ts"
+import { escapeGroovy, groovyProjectByCwd, runGroovy, webpreviewOpenBody } from "./core/index.ts"
 
 /** The notification group id the balloon registers under. */
 export const NOTIFY_GROUP_ID = "idea.toolbox"
@@ -92,15 +92,7 @@ ApplicationManager.getApplication().invokeLater {
         return
     }
     def cwd = "${cwd}"
-    def best = null
-    def bestLen = -1
-    projects.each { p ->
-        def bp = p.getBasePath()
-        if (bp != null && (cwd == bp || cwd.startsWith(bp + "/")) && bp.length() > bestLen) {
-            best = p
-            bestLen = bp.length()
-        }
-    }
+${groovyProjectByCwd({ varName: "best", fallback: "null", indent: "    " })}
     fire(best)
 }
 `
