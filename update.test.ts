@@ -16,7 +16,15 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { _internals, CONFIG_FILE, MANIFEST_SCHEMA } from "./install.ts";
 import type { SpawnResult } from "./lib/proc.ts";
-import { gitPull, installedHarnesses, parseUpdateArgs, readVersion, resolveTarget, syncTo } from "./update.ts";
+import {
+  gitPull,
+  installedHarnesses,
+  parseUpdateArgs,
+  pickVersion,
+  readVersion,
+  resolveTarget,
+  syncTo,
+} from "./update.ts";
 
 // gitPull shells out through install's `_internals.spawn`; override that single
 // field (no mock.module on the shared ./lib/proc.ts — it leaks across files) and
@@ -222,5 +230,20 @@ describe("syncTo", () => {
       logSpy.mockRestore();
     }
     expect(spawnCalls).toEqual([]);
+  });
+});
+
+describe("pickVersion", () => {
+  test("PREEMDECK_CHANNEL env overrides config version", () => {
+    expect(pickVersion("edge", "stable")).toBe("edge");
+  });
+
+  test("blank/unset env falls through to config", () => {
+    expect(pickVersion(undefined, "stable")).toBe("stable");
+    expect(pickVersion("   ", "stable")).toBe("stable");
+  });
+
+  test("both unset -> undefined (current branch)", () => {
+    expect(pickVersion(undefined, undefined)).toBeUndefined();
   });
 });

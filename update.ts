@@ -102,6 +102,15 @@ export async function readVersion(repoRoot: string): Promise<string | undefined>
   return typeof cfg.version === "string" ? cfg.version : undefined;
 }
 
+/**
+ * Pick the version spec: the PREEMDECK_CHANNEL env var (the same knob boot.sh uses at
+ * install) overrides preemdeck.json's `version`; a blank/unset env falls through to it.
+ */
+export function pickVersion(env: string | undefined, configVersion: string | undefined): string | undefined {
+  const e = env?.trim();
+  return e ? e : configVersion;
+}
+
 /** Run a git subcommand in repoRoot, streaming output; throw on non-zero (check=True). */
 async function runGit(repoRoot: string, args: string[]): Promise<void> {
   const result = await _internals.spawn(["git", "-C", repoRoot, ...args]);
@@ -145,7 +154,7 @@ export async function syncTo(repoRoot: string, target: UpdateTarget, dryRun: boo
 export async function main(): Promise<number> {
   const args = parseUpdateArgs(Bun.argv.slice(2));
   const harnesses = installedHarnesses();
-  const target = resolveTarget(await readVersion(REPO_ROOT));
+  const target = resolveTarget(pickVersion(process.env.PREEMDECK_CHANNEL, await readVersion(REPO_ROOT)));
 
   console.log(`preemdeck update — harnesses: ${harnesses.join(", ")} — tracking: ${target.label}`);
   if (args.dryRun) {
