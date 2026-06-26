@@ -153,7 +153,9 @@ const emit = async (host: string, deps: TurnNotifyDeps): Promise<void> => {
     const branch = await deps.gitBranch(cwd)
     const titleText = title(host, cwd, branch)
     const body = gist || `${host} finished responding`
-    await notify(htmlEscape(body), { title: htmlEscape(titleText) })
+    // Pass the raw cwd (NOT html-escaped) so notify can match it against project
+    // basePaths and pop in the window the session actually ran in.
+    await notify(htmlEscape(body), { title: htmlEscape(titleText), cwd: cwd ?? undefined })
 }
 
 const command = defineCommand({

@@ -3,6 +3,7 @@ import type { StandardSchemaV1 } from "cmdore"
 import { defineCommand, effect, execute } from "cmdore"
 import type { Action } from "../../../../lib/args.ts"
 import { assertIdea } from "./assert-idea.ts"
+import { boolean } from "./core/coercers.ts"
 import { escapeGroovy, runGroovy, webpreviewOpenBody } from "./core/index.ts"
 
 /** The notification group id the balloon registers under. */
@@ -55,9 +56,24 @@ export const NOTIFICATION_ACTIONS: Record<string, ActionEntry> = {
 }
 
 // Groovy run on the EDT against the live IntelliJ Platform API. {actions} is
-// zero-or-more rendered n.addAction(...) lines (empty when no --action, leaving
-// the render byte-identical to the action-less path).
-const groovyNotify = (group: string, title: string, content: string, type: string, actions: string): string => {
+// zero-or-more rendered n.addAction(...) lines (empty when no --action).
+//
+// Targeting: ideScript already reached the one running process for THIS product
+// (the ancestry walk picked its binary), so getOpenProjects() is every window of
+// this IDE and nothing else. The `fire` closure builds a FRESH Notification per
+// target — a Notification is single-shot, so --all can't reuse one. With `all`,
+// pop in every open window; otherwise pick the project whose basePath is the
+// longest prefix of `cwd` (the window the terminal sits in) and fall back to a
+// null/application-level target, which IntelliJ routes to the focused frame.
+const groovyNotify = (
+    group: string,
+    title: string,
+    content: string,
+    type: string,
+    actions: string,
+    cwd: string,
+    all: boolean
+): string => {
     return `import com.intellij.notification.Notification
 import com.intellij.notification.NotificationAction
 import com.intellij.notification.NotificationType
@@ -66,10 +82,26 @@ import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.project.ProjectManager
 
 ApplicationManager.getApplication().invokeLater {
+    def fire = { target ->
+        def n = new Notification("${group}", "${title}", "${content}", NotificationType.${type})${actions}
+        Notifications.Bus.notify(n, target)
+    }
     def projects = ProjectManager.getInstance().getOpenProjects()
-    def project = projects.length > 0 ? projects[0] : null
-    def n = new Notification("${group}", "${title}", "${content}", NotificationType.${type})${actions}
-    Notifications.Bus.notify(n, project)
+    if (${all ? "true" : "false"}) {
+        if (projects.length == 0) fire(null) else projects.each { fire(it) }
+        return
+    }
+    def cwd = "${cwd}"
+    def best = null
+    def bestLen = -1
+    projects.each { p ->
+        def bp = p.getBasePath()
+        if (bp != null && (cwd == bp || cwd.startsWith(bp + "/")) && bp.length() > bestLen) {
+            best = p
+            bestLen = bp.length()
+        }
+    }
+    fire(best)
 }
 `
 }
@@ -98,8 +130,21 @@ const renderActions = (actions: Action[]): string => {
     return `\n${actions.map(({ name, arg }) => renderAction(name, arg)).join("\n")}`
 }
 
-/** Render the notification Groovy for title/message/typeToken/actions. */
-export const groovyFor = (title: string, message: string, typeToken: string, actions: Action[] = []): string => {
+/**
+ * Render the notification Groovy for title/message/typeToken/actions.
+ *
+ * `cwd` selects the target window in the default (non-`all`) path — escaped like
+ * every other literal so a path can't break out of the Groovy string. `all`
+ * broadcasts to every open window of this IDE instead.
+ */
+export const groovyFor = (
+    title: string,
+    message: string,
+    typeToken: string,
+    actions: Action[] = [],
+    cwd = "",
+    all = false
+): string => {
     const constant = NOTIFICATION_TYPES[typeToken]
     if (constant === undefined) {
         throw new Error(`unknown type ${typeToken}`) // programming error: CLI only passes whitelisted tokens
@@ -109,15 +154,21 @@ export const groovyFor = (title: string, message: string, typeToken: string, act
         escapeGroovy(title),
         escapeGroovy(message),
         constant,
-        renderActions(actions)
+        renderActions(actions),
+        escapeGroovy(cwd),
+        all
     )
 }
 
-/** Options for {@link notify}: balloon title, the --type token (info/warning/error), and the action registry entries. */
+/** Options for {@link notify}: balloon title, the --type token (info/warning/error), the action registry entries, the cwd used to target the terminal's window, and the all-windows broadcast toggle. */
 export type NotifyOptions = {
     title?: string
     typeToken?: string
     actions?: Action[]
+    /** Working directory used to pick the terminal's window (longest basePath prefix). Defaults to `process.cwd()`. */
+    cwd?: string
+    /** Broadcast to every open window of this IDE instead of just the terminal's. */
+    all?: boolean
 }
 
 /**
@@ -131,16 +182,21 @@ export type NotifyOptions = {
  * @returns nothing; resolves once the balloon Groovy has been dispatched.
  *
  * @example
- * await notify("Build finished") // plain info balloon titled "PreemDeck"
+ * await notify("Build finished") // plain info balloon titled "PreemDeck", in the terminal's window
  * await notify("Tests failed", { typeToken: "error", actions: [{ name: "open-file", arg: "log.txt" }] }) // error balloon with a clickable action
+ * await notify("Deploy done", { all: true }) // pop in every open window of this IDE
  */
 export const notify = async (message: string, options: NotifyOptions = {}): Promise<void> => {
     const title = options.title ?? "PreemDeck"
     const typeToken = options.typeToken ?? "info"
     const actions = options.actions ?? []
+    const cwd = options.cwd ?? process.cwd()
+    const all = options.all ?? false
     // runGroovy never rejects (it degrades a missing IDE / spawn error to a stderr
     // note); --dry-run flips effect off so the IDE write is skipped.
-    await effect(() => runGroovy(groovyFor(title, message, typeToken, actions), "notify: could not pop notification"))
+    await effect(() =>
+        runGroovy(groovyFor(title, message, typeToken, actions, cwd, all), "notify: could not pop notification")
+    )
 }
 
 /**
@@ -229,11 +285,17 @@ const command = defineCommand({
             description: "add a clickable balloon action (repeatable)",
             defaultValue: () => [] as Action[],
             schema: actionsSchema
+        },
+        {
+            name: "all",
+            arity: 0,
+            description: "pop in every open window of this IDE, not just the terminal's",
+            coerce: boolean
         }
     ],
-    run: async ({ message, title, type, action }) => {
+    run: async ({ message, title, type, action, all }) => {
         assertIdea()
-        await notify(message, { title, typeToken: type, actions: action })
+        await notify(message, { title, typeToken: type, actions: action, all })
     }
 })
 

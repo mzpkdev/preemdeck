@@ -63,6 +63,13 @@ describe("notify CLI", () => {
             ])
             expect(code).toBe(0)
         })
+
+        it("accepts --all and exits 0 under --dry-run", async () => {
+            const { code, stdout, stderr } = await run(["--dry-run", "--all", "a message"])
+            expect(code).toBe(0)
+            expect(stdout).toBe("")
+            expect(stderr).toBe("")
+        })
     })
 
     context("without a live IDE", () => {

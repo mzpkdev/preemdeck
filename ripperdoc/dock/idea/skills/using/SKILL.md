@@ -301,7 +301,7 @@ IDE.
 ## notify.ts — pop an in-IDE notification balloon
 
 ```
-notify <message> [--title <title>] [--type <info|warning|error>] [--action <name[=arg]>] [options]
+notify <message> [--title <title>] [--type <info|warning|error>] [--action <name[=arg]>] [--all] [options]
 ```
 
 Raise a transient notification balloon in the live IDE (via the platform Notification API). Fire-and-forget — there's no
@@ -309,11 +309,18 @@ tab to block on, **no `--wait`**. It is **best-effort and never raises**: the wo
 note, and the CLI treats dispatch as success (the only non-zero exits are `1` for no live IDE and `2` for an invalid
 `--type`/`--action`).
 
+By default the balloon pops in the **window the terminal sits in** — the open project whose root is the longest prefix
+of the current working directory (falling back to the focused window when the cwd is outside every project). `ideScript`
+already reaches only the IDE _product_ that launched the terminal (e.g. WebStorm), so a running PyCharm never sees it.
+
 - `message` — the balloon body text (positional).
 
 - `--title TITLE` — balloon title (default `"PreemDeck"`).
 
 - `--type {info,warning,error}` — severity → NotificationType icon (default `info`).
+
+- `--all` — pop in **every open window of this IDE** (the launching product only), not just the terminal's. Use when you
+  want the alert visible no matter which project window is focused.
 
 - `--action NAME[=ARG]` — add a clickable button; **repeatable** (buttons render in the order given). `NAME` must be one
   of:
@@ -332,6 +339,7 @@ optionally give them a one-click way to follow up.
 "$HOME/.preemdeck/scripts/preemdeck-bun" "$TB/notify.ts" "build finished"                              # info balloon, default title
 "$HOME/.preemdeck/scripts/preemdeck-bun" "$TB/notify.ts" --title Deploy "shipped to prod"              # custom title
 "$HOME/.preemdeck/scripts/preemdeck-bun" "$TB/notify.ts" --type error "tests failed"                   # error severity/icon
+"$HOME/.preemdeck/scripts/preemdeck-bun" "$TB/notify.ts" --all "deploy finished"                       # pop in every window of this IDE
 "$HOME/.preemdeck/scripts/preemdeck-bun" "$TB/notify.ts" --action open-url=https://ci.example.com "build done"      # browser button
 "$HOME/.preemdeck/scripts/preemdeck-bun" "$TB/notify.ts" --action open-preview=http://localhost:3000 "dev up"       # JCEF preview
 "$HOME/.preemdeck/scripts/preemdeck-bun" "$TB/notify.ts" --action open-file=/tmp/build.log "see log"                # editor button
