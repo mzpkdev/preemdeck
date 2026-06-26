@@ -20,7 +20,6 @@ import { join } from "node:path";
 import {
   _internals,
   backupPath,
-  bootstrapNodeModules,
   CHECK,
   CONFIG_DIRNAMES,
   CONFIG_FILE,
@@ -450,68 +449,6 @@ describe("loadManifest", () => {
     const payload = { schema: 1, harnesses: { claude: { overlay: [] } } };
     writeFileSync(join(dir, MANIFEST_FILE), JSON.stringify(payload));
     expect(loadManifest(dir)).toEqual(payload);
-  });
-});
-
-// bootstrapNodeModules — bun install seam (the installer's only dependency bootstrap)
-
-describe("bootstrapNodeModules", () => {
-  test("dry-run prints intent without spawning", async () => {
-    const logSpy = spyOn(console, "log").mockImplementation(() => {});
-    try {
-      await bootstrapNodeModules("/some/repo", true);
-      const wrote = logSpy.mock.calls.map((c) => String(c[0])).join("\n");
-      expect(wrote).toContain("(dry-run) would run: bun install");
-      expect(wrote).toContain("/some/repo");
-    } finally {
-      logSpy.mockRestore();
-    }
-    expect(spawnCalls).toEqual([]);
-  });
-
-  test("invokes bun install via process.execPath in repoRoot", async () => {
-    spawnImpl = async () => ok;
-    let capturedCwd: string | undefined;
-    _internals.spawn = (cmd: string[], options?: SpawnOptions) => {
-      spawnCalls.push(cmd);
-      capturedCwd = options?.cwd;
-      return spawnImpl(cmd, options);
-    };
-    const logSpy = spyOn(console, "log").mockImplementation(() => {});
-    try {
-      await bootstrapNodeModules("/some/repo", false);
-      const wrote = logSpy.mock.calls.map((c) => String(c[0])).join("\n");
-      expect(wrote).toContain(`${CHECK} node_modules bootstrap`);
-    } finally {
-      logSpy.mockRestore();
-    }
-    expect(spawnCalls).toEqual([[process.execPath, "install"]]);
-    expect(capturedCwd).toBe("/some/repo");
-  });
-
-  test("non-zero exit is non-fatal (warns, no throw)", async () => {
-    spawnImpl = async () => result({ exitCode: 1, stderr: "could not resolve cmdore" });
-    const errSpy = spyOn(process.stderr, "write").mockImplementation((() => true) as never);
-    try {
-      await expect(bootstrapNodeModules("/some/repo", false)).resolves.toBeUndefined();
-      const wrote = errSpy.mock.calls.map((c) => String(c[0])).join("");
-      expect(wrote).toContain(`${CROSS} node_modules bootstrap failed`);
-      expect(wrote).toContain("could not resolve cmdore");
-    } finally {
-      errSpy.mockRestore();
-    }
-  });
-
-  test("timeout is non-fatal (warns, no throw)", async () => {
-    spawnImpl = async () => result({ exitCode: null, timedOut: true });
-    const errSpy = spyOn(process.stderr, "write").mockImplementation((() => true) as never);
-    try {
-      await expect(bootstrapNodeModules("/some/repo", false)).resolves.toBeUndefined();
-      const wrote = errSpy.mock.calls.map((c) => String(c[0])).join("");
-      expect(wrote).toContain(`${CROSS} node_modules bootstrap timed out after 300s`);
-    } finally {
-      errSpy.mockRestore();
-    }
   });
 });
 
