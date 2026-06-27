@@ -11,8 +11,7 @@ disable-model-invocation: true
 Run the bundled reader — nothing else:
 
 ```bash
-"$HOME/.preemdeck/scripts/preemdeck-bun" "${CLAUDE_PLUGIN_ROOT}/scripts/show-mode.ts" auto
+"$HOME/.preemdeck/scripts/preemdeck-bun" "$HOME/.preemdeck/ripperdoc/wetware/directive/scripts/show-mode.ts" auto
 ```
 
-`${CLAUDE_PLUGIN_ROOT}` resolves on Claude and Codex (aliased to `PLUGIN_ROOT`). Relay the script's output verbatim.
-This only displays the directive; to **set** a directive, use `/directive:default`.
+Relay the script's output verbatim. This only displays the directive; to **set** a directive, use `/directive:default`.

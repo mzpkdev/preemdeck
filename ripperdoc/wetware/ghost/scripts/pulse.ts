@@ -14,9 +14,9 @@ import { runInjectionHook } from "../../../../lib/inject.ts"
 
 const DEFAULT_EVENT = "UserPromptSubmit"
 
-/** The plugin root: CLAUDE_PLUGIN_ROOT || PLUGIN_ROOT || the script dir's parent. */
+/** The plugin root: the script dir's parent (scripts/ -> ghost/). */
 export const pluginRoot = (): string => {
-    return process.env.CLAUDE_PLUGIN_ROOT || process.env.PLUGIN_ROOT || dirname(import.meta.dir)
+    return dirname(import.meta.dir)
 }
 
 /**

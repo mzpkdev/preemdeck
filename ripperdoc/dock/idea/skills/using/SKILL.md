@@ -38,25 +38,25 @@ browser/editor fallback**: if the terminal is not running inside a JetBrains IDE
 So before relying on these, confirm you're in a JetBrains terminal with `in-idea.ts` (exit `0` inside, `1` outside):
 
 ```bash
-"$HOME/.preemdeck/scripts/preemdeck-bun" "${CLAUDE_PLUGIN_ROOT}/toolbox/in-idea.ts"        # prints "in a JetBrains IDE terminal" / "not …"
-"$HOME/.preemdeck/scripts/preemdeck-bun" "${CLAUDE_PLUGIN_ROOT}/toolbox/in-idea.ts" -q && echo "good to go"   # quiet (-q/--silent): gate on the exit code
+"$HOME/.preemdeck/scripts/preemdeck-bun" "$HOME/.preemdeck/ripperdoc/dock/idea/toolbox/in-idea.ts"        # prints "in a JetBrains IDE terminal" / "not …"
+"$HOME/.preemdeck/scripts/preemdeck-bun" "$HOME/.preemdeck/ripperdoc/dock/idea/toolbox/in-idea.ts" -q && echo "good to go"   # quiet (-q/--silent): gate on the exit code
 ```
 
 ## Canonical invocation
 
 The tools live in the plugin's `toolbox/` dir and are run through the **preemdeck-bun shim** by **absolute path**. The
-shim (`$HOME/.preemdeck/scripts/preemdeck-bun`) runs the bundled Bun runtime against the `.ts` tool. Anchor on
-`${CLAUDE_PLUGIN_ROOT}` (this plugin's root) so it works from any working directory — the run is **cwd-independent**
-(you do _not_ need to `cd` into the toolbox):
+shim (`$HOME/.preemdeck/scripts/preemdeck-bun`) runs the bundled Bun runtime against the `.ts` tool. The tools live at
+the absolute source path `$HOME/.preemdeck/ripperdoc/dock/idea/toolbox` so it works from any working directory — the run
+is **cwd-independent** (you do _not_ need to `cd` into the toolbox):
 
 ```bash
-"$HOME/.preemdeck/scripts/preemdeck-bun" "${CLAUDE_PLUGIN_ROOT}/toolbox/<tool>.ts" [args…]
+"$HOME/.preemdeck/scripts/preemdeck-bun" "$HOME/.preemdeck/ripperdoc/dock/idea/toolbox/<tool>.ts" [args…]
 ```
 
 For brevity below, assume:
 
 ```bash
-TB="${CLAUDE_PLUGIN_ROOT}/toolbox"
+TB="$HOME/.preemdeck/ripperdoc/dock/idea/toolbox"
 ```
 
 Requires only the preemdeck-bun shim and the bundled Bun runtime (fetched by `boot.sh`) — no other toolchain.

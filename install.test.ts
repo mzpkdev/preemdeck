@@ -20,6 +20,7 @@ import { join } from "node:path";
 import {
   _internals,
   backupPath,
+  buildMirror,
   CHECK,
   CONFIG_DIRNAMES,
   CONFIG_FILE,
@@ -29,6 +30,7 @@ import {
   DEFAULT_CONFIG,
   installFor,
   installPlugin,
+  isMirroredPrimitive,
   loadManifest,
   MANIFEST_FILE,
   MANIFEST_SCHEMA,
@@ -40,6 +42,8 @@ import {
   registerMarketplace,
   runCli,
   seedConfig,
+  STAGE_ROOT,
+  stampMirror,
   writeManifest,
 } from "./install.ts";
 import type { SpawnOptions, SpawnResult } from "./lib/proc.ts";
@@ -179,6 +183,201 @@ describe("readPluginSpecs", () => {
       ],
     });
     expect(readPluginSpecs(root).map((s) => s.name)).toEqual(["git"]);
+  });
+});
+
+// isMirroredPrimitive — the file-level allowlist gate
+
+describe("isMirroredPrimitive", () => {
+  test("ALLOWS every host-parsed primitive", () => {
+    for (const p of [
+      "/dock/.claude-plugin/marketplace.json",
+      "/dock/idea/.claude-plugin/plugin.json",
+      "/dock/.agents/plugins/marketplace.json",
+      "/dock/idea/.codex-plugin/plugin.json",
+      "/wetware/ghost/.codex-plugin/hooks/hooks.json",
+      "/dock/idea/gemini-extension.json",
+      "/dock/idea/skills/using/SKILL.md",
+      "/wetware/directive/commands/ask.toml",
+    ]) {
+      expect(isMirroredPrimitive(p)).toBe(true);
+    }
+  });
+
+  test("EXCLUDES code and non-primitive docs", () => {
+    for (const p of [
+      "/dock/idea/toolbox/open-file.ts",
+      "/dock/idea/toolbox/core/index.ts",
+      "/wetware/directive/scripts/inject-mode.ts",
+      "/wetware/directive/scripts/modes.json",
+      "/wetware/directive/skills/ask/directive.md",
+      "/wetware/directive/skills/ask/agents/openai.yaml",
+      "/wetware/imprint/README.md",
+      "/wetware/imprint/IMPRINT.md",
+      "/wetware/imprint/hosts/host_gemini.md",
+      "/wetware/ghost/engram.dat",
+      "/wetware/ghost/stock/ENGRAM.md",
+    ]) {
+      expect(isMirroredPrimitive(p)).toBe(false);
+    }
+  });
+});
+
+// buildMirror / stampMirror — primitives-only mirror
+
+// Seed a fixture ripperdoc/ under repoRoot with BOTH allowlisted primitives and a
+// representative spread of excluded files (code, docs, data, nested toolbox/scripts).
+function seedRipperdoc(repoRoot: string): void {
+  const w = (rel: string, body: string) => {
+    const p = join(repoRoot, "ripperdoc", rel);
+    mkdirSync(join(p, ".."), { recursive: true });
+    writeFileSync(p, body);
+  };
+  // allowlisted primitives
+  w("dock/.claude-plugin/marketplace.json", JSON.stringify({ name: "dock", plugins: [{ name: "idea", source: "./idea", version: "0.0.0" }] }));
+  w("dock/.agents/plugins/marketplace.json", JSON.stringify({ name: "dock", plugins: [] }));
+  w("dock/idea/.claude-plugin/plugin.json", JSON.stringify({ name: "idea", version: "0.0.0" }));
+  w("dock/idea/.codex-plugin/plugin.json", JSON.stringify({ name: "idea", version: "0.0.0" }));
+  w("dock/idea/.codex-plugin/hooks/hooks.json", JSON.stringify({ hooks: {} }));
+  w("dock/idea/gemini-extension.json", JSON.stringify({ name: "idea", version: "0.0.0" }));
+  w("dock/idea/skills/using/SKILL.md", "# using");
+  w("wetware/directive/commands/swarm.toml", "name = 'swarm'");
+  // excluded: code, docs, data, nested dirs
+  w("dock/idea/toolbox/open-file.ts", "export const x = 1;");
+  w("dock/idea/toolbox/core/index.ts", "export const y = 2;");
+  w("dock/idea/scripts/build.ts", "// build");
+  w("wetware/directive/skills/ask/directive.md", "# directive");
+  w("wetware/directive/skills/ask/agents/openai.yaml", "name: ask");
+  w("wetware/directive/scripts/modes.json", JSON.stringify({ modes: [] }));
+  w("dock/idea/README.md", "# readme");
+  w("wetware/ghost/engram.dat", "binary");
+  w("wetware/ghost/stock/ENGRAM.md", "# stock");
+  w("wetware/imprint/IMPRINT.md", "# imprint");
+  w("wetware/imprint/hosts/host_gemini.md", "# host");
+}
+
+function walkRel(root: string): string[] {
+  const out: string[] = [];
+  const { readdirSync: rd } = require("node:fs");
+  for (const e of rd(root, { withFileTypes: true })) {
+    const f = join(root, e.name);
+    if (e.isDirectory()) {
+      out.push(...walkRel(f).map((r) => `${e.name}/${r}`));
+    } else {
+      out.push(e.name);
+    }
+  }
+  return out;
+}
+
+describe("buildMirror", () => {
+  test("mirrors ONLY allowlisted primitives — no .ts, no excluded files", () => {
+    seedRipperdoc(dir);
+    const written = buildMirror(dir, false);
+
+    const stage = join(dir, STAGE_ROOT);
+    const all = walkRel(stage).sort();
+    // exact allowlist set, with rack-relative structure preserved
+    expect(all).toEqual([
+      "dock/.agents/plugins/marketplace.json",
+      "dock/.claude-plugin/marketplace.json",
+      "dock/idea/.claude-plugin/plugin.json",
+      "dock/idea/.codex-plugin/hooks/hooks.json",
+      "dock/idea/.codex-plugin/plugin.json",
+      "dock/idea/gemini-extension.json",
+      "dock/idea/skills/using/SKILL.md",
+      "wetware/directive/commands/swarm.toml",
+    ]);
+    // NEVER any executable code
+    expect(all.filter((p) => p.endsWith(".ts"))).toEqual([]);
+    // every excluded artifact is absent
+    for (const gone of ["directive.md", "openai.yaml", "modes.json", "README.md", "engram.dat", "ENGRAM.md", "IMPRINT.md", "host_gemini.md"]) {
+      expect(all.some((p) => p.endsWith(gone))).toBe(false);
+    }
+    // returns absolute paths to everything it wrote
+    expect(written.length).toBe(all.length);
+    expect(written.every((p) => p.startsWith(join(dir, STAGE_ROOT)))).toBe(true);
+  });
+
+  test("rebuilds from scratch — a stale primitive does not survive", () => {
+    seedRipperdoc(dir);
+    buildMirror(dir, false);
+    const stale = join(dir, STAGE_ROOT, "dock", "idea", "skills", "using", "SKILL.md");
+    expect(existsSync(stale)).toBe(true);
+
+    // drop the source primitive, rebuild
+    rmSync(join(dir, "ripperdoc", "dock", "idea", "skills"), { recursive: true, force: true });
+    buildMirror(dir, false);
+    expect(existsSync(stale)).toBe(false);
+  });
+
+  test("missing ripperdoc/ returns empty", () => {
+    expect(buildMirror(dir, false)).toEqual([]);
+  });
+
+  test("dry-run writes nothing but reports the would-be set", () => {
+    seedRipperdoc(dir);
+    const logSpy = spyOn(console, "log").mockImplementation(() => {});
+    try {
+      const written = buildMirror(dir, true);
+      expect(written.length).toBe(8);
+    } finally {
+      logSpy.mockRestore();
+    }
+    expect(existsSync(join(dir, STAGE_ROOT))).toBe(false);
+  });
+});
+
+describe("stampMirror", () => {
+  test("sets the version of every versioned manifest to the short HEAD SHA", async () => {
+    seedRipperdoc(dir);
+    const written = buildMirror(dir, false);
+    spawnImpl = async () => result({ stdout: "abc1234\n" });
+
+    await stampMirror(dir, written, false);
+
+    expect(spawnCalls).toContainEqual(["git", "-C", dir, "rev-parse", "--short", "HEAD"]);
+    const stage = join(dir, STAGE_ROOT);
+    // plugin.json + gemini-extension.json carry a top-level "version" -> stamped
+    expect(JSON.parse(readFileSync(join(stage, "dock/idea/.claude-plugin/plugin.json"), "utf8")).version).toBe("abc1234");
+    expect(JSON.parse(readFileSync(join(stage, "dock/idea/gemini-extension.json"), "utf8")).version).toBe("abc1234");
+    // marketplace.json has NO top-level version, but its nested plugins[].version
+    // ARE the per-plugin cache keys — each is stamped to the SHA (no top-level key added).
+    const market = JSON.parse(readFileSync(join(stage, "dock/.claude-plugin/marketplace.json"), "utf8"));
+    expect(market.version).toBeUndefined();
+    expect(market.plugins[0].version).toBe("abc1234");
+  });
+
+  test("git failure -> versions unchanged, never throws (fallback)", async () => {
+    seedRipperdoc(dir);
+    const written = buildMirror(dir, false);
+    spawnImpl = async () => result({ exitCode: 128, stderr: "not a git repository" });
+
+    await stampMirror(dir, written, false);
+
+    const v = JSON.parse(readFileSync(join(dir, STAGE_ROOT, "dock/idea/.claude-plugin/plugin.json"), "utf8")).version;
+    expect(v).toBe("0.0.0"); // untouched
+  });
+
+  test("spawn throw (git missing / not a repo) is swallowed", async () => {
+    seedRipperdoc(dir);
+    const written = buildMirror(dir, false);
+    spawnImpl = async () => {
+      throw Object.assign(new Error("ENOENT"), { code: "ENOENT" });
+    };
+
+    await stampMirror(dir, written, false); // must not reject
+
+    const v = JSON.parse(readFileSync(join(dir, STAGE_ROOT, "dock/idea/gemini-extension.json"), "utf8")).version;
+    expect(v).toBe("0.0.0"); // untouched
+  });
+
+  test("dry-run is a no-op (no git spawn, no writes)", async () => {
+    seedRipperdoc(dir);
+    const written = buildMirror(dir, false);
+    spawnCalls.length = 0;
+    await stampMirror(dir, written, true);
+    expect(spawnCalls).toEqual([]);
   });
 });
 

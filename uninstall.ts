@@ -28,6 +28,7 @@ import {
   type Manifest,
   type OverlayRecord,
   runCli,
+  STAGE_ROOT,
 } from "./install.ts";
 
 // uninstall.ts lives in the same dir as install.ts (~/.preemdeck), so this
@@ -276,6 +277,17 @@ export async function main(argv: string[] = Bun.argv.slice(2), repoRoot: string 
   }
 
   writeManifest(repoRoot, manifest, args.dryRun);
+
+  // Drop the primitives-only mirror (install.ts rebuilds it from ripperdoc/ on the
+  // next install). Best-effort: never abort teardown if it's already gone.
+  const stage = join(repoRoot, STAGE_ROOT);
+  if (args.dryRun) {
+    if (existsSync(stage)) {
+      console.log(`  (dry-run) would remove ${stage}`);
+    }
+  } else {
+    rmSync(stage, { recursive: true, force: true });
+  }
 
   if (args.purge) {
     console.log();

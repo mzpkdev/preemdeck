@@ -12,10 +12,10 @@
  */
 
 import { afterEach, beforeEach, describe, expect, spyOn, test } from "bun:test";
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { _internals, MANIFEST_SCHEMA, type OverlayRecord } from "./install.ts";
+import { _internals, MANIFEST_SCHEMA, type OverlayRecord, STAGE_ROOT } from "./install.ts";
 import type { SpawnResult } from "./lib/proc.ts";
 import { loadManifestOrExit, main, reverseOverlay, uninstallFor, unregister, writeManifest } from "./uninstall.ts";
 
@@ -354,5 +354,38 @@ describe("main", () => {
     } finally {
       logSpy.mockRestore();
     }
+  });
+
+  test("removes the .stage mirror during teardown", async () => {
+    const stage = join(dir, STAGE_ROOT, "dock", ".claude-plugin");
+    mkdirSync(stage, { recursive: true });
+    writeFileSync(join(stage, "marketplace.json"), "{}");
+    seedManifest({
+      schema: MANIFEST_SCHEMA,
+      harnesses: { claude: { overlay: [], marketplaces: [], plugins: [] } },
+    });
+    const logSpy = silenceLog();
+    try {
+      await main(["claude"], dir);
+    } finally {
+      logSpy.mockRestore();
+    }
+    expect(existsSync(join(dir, STAGE_ROOT))).toBe(false);
+  });
+
+  test("dry-run leaves the .stage mirror intact", async () => {
+    const stage = join(dir, STAGE_ROOT, "dock");
+    mkdirSync(stage, { recursive: true });
+    seedManifest({
+      schema: MANIFEST_SCHEMA,
+      harnesses: { claude: { overlay: [], marketplaces: [], plugins: [] } },
+    });
+    const logSpy = silenceLog();
+    try {
+      await main(["claude", "--dry-run"], dir);
+    } finally {
+      logSpy.mockRestore();
+    }
+    expect(existsSync(join(dir, STAGE_ROOT))).toBe(true);
   });
 });

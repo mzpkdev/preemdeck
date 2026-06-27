@@ -9,5 +9,5 @@ disable-model-invocation: true
 Wipe the ghost persona back to stock:
 
 ```bash
-"$HOME/.preemdeck/scripts/preemdeck-bun" "${CLAUDE_PLUGIN_ROOT}/scripts/ghost.ts" flatline
+"$HOME/.preemdeck/scripts/preemdeck-bun" "$HOME/.preemdeck/ripperdoc/wetware/ghost/scripts/ghost.ts" flatline
 ```

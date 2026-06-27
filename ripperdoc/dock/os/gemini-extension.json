@@ -9,7 +9,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "$HOME/.preemdeck/scripts/preemdeck-bun \"${extensionPath}/toolbox/os-ding.ts\"",
+            "command": "$HOME/.preemdeck/scripts/preemdeck-bun \"$HOME/.preemdeck/ripperdoc/dock/os/toolbox/os-ding.ts\"",
             "timeout": 5
           }
         ]

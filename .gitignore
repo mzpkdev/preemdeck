@@ -21,6 +21,9 @@ preemdeck.json
 # preemdeck shipped Bun runtime (fetched by boot.sh into ~/.preemdeck/.runtime)
 .runtime/
 
+# preemdeck primitives-only plugin mirror (rebuilt from ripperdoc/ each install)
+.stage/
+
 # JS/TS tooling (Bun)
 node_modules/
 

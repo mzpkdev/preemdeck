@@ -16,7 +16,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "$HOME/.preemdeck/scripts/preemdeck-bun \"${CLAUDE_PLUGIN_ROOT}/toolbox/os-ding.ts\"",
+            "command": "$HOME/.preemdeck/scripts/preemdeck-bun \"$HOME/.preemdeck/ripperdoc/dock/os/toolbox/os-ding.ts\"",
             "timeout": 5
           }
         ]

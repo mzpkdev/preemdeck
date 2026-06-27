@@ -5,7 +5,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "$HOME/.preemdeck/scripts/preemdeck-bun \"${PLUGIN_ROOT}/scripts/boot.ts\"",
+            "command": "$HOME/.preemdeck/scripts/preemdeck-bun \"$HOME/.preemdeck/ripperdoc/wetware/ghost/scripts/boot.ts\"",
             "timeout": 5
           }
         ]
@@ -16,7 +16,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "$HOME/.preemdeck/scripts/preemdeck-bun \"${PLUGIN_ROOT}/scripts/pulse.ts\"",
+            "command": "$HOME/.preemdeck/scripts/preemdeck-bun \"$HOME/.preemdeck/ripperdoc/wetware/ghost/scripts/pulse.ts\"",
             "timeout": 5
           }
         ]

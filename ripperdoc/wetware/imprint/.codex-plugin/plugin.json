@@ -19,7 +19,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "$HOME/.preemdeck/scripts/preemdeck-bun \"${CLAUDE_PLUGIN_ROOT}/scripts/inject-hook.ts\" IMPRINT.md hosts/host_codex.md --event UserPromptSubmit",
+            "command": "$HOME/.preemdeck/scripts/preemdeck-bun \"$HOME/.preemdeck/ripperdoc/wetware/imprint/scripts/inject-hook.ts\" IMPRINT.md hosts/host_codex.md --event UserPromptSubmit",
             "timeout": 5
           }
         ]

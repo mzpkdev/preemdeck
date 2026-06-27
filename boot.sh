@@ -99,4 +99,9 @@ fetch_bun() {
 }
 fetch_bun || true
 
+# Install runtime deps (hono, @hono/zod-openapi, cmdore, zod) so plugin code can
+# execute from ~/.preemdeck by absolute path. Best-effort: warn but never abort —
+# node_modules is gitignored, so a fresh clone has none until this runs.
+(cd "$SOURCE_DIRECTORY" && "$SOURCE_DIRECTORY/scripts/preemdeck-bun" install --production) || echo "      ⚠ bun install failed — runtime deps may be missing"
+
 "$SOURCE_DIRECTORY/scripts/preemdeck-bun" "$SOURCE_DIRECTORY/install.ts" "$HARNESS" "$@"

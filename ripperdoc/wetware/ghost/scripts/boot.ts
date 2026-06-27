@@ -7,8 +7,7 @@
  * emits the standard context-injection envelope via lib/hook.ts. A missing/empty
  * persona is a silent `{}` no-op. Default event SessionStart; stdin wins.
  *
- * PLUGIN_ROOT resolution: CLAUDE_PLUGIN_ROOT || PLUGIN_ROOT ||
- * the script dir's parent (scripts/ -> ghost/).
+ * PLUGIN_ROOT resolution: the script dir's parent (scripts/ -> ghost/).
  */
 
 import { readFile } from "node:fs/promises"
@@ -18,9 +17,9 @@ import { runInjectionHook } from "../../../../lib/inject.ts"
 
 const DEFAULT_EVENT = "SessionStart"
 
-/** The plugin root: CLAUDE_PLUGIN_ROOT || PLUGIN_ROOT || the script dir's parent. */
+/** The plugin root: the script dir's parent (scripts/ -> ghost/). */
 export const pluginRoot = (): string => {
-    return process.env.CLAUDE_PLUGIN_ROOT || process.env.PLUGIN_ROOT || dirname(import.meta.dir)
+    return dirname(import.meta.dir)
 }
 
 /**

@@ -23,10 +23,10 @@ Persona engine. Injects engram, firmware, and pulse context into the session on 
 
 ```bash
 # Decode .dat files back to editable .md
-"$HOME/.preemdeck/scripts/preemdeck-bun" "${CLAUDE_PLUGIN_ROOT}/scripts/ghost.ts" decode
+"$HOME/.preemdeck/scripts/preemdeck-bun" "$HOME/.preemdeck/ripperdoc/wetware/ghost/scripts/ghost.ts" decode
 
 # Edit the .md files, then re-encode
-"$HOME/.preemdeck/scripts/preemdeck-bun" "${CLAUDE_PLUGIN_ROOT}/scripts/ghost.ts" encode
+"$HOME/.preemdeck/scripts/preemdeck-bun" "$HOME/.preemdeck/ripperdoc/wetware/ghost/scripts/ghost.ts" encode
 ```
 
 `decode` keeps the `.dat` files in place so hooks continue to work during editing. `encode` writes `.dat` files and
@@ -36,7 +36,7 @@ removes the `.md` files.
 
 ```bash
 # Restore persona to stock templates
-"$HOME/.preemdeck/scripts/preemdeck-bun" "${CLAUDE_PLUGIN_ROOT}/scripts/ghost.ts" flatline
+"$HOME/.preemdeck/scripts/preemdeck-bun" "$HOME/.preemdeck/ripperdoc/wetware/ghost/scripts/ghost.ts" flatline
 ```
 
 `flatline` copies `stock/*.md` over the persona and re-encodes to `.dat`.
