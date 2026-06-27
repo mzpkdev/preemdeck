@@ -3,8 +3,8 @@
  *
  * MOCK PATTERNS:
  *   spawn seam — install.ts routes every shell-out through `_internals.spawn`. We
- *       override that single field (NOT mock.module on the shared ./lib/proc.ts,
- *       which leaks into lib/proc.test.ts across one `bun test` run) so command-
+ *       override that single field (NOT mock.module on the shared ./source/common/proc.ts,
+ *       which leaks into source/common/proc.test.ts across one `bun test` run) so command-
  *       SHAPE assertions capture the exact argv runCli/installPlugin/
  *       registerMarketplace hand to it, and we script exit codes/stderr. This is
  *       the faithful TS equivalent of the original `patch("install.run_cli")`
@@ -46,7 +46,7 @@ import {
   stampMirror,
   writeManifest,
 } from "./install.ts";
-import type { SpawnOptions, SpawnResult } from "./lib/proc.ts";
+import type { SpawnOptions, SpawnResult } from "./source/common/proc.ts";
 
 // --- spawn seam -------------------------------------------------------------
 // Record every spawn() argv and serve a scripted result. Set `spawnImpl` per
@@ -225,11 +225,11 @@ describe("isMirroredPrimitive", () => {
 
 // buildMirror / stampMirror — primitives-only mirror
 
-// Seed a fixture ripperdoc/ under repoRoot with BOTH allowlisted primitives and a
+// Seed a fixture source/ripperdoc/ under repoRoot with BOTH allowlisted primitives and a
 // representative spread of excluded files (code, docs, data, nested toolbox/scripts).
 function seedRipperdoc(repoRoot: string): void {
   const w = (rel: string, body: string) => {
-    const p = join(repoRoot, "ripperdoc", rel);
+    const p = join(repoRoot, "source", "ripperdoc", rel);
     mkdirSync(join(p, ".."), { recursive: true });
     writeFileSync(p, body);
   };
@@ -306,12 +306,12 @@ describe("buildMirror", () => {
     expect(existsSync(stale)).toBe(true);
 
     // drop the source primitive, rebuild
-    rmSync(join(dir, "ripperdoc", "dock", "idea", "skills"), { recursive: true, force: true });
+    rmSync(join(dir, "source", "ripperdoc", "dock", "idea", "skills"), { recursive: true, force: true });
     buildMirror(dir, false);
     expect(existsSync(stale)).toBe(false);
   });
 
-  test("missing ripperdoc/ returns empty", () => {
+  test("missing source/ripperdoc/ returns empty", () => {
     expect(buildMirror(dir, false)).toEqual([]);
   });
 
@@ -485,7 +485,7 @@ describe("installPlugin", () => {
 // copyOverlay
 
 function seedOverlay(repoRoot: string, harness = "claude"): void {
-  const src = join(repoRoot, "root", harness);
+  const src = join(repoRoot, "source", "overwrite", harness);
   mkdirSync(join(src, "agents"), { recursive: true });
   writeFileSync(join(src, "settings.json"), '{"_": "overlay"}');
   writeFileSync(join(src, "agents", "fixer.md"), "# fixer overlay");
@@ -545,7 +545,7 @@ describe("copyOverlay", () => {
     writeManifest(repoRoot, "claude", records1, [], [], false);
     expect(readFileSync(join(config, "settings.json.bak"), "utf8")).toBe('{"_": "user-original"}');
 
-    writeFileSync(join(repoRoot, "root", "claude", "settings.json"), '{"_": "overlay-v2"}');
+    writeFileSync(join(repoRoot, "source", "overwrite", "claude", "settings.json"), '{"_": "overlay-v2"}');
     const [, , records2] = copyOverlay("claude", repoRoot, config, false);
 
     expect(readFileSync(join(config, "settings.json"), "utf8")).toBe('{"_": "overlay-v2"}');
@@ -606,7 +606,7 @@ describe("backupPath", () => {
 describe("writeManifest", () => {
   test("writes schema + harness record", () => {
     const overlay = [
-      { dst: "/c/settings.json", src: "root/claude/settings.json", backup: null, action: "create" as const },
+      { dst: "/c/settings.json", src: "source/overwrite/claude/settings.json", backup: null, action: "create" as const },
     ];
     writeManifest(dir, "claude", overlay, ["dock"], [{ name: "fixer" }], false);
 

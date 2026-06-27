@@ -231,7 +231,7 @@ matcher = "(apply_patch|Edit|Write)"
 
 [[hooks.PostToolUse.hooks]]
 type    = "command"
-command = '"$HOME/.preemdeck/scripts/preemdeck-bun" "$(git rev-parse --show-toplevel)/scripts/format-on-edit.ts"'
+command = '"$HOME/.preemdeck/preemdeck-runtime" "$(git rev-parse --show-toplevel)/devscripts/format-on-edit.ts"'
 timeout = 30
 ```
 
@@ -384,7 +384,7 @@ Push the current branch and trigger the deploy pipeline.
 
 ## Preload
 
-!`"$HOME/.preemdeck/scripts/preemdeck-bun" ${CLAUDE_PLUGIN_ROOT}/scripts/gather.ts`
+!`"$HOME/.preemdeck/preemdeck-runtime" ${CLAUDE_PLUGIN_ROOT}/scripts/gather.ts`
 ```
 
 ```markdown
@@ -392,7 +392,7 @@ Push the current branch and trigger the deploy pipeline.
 
 ## Step 1 — Gather
 
-Run `"$HOME/.preemdeck/scripts/preemdeck-bun" ${CLAUDE_PLUGIN_ROOT}/scripts/gather.ts` and parse the JSON.
+Run `"$HOME/.preemdeck/preemdeck-runtime" ${CLAUDE_PLUGIN_ROOT}/scripts/gather.ts` and parse the JSON.
 ```
 
 ```markdown
@@ -400,7 +400,7 @@ Run `"$HOME/.preemdeck/scripts/preemdeck-bun" ${CLAUDE_PLUGIN_ROOT}/scripts/gath
 
 ## Step 1 — Gather
 
-Run `"$HOME/.preemdeck/scripts/preemdeck-bun" scripts/gather.ts` — the script self-locates via
+Run `"$HOME/.preemdeck/preemdeck-runtime" scripts/gather.ts` — the script self-locates via
 `dirname(fileURLToPath(import.meta.url))`. Parse the JSON output.
 ```
 

@@ -17,6 +17,6 @@
         "noUnusedLocals": true,
         "noUnusedParameters": true
     },
-    "include": ["lib", "scripts", "ripperdoc"],
+    "include": ["source/common", "devscripts", "source/ripperdoc"],
     "exclude": ["node_modules", ".runtime", "experiments"]
 }

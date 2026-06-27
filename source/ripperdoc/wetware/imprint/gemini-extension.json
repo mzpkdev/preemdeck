@@ -1,0 +1,20 @@
+{
+  "name": "imprint",
+  "version": "0.0.0",
+  "description": "Per-prompt behavioral imprints. Wetware burn-in for cross-host agents.",
+  "contextFileName": "AGENTS.md",
+  "hooks": {
+    "BeforeAgent": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "$HOME/.preemdeck/preemdeck-runtime \"$HOME/.preemdeck/source/ripperdoc/wetware/imprint/scripts/inject-hook.ts\" IMPRINT.md hosts/host_gemini.md --event BeforeAgent",
+            "timeout": 5
+          }
+        ]
+      }
+    ]
+  }
+}

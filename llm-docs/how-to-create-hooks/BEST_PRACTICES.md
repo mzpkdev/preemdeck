@@ -248,19 +248,19 @@ invocations. A hook that passes one shape and silently no-ops on the other two i
 echo '{"session_id":"t","transcript_path":"/tmp/x","cwd":"/tmp",
        "hook_event_name":"PostToolUse","tool_name":"Edit",
        "tool_input":{"file_path":"/tmp/sample.ts"}}' \
-  | scripts/format-on-edit.ts ; echo "exit=$?"
+  | devscripts/format-on-edit.ts ; echo "exit=$?"
 
 # Codex — PostToolUse, tool_name is apply_patch (not Edit/Write)
 echo '{"session_id":"t","transcript_path":"/tmp/x","cwd":"/tmp",
        "hook_event_name":"PostToolUse","tool_name":"apply_patch",
        "tool_input":{"file_path":"/tmp/sample.ts"}}' \
-  | scripts/format-on-edit.ts ; echo "exit=$?"
+  | devscripts/format-on-edit.ts ; echo "exit=$?"
 
 # Gemini — AfterTool, includes timestamp, tool_name is write_file
 echo '{"session_id":"t","transcript_path":"/tmp/x","cwd":"/tmp",
        "hook_event_name":"AfterTool","timestamp":"2026-05-21T12:00:00Z",
        "tool_name":"write_file","tool_input":{"file_path":"/tmp/sample.ts"}}' \
-  | scripts/format-on-edit.ts ; echo "exit=$?"
+  | devscripts/format-on-edit.ts ; echo "exit=$?"
 ```
 
 If the script branches on `hook_event_name` or `tool_name`, the three smokes catch the branch before the agent does. If

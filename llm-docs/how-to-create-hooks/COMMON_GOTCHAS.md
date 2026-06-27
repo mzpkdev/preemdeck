@@ -136,10 +136,10 @@ process.stdout.write(JSON.stringify({ continue: true }));
 # ~/.bashrc may echo "Welcome…" → lands on stdout → broken JSON
 
 # Prefer — no rc files; explicit interpreter
-#!/usr/bin/env -S preemdeck-bun
+#!/usr/bin/env -S preemdeck-runtime
 ```
 
-Shell hooks are the worst offenders. Prefer the pinned `preemdeck-bun`, or `bash --noprofile --norc`.
+Shell hooks are the worst offenders. Prefer the pinned `preemdeck-runtime`, or `bash --noprofile --norc`.
 
 ---
 
@@ -253,9 +253,9 @@ If a hook needs to live at the project or user layer instead, compute the root i
 
 ## Hooks fail silently when the interpreter isn't on PATH
 
-`#!/usr/bin/env -S preemdeck-bun` requires the pinned `preemdeck-bun` shim on the user's PATH. A formatter like `biome`
-requires that binary to be installed. The host doesn't warn — the hook just doesn't run, the agent does its thing, you
-wonder why nothing formatted.
+`#!/usr/bin/env -S preemdeck-runtime` requires the pinned `preemdeck-runtime` shim on the user's PATH. A formatter like
+`biome` requires that binary to be installed. The host doesn't warn — the hook just doesn't run, the agent does its
+thing, you wonder why nothing formatted.
 
 ```ts
 // Avoid — assumes biome is on PATH everywhere; a missing binary throws and crashes the edit
@@ -308,6 +308,6 @@ Fan-out        ── hooks fire N times per turn; design idempotently
 Handler types  ── only `command` runs on all three; prompt/agent/async are Claude-only
 Matcher mode   ── Claude flips into regex when non-word chars appear; test it
 Plugin vars    ── placeholders empty if you copy hooks.json to .claude/.codex/.gemini settings
-Interpreter    ── missing preemdeck-bun / formatter binary silently no-ops; warn on stderr, never block
+Interpreter    ── missing preemdeck-runtime / formatter binary silently no-ops; warn on stderr, never block
 Tool response  ── stdout/exit_code (Claude/Codex) vs llmContent (Gemini); branch per host
 ```

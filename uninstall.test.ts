@@ -2,8 +2,8 @@
  * uninstall.test.ts — bun-test suite for uninstall.ts.
  *
  * spawn seam — override install's `_internals.spawn` (runCli/unregister route
- *   through it) — NOT mock.module on the shared ./lib/proc.ts, which leaks into
- *   lib/proc.test.ts. Captures the exact argv and scripts exit codes/stderr.
+ *   through it) — NOT mock.module on the shared ./source/common/proc.ts, which leaks into
+ *   source/common/proc.test.ts. Captures the exact argv and scripts exit codes/stderr.
  *   Faithful TS equivalent of the original `patch("install.run_cli")`.
  * MOCK PATTERN E — tmp fixture for manifest + overlay FS (the original monkeypatches
  *   uninstall.REPO_ROOT; the TS port threads repoRoot into loadManifestOrExit /
@@ -16,11 +16,11 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { _internals, MANIFEST_SCHEMA, type OverlayRecord, STAGE_ROOT } from "./install.ts";
-import type { SpawnResult } from "./lib/proc.ts";
+import type { SpawnResult } from "./source/common/proc.ts";
 import { loadManifestOrExit, main, reverseOverlay, uninstallFor, unregister, writeManifest } from "./uninstall.ts";
 
 // unregister/runCli shell out through install's `_internals.spawn`; override that
-// single field (no mock.module on the shared ./lib/proc.ts — it leaks across
+// single field (no mock.module on the shared ./source/common/proc.ts — it leaks across
 // files) and restore it in afterEach.
 const spawnCalls: string[][] = [];
 const realSpawn = _internals.spawn;
@@ -106,7 +106,7 @@ describe("reverseOverlay", () => {
     const bak = join(dir, "settings.json.bak");
     writeFileSync(dst, "overlay-content");
     writeFileSync(bak, "user-original");
-    const records: OverlayRecord[] = [{ dst, src: "root/claude/settings.json", backup: bak, action: "overwrite" }];
+    const records: OverlayRecord[] = [{ dst, src: "source/overwrite/claude/settings.json", backup: bak, action: "overwrite" }];
     const logSpy = silenceLog();
     try {
       expect(reverseOverlay(records, false)).toEqual([1, 0]);
@@ -120,7 +120,7 @@ describe("reverseOverlay", () => {
   test("deletes when there is no backup", () => {
     const dst = join(dir, "fixer.md");
     writeFileSync(dst, "overlay-created");
-    const records: OverlayRecord[] = [{ dst, src: "root/claude/fixer.md", backup: null, action: "create" }];
+    const records: OverlayRecord[] = [{ dst, src: "source/overwrite/claude/fixer.md", backup: null, action: "create" }];
     const logSpy = silenceLog();
     try {
       expect(reverseOverlay(records, false)).toEqual([0, 1]);
@@ -132,7 +132,7 @@ describe("reverseOverlay", () => {
 
   test("tolerates an already-gone file", () => {
     const dst = join(dir, "gone.md");
-    const records: OverlayRecord[] = [{ dst, src: "root/claude/gone.md", backup: null, action: "create" }];
+    const records: OverlayRecord[] = [{ dst, src: "source/overwrite/claude/gone.md", backup: null, action: "create" }];
     const logSpy = silenceLog();
     try {
       expect(reverseOverlay(records, false)).toEqual([0, 0]);
@@ -144,7 +144,7 @@ describe("reverseOverlay", () => {
   test("dry-run counts intent but writes nothing", () => {
     const dst = join(dir, "fixer.md");
     writeFileSync(dst, "overlay-created");
-    const records: OverlayRecord[] = [{ dst, src: "root/claude/fixer.md", backup: null, action: "create" }];
+    const records: OverlayRecord[] = [{ dst, src: "source/overwrite/claude/fixer.md", backup: null, action: "create" }];
     const logSpy = silenceLog();
     try {
       expect(reverseOverlay(records, true)).toEqual([0, 1]);
@@ -160,8 +160,8 @@ describe("reverseOverlay", () => {
     writeFileSync(a, "a");
     writeFileSync(b, "b");
     const records: OverlayRecord[] = [
-      { dst: a, src: "root/claude/a.md", backup: null, action: "create" },
-      { dst: b, src: "root/claude/b.md", backup: null, action: "create" },
+      { dst: a, src: "source/overwrite/claude/a.md", backup: null, action: "create" },
+      { dst: b, src: "source/overwrite/claude/b.md", backup: null, action: "create" },
     ];
     const lines: string[] = [];
     const logSpy = spyOn(console, "log").mockImplementation(((line?: unknown) => {
@@ -304,7 +304,7 @@ describe("main", () => {
       schema: MANIFEST_SCHEMA,
       harnesses: {
         claude: {
-          overlay: [{ dst, src: "root/claude/settings.json", backup: null, action: "create" }],
+          overlay: [{ dst, src: "source/overwrite/claude/settings.json", backup: null, action: "create" }],
           marketplaces: [],
           plugins: [],
         },

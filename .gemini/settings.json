@@ -9,7 +9,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "\"${GEMINI_PROJECT_DIR}/scripts/preemdeck-bun\" \"${GEMINI_PROJECT_DIR}/scripts/format-on-edit.ts\"",
+            "command": "\"${GEMINI_PROJECT_DIR}/preemdeck-runtime\" \"${GEMINI_PROJECT_DIR}/devscripts/format-on-edit.ts\"",
             "timeout": 30
           }
         ]

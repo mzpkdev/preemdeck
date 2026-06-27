@@ -1,0 +1,21 @@
+#!/usr/bin/env sh
+# preemdeck-runtime — resolve the Bun interpreter for preemdeck's .ts source.
+#
+# Distribution model A ("ship-the-runtime"): prefer the PINNED runtime Bun that
+# boot.sh fetched into ~/.preemdeck/.runtime; fall back to a host `bun` only for
+# contributors who run from a checkout without the shipped runtime.
+#
+# Hooks/plugins/skills MUST invoke this by its installed absolute path:
+#     $HOME/.preemdeck/preemdeck-runtime
+# (the same ~/.preemdeck root every host's plugin copy nests under). Pass the
+# script and its args through verbatim, e.g.:
+#     "$HOME/.preemdeck/preemdeck-runtime" "$PLUGIN_ROOT/scripts/inject-mode.ts" --event UserPromptSubmit
+RUNTIME_BUN="$HOME/.preemdeck/.runtime/bin/bun"
+if [ -x "$RUNTIME_BUN" ]; then
+  exec "$RUNTIME_BUN" "$@"
+elif command -v bun >/dev/null 2>&1; then
+  exec bun "$@"
+else
+  echo "preemdeck-runtime: no Bun runtime found (looked for $RUNTIME_BUN and a host 'bun')" >&2
+  exit 1
+fi

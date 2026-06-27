@@ -13,23 +13,23 @@ import { copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync,
 import { homedir } from "node:os";
 import { dirname, join, relative, resolve, sep } from "node:path";
 import { parseArgs } from "node:util";
-import { spawn } from "./lib/proc.ts";
+import { spawn } from "./source/common/proc.ts";
 
 // Subprocess seam. All shell-outs go through `_internals.spawn` so tests can
-// override it WITHOUT mock.module on the shared ./lib/proc.ts (which leaks into
-// lib/proc.test.ts across a single `bun test` run). Production code reads the
-// real lib/proc.ts `spawn`; this is purely a test injection point.
+// override it WITHOUT mock.module on the shared ./source/common/proc.ts (which leaks into
+// source/common/proc.test.ts across a single `bun test` run). Production code reads the
+// real source/common/proc.ts `spawn`; this is purely a test injection point.
 export const _internals = { spawn };
 
 // Where preemdeck's source lives. Under the decoupled layout boot.sh clones to
 // ~/.preemdeck, so import.meta.dir resolves there — distinct from any host config dir.
 export const REPO_ROOT = import.meta.dir;
 
-// Authoritative plugin source: ~/.preemdeck/ripperdoc/<rack>. Plugin CODE (.ts)
+// Authoritative plugin source: ~/.preemdeck/source/ripperdoc/<rack>. Plugin CODE (.ts)
 // executes from here by absolute path; the host plugin-cache copy carries ONLY
 // harness-parsed primitives — never .ts — mirrored to STAGE_ROOT below.
 //
-// Primitives-only mirror: rebuilt from ripperdoc/ on every install (rm + recreate)
+// Primitives-only mirror: rebuilt from source/ripperdoc/ on every install (rm + recreate)
 // at ~/.preemdeck/.stage/<rack>. Hosts register marketplaces from HERE, so their
 // plugin cache holds manifests/SKILL.md/commands/hook decls but no executable code.
 // Gitignored. See buildMirror()/stampMirror().
@@ -37,7 +37,7 @@ export const STAGE_ROOT = ".stage";
 
 // Rack paths are absolute and rooted at the MIRROR (~/.preemdeck/.stage/<rack>).
 // Plugins register/install by this absolute path, so the host's plugin cache points
-// at the primitives-only mirror — the .ts source stays in ripperdoc/, nothing squatted.
+// at the primitives-only mirror — the .ts source stays in source/ripperdoc/, nothing squatted.
 export const MARKETPLACES: Array<[string, string]> = [
   ["chrome", join(REPO_ROOT, STAGE_ROOT, "chrome")],
   ["dock", join(REPO_ROOT, STAGE_ROOT, "dock")],
@@ -53,10 +53,10 @@ export const CONFIG_DIRNAMES: Record<string, string> = { claude: ".claude", code
 export const HOSTS = ["claude", "codex", "gemini"];
 export const MARKETPLACE_HOSTS = new Set(["claude", "codex"]);
 
-// Overlay source: `root/<harness>/` is COPIED into configDir by copyOverlay().
+// Overlay source: `source/overwrite/<harness>/` is COPIED into configDir by copyOverlay().
 // This tree is part of preemdeck's PERSISTENT source — it is read on every
 // install/update and must survive (never cleaned up). See copyOverlay().
-export const STAGING_ROOT = "root";
+export const STAGING_ROOT = "source/overwrite";
 
 // Install manifest: records what each install wrote (overlay files + their
 // backups, registered marketplaces, installed plugins) so uninstall.ts
@@ -293,7 +293,7 @@ function walkFiles(root: string): string[] {
  * the host-parsed primitives: marketplaces, plugin manifests, codex hook decls,
  * gemini extension manifests, skills (SKILL.md) and command TOMLs. Everything else
  * (*.ts, directive.md, agents/openai.yaml, modes.json, README.md, *.dat, stock/*.md,
- * IMPRINT.md, hosts/*.md, toolbox/**, scripts/**) is left in ripperdoc/, never copied.
+ * IMPRINT.md, hosts/*.md, toolbox/**, scripts/**) is left in source/ripperdoc/, never copied.
  */
 export function isMirroredPrimitive(relPosix: string): boolean {
   return (
@@ -321,7 +321,7 @@ function isVersionedManifest(relPosix: string): boolean {
  * Build the primitives-only mirror at `<repoRoot>/.stage/`.
  *
  * Rebuilt from scratch each run (rm + recreate) so a removed/renamed primitive
- * never lingers. For every rack under ripperdoc/, copy ONLY allowlisted files
+ * never lingers. For every rack under source/ripperdoc/, copy ONLY allowlisted files
  * (see isMirroredPrimitive) to `.stage/<rack>/<same-rel-path>`. The mirror is the
  * tree hosts register against — it must contain every manifest a host parses but
  * NO executable .ts. Skips the FS writes on a dry run (prints intent).
@@ -329,7 +329,7 @@ function isVersionedManifest(relPosix: string): boolean {
  * Returns the absolute mirror paths written (rack-rel POSIX paths logged on dry-run).
  */
 export function buildMirror(repoRoot: string, dryRun: boolean): string[] {
-  const ripperdoc = join(repoRoot, "ripperdoc");
+  const ripperdoc = join(repoRoot, "source", "ripperdoc");
   const stage = join(repoRoot, STAGE_ROOT);
   if (!existsSync(ripperdoc) || !statSync(ripperdoc).isDirectory()) {
     return [];
@@ -424,7 +424,7 @@ export async function stampMirror(repoRoot: string, mirrored: string[], dryRun: 
 }
 
 /**
- * Copy the per-harness overlay `root/<harness>/*` into the host config dir.
+ * Copy the per-harness overlay `source/overwrite/<harness>/*` into the host config dir.
  *
  * Hard-overwrite (no merging); backup-once before clobbering a genuinely
  * pre-existing user file (one with no prior manifest record) to `<dst>.bak` (or

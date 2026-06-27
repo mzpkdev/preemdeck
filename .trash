@@ -10,6 +10,7 @@
 /biome.json
 /tsconfig.json
 /llm-docs
+/devscripts
 /AGENTS.md
 /CLAUDE.md
 *.test.ts

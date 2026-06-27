@@ -1,7 +1,7 @@
 # TypeScript Coding Standards
 
-How we write TypeScript here. Skim freely — every section stands alone. Target: the repo's source (`lib/`, `scripts/`,
-`ripperdoc/`), which runs on a **pinned Bun** as native ESM.
+How we write TypeScript here. Skim freely — every section stands alone. Target: the repo's source (`source/common/`,
+`devscripts/`, `source/ripperdoc/`), which runs on a **pinned Bun** as native ESM.
 
 ---
 
@@ -11,7 +11,7 @@ The repo settles these for you. State them, don't argue them.
 
 | Concern       | Tool / setting                                                                                 |
 | ------------- | ---------------------------------------------------------------------------------------------- |
-| Runtime       | Bun (pinned `1.3.14`), via `scripts/preemdeck-bun`. Native `.ts`, no build step.               |
+| Runtime       | Bun (pinned `1.3.14`), via `preemdeck-runtime`. Native `.ts`, no build step.                   |
 | Module system | ESM only (`"type": "module"`). No CommonJS, no `require`.                                      |
 | Format + lint | Biome — `bun run format` (write), `bun run lint` (check). CI enforces.                         |
 | Tests         | `bun test` — `bun:test` API, files colocated as `*.test.ts`.                                   |
@@ -68,14 +68,14 @@ ESM, native, no bundler step. A few hard rules:
 
 ```ts
 // 1. Relative imports ALWAYS carry the .ts extension (allowImportingTsExtensions).
-import { runCmd } from "../lib/proc.ts";
+import { runCmd } from "../source/common/proc.ts";
 
 // 2. Node stdlib ALWAYS uses the node: prefix.
 import { parseArgs } from "node:util";
 import { writeFile, rename } from "node:fs/promises";
 
 // 3. Type-only imports say `import type` (verbatimModuleSyntax requires it).
-import type { Action } from "../lib/args.ts";
+import type { Action } from "../source/common/args.ts";
 
 // 4. Named imports only — never `import * as`.
 import { notifyMacos } from "./os-notify.ts";

@@ -234,7 +234,7 @@ collide.
 ├── .codex-plugin/plugin.json      ── Codex manifest + inline `hooks` block
 ├── gemini-extension.json          ── Gemini manifest + inline `hooks` block (at root, not in a subdir)
 └── scripts/
-    └── <name>-hook.ts            ── shared executable (run via the pinned preemdeck-bun shim); one source of truth
+    └── <name>-hook.ts            ── shared executable (run via the pinned preemdeck-runtime shim); one source of truth
 ```
 
 The `-hook` suffix marks the file as a hook script (distinguishes it from skill helpers, install scripts, or other
@@ -246,7 +246,7 @@ The `-hook` suffix marks the file as a hook script (distinguishes it from skill 
 ## Config shape — inline per manifest
 
 The shared `<name>-hook.ts` lives at `<plugin>/scripts/<name>-hook.ts`. Each manifest carries its own `hooks` block
-pointing at the same script through the pinned `preemdeck-bun` shim.
+pointing at the same script through the pinned `preemdeck-runtime` shim.
 
 ```jsonc
 // .claude-plugin/plugin.json — Claude
@@ -259,7 +259,7 @@ pointing at the same script through the pinned `preemdeck-bun` shim.
         "hooks": [
           {
             "type": "command",
-            "command": "\"${CLAUDE_PLUGIN_ROOT}/scripts/preemdeck-bun\" \"${CLAUDE_PLUGIN_ROOT}/scripts/format-on-edit.ts\"",
+            "command": "\"${CLAUDE_PLUGIN_ROOT}/scripts/preemdeck-runtime\" \"${CLAUDE_PLUGIN_ROOT}/scripts/format-on-edit.ts\"",
             "timeout": 30,
           },
         ],
@@ -280,7 +280,7 @@ pointing at the same script through the pinned `preemdeck-bun` shim.
         "hooks": [
           {
             "type": "command",
-            "command": "\"${CLAUDE_PLUGIN_ROOT}/scripts/preemdeck-bun\" \"${CLAUDE_PLUGIN_ROOT}/scripts/format-on-edit.ts\"",
+            "command": "\"${CLAUDE_PLUGIN_ROOT}/scripts/preemdeck-runtime\" \"${CLAUDE_PLUGIN_ROOT}/scripts/format-on-edit.ts\"",
             "timeout": 30,
           },
         ],
@@ -301,7 +301,7 @@ pointing at the same script through the pinned `preemdeck-bun` shim.
         "hooks": [
           {
             "type": "command",
-            "command": "\"${extensionPath}/scripts/preemdeck-bun\" \"${extensionPath}/scripts/format-on-edit.ts\"",
+            "command": "\"${extensionPath}/scripts/preemdeck-runtime\" \"${extensionPath}/scripts/format-on-edit.ts\"",
             "timeout": 30,
           },
         ],
@@ -341,8 +341,8 @@ Project-local and user-layer hook configs still exist (`.claude/settings.json`, 
 
 ## Read it in code
 
-`scripts/format-on-edit.ts` is the canonical implementation. Read stdin once, decide quickly, exit `0` even on internal
-failure unless the agent _must_ be stopped. See [BEST_PRACTICES.md](BEST_PRACTICES.md) for why.
+`devscripts/format-on-edit.ts` is the canonical implementation. Read stdin once, decide quickly, exit `0` even on
+internal failure unless the agent _must_ be stopped. See [BEST_PRACTICES.md](BEST_PRACTICES.md) for why.
 
 ---
 

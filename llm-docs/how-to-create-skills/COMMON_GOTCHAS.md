@@ -111,14 +111,14 @@ Inline command execution via `` !`<cmd>` `` or ` ```! ` runs only on Claude. On 
 
 ## Preload
 
-!`"$HOME/.preemdeck/scripts/preemdeck-bun" ${CLAUDE_PLUGIN_ROOT}/scripts/gather.ts`
+!`"$HOME/.preemdeck/preemdeck-runtime" ${CLAUDE_PLUGIN_ROOT}/scripts/gather.ts`
 
 # Prefer — explicit body step, runs everywhere
 
 ## Step 1 — Gather
 
-Run `"$HOME/.preemdeck/scripts/preemdeck-bun" ${CLAUDE_PLUGIN_ROOT}/scripts/gather.ts` and parse the JSON output. The
-script self-locates if `${CLAUDE_PLUGIN_ROOT}` is unset.
+Run `"$HOME/.preemdeck/preemdeck-runtime" ${CLAUDE_PLUGIN_ROOT}/scripts/gather.ts` and parse the JSON output. The script
+self-locates if `${CLAUDE_PLUGIN_ROOT}` is unset.
 ```
 
 A skill that depends on preload sugar has a runtime gap on two hosts. The model reads the body and never executes the

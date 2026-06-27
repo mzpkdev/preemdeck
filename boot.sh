@@ -106,12 +106,12 @@ fetch_bun() {
 fetch_bun || true
 
 # Prune dev-only paths from the deployed clone — the logic + the .trash patterns live
-# in scripts/trash.ts (git sparse-checkout). Best-effort; uses the Bun vendored above.
-"$SOURCE_DIRECTORY/scripts/preemdeck-bun" "$SOURCE_DIRECTORY/scripts/trash.ts" || true
+# in devscripts/trash.ts (git sparse-checkout). Best-effort; uses the Bun vendored above.
+"$SOURCE_DIRECTORY/preemdeck-runtime" "$SOURCE_DIRECTORY/devscripts/trash.ts" || true
 
 # Install runtime deps (hono, @hono/zod-openapi, cmdore, zod) so plugin code can
 # execute from ~/.preemdeck by absolute path. Best-effort: warn but never abort —
 # node_modules is gitignored, so a fresh clone has none until this runs.
-(cd "$SOURCE_DIRECTORY" && "$SOURCE_DIRECTORY/scripts/preemdeck-bun" install --production) || echo "      ⚠ bun install failed — runtime deps may be missing"
+(cd "$SOURCE_DIRECTORY" && "$SOURCE_DIRECTORY/preemdeck-runtime" install --production) || echo "      ⚠ bun install failed — runtime deps may be missing"
 
-"$SOURCE_DIRECTORY/scripts/preemdeck-bun" "$SOURCE_DIRECTORY/install.ts" "$HARNESS" "$@"
+"$SOURCE_DIRECTORY/preemdeck-runtime" "$SOURCE_DIRECTORY/install.ts" "$HARNESS" "$@"
