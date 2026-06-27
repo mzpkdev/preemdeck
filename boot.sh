@@ -21,11 +21,17 @@ SOURCE_DIRECTORY="$HOME/.preemdeck"
 
 command -v git >/dev/null     || { echo "      ⊘ git not found"; exit 1; }
 
-# preemdeck installs from main. ~/.preemdeck is preemdeck's own source, not user
-# config — re-runnable, so refresh it in place rather than backing it up.
-TARGET_BRANCH="main"
+# Channel -> branch. PREEMDECK_CHANNEL picks the stream (default stable = released
+# main; edge = main HEAD). stable's tip is a tag so install.ts stamps vX.Y.Z; edge
+# stamps the short SHA via git describe --always.
+CHANNEL="${PREEMDECK_CHANNEL:-stable}"
+case "$CHANNEL" in
+  stable) TARGET_BRANCH="stable" ;;
+  edge)   TARGET_BRANCH="main" ;;
+  *) echo "      ⊘ unknown channel '$CHANNEL' (use stable|edge)"; exit 1 ;;
+esac
 if [ -d "$SOURCE_DIRECTORY/.git" ]; then
-  git -C "$SOURCE_DIRECTORY" fetch --depth 1 --quiet origin "$TARGET_BRANCH"
+  git -C "$SOURCE_DIRECTORY" fetch --depth 1 --quiet origin "$TARGET_BRANCH" 'refs/tags/*:refs/tags/*'
   git -C "$SOURCE_DIRECTORY" reset --hard --quiet FETCH_HEAD
 else
   git clone --depth 1 --quiet --branch "$TARGET_BRANCH" "$REPOSITORY" "$SOURCE_DIRECTORY"

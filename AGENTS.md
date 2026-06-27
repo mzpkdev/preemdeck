@@ -38,13 +38,14 @@ again, and any edit only takes effect after the host CLI restarts.
 
 **Apply on explicit request only. When the user asks to update their local copy / apply the changes, re-run `boot.sh`
 yourself — you know the command, don't bounce it back. But only when asked: never apply unprompted after an edit.**
-Re-running `boot.sh` fetches `main` into `~/.preemdeck` (`fetch` + `reset --hard`) and re-installs the named harness.
+Re-running `boot.sh` fetches your channel (`stable` by default, or `edge` = `main`, selected via `PREEMDECK_CHANNEL`)
+into `~/.preemdeck` (`fetch` + `reset --hard`) and re-installs the named harness.
 
 Canonical flow — run on request:
 
 ```bash
 git -C <dev-repo> add -A && git commit -m "…" && git push                           # 1. dev repo: commit + push
-curl -fsSL https://raw.githubusercontent.com/mzpkdev/preemdeck/main/boot.sh | bash  # 2. deployed source: refresh ~/.preemdeck + re-install
+curl -fsSL https://raw.githubusercontent.com/mzpkdev/preemdeck/main/boot.sh | bash  # 2. deployed source: refresh ~/.preemdeck from your channel + re-install
 ```
 
 Then restart the host CLI — plugins load at startup. To reverse an install,

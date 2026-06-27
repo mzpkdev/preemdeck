@@ -364,11 +364,12 @@ export function buildMirror(repoRoot: string, dryRun: boolean): string[] {
 }
 
 /**
- * SHA-stamp every versioned manifest in the mirror with repoRoot's short HEAD.
+ * Stamp every versioned manifest in the mirror with repoRoot's `git describe`
+ * (the tag if HEAD is tagged — stable channel — else a short SHA — edge channel).
  *
- * Version is the host's plugin-cache key, so stamping it with the current SHA
+ * Version is the host's plugin-cache key, so stamping it with the current describe
  * forces a re-copy whenever the source changes (replaces the deleted per-deploy
- * stamping). Resilient: if `git rev-parse` fails (e.g. tmp dir is not a git repo),
+ * stamping). Resilient: if `git describe` fails (e.g. tmp dir is not a git repo),
  * leave versions unchanged and NEVER throw. Skips on a dry run.
  */
 export async function stampMirror(repoRoot: string, mirrored: string[], dryRun: boolean): Promise<void> {
@@ -377,7 +378,7 @@ export async function stampMirror(repoRoot: string, mirrored: string[], dryRun: 
   }
   let sha = "";
   try {
-    const r = await _internals.spawn(["git", "-C", repoRoot, "rev-parse", "--short", "HEAD"], { timeoutMs: 10_000 });
+    const r = await _internals.spawn(["git", "-C", repoRoot, "describe", "--tags", "--always"], { timeoutMs: 10_000 });
     if (r.exitCode === 0) {
       sha = r.stdout.trim();
     }
@@ -404,7 +405,7 @@ export async function stampMirror(repoRoot: string, mirrored: string[], dryRun: 
         changed = true;
       }
       // marketplace.json has NO top-level version — its per-plugin cache keys are
-      // nested in plugins[].version, so stamp each entry too (matches stamp-version.sh).
+      // nested in plugins[].version, so stamp each entry too.
       if (Array.isArray(data.plugins)) {
         for (const entry of data.plugins) {
           if (entry !== null && typeof entry === "object" && "version" in entry) {

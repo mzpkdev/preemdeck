@@ -336,7 +336,7 @@ describe("stampMirror", () => {
 
     await stampMirror(dir, written, false);
 
-    expect(spawnCalls).toContainEqual(["git", "-C", dir, "rev-parse", "--short", "HEAD"]);
+    expect(spawnCalls).toContainEqual(["git", "-C", dir, "describe", "--tags", "--always"]);
     const stage = join(dir, STAGE_ROOT);
     // plugin.json + gemini-extension.json carry a top-level "version" -> stamped
     expect(JSON.parse(readFileSync(join(stage, "dock/idea/.claude-plugin/plugin.json"), "utf8")).version).toBe("abc1234");
