@@ -1,8 +1,0 @@
-description = "Update preemdeck — pull the latest source and re-install every recorded harness."
-prompt = """
-Run exactly this, nothing else, and print its output verbatim:
-
-`"$HOME/.preemdeck/scripts/preemdeck-bun" "$HOME/.preemdeck/update.ts"`
-
-It syncs ~/.preemdeck to your channel and re-installs every recorded harness. On a non-zero exit, pass through the message it prints — don't retry with a guess. The update takes effect after the host CLI restarts.
-"""

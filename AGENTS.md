@@ -36,17 +36,15 @@ overlay (`root/<harness>/` — settings + the `fixer` agent) into the host confi
 to `<file>.bak`. So editing this repo does **not** update a running harness: overlay edits need a re-install to copy out
 again, and any edit only takes effect after the host CLI restarts.
 
-**Apply on explicit request only. When the user asks to update their local copy / apply the changes, run `update.ts`
-yourself — you know the command, don't bounce it back. But only when asked: never apply unprompted after an edit, and
-never run `install.ts` yourself — that one stays the user's call.** `update.ts` is manifest-driven: it does
-`git pull --ff-only` on `~/.preemdeck`, then re-installs every harness recorded in
-`~/.preemdeck/.install-manifest.json`.
+**Apply on explicit request only. When the user asks to update their local copy / apply the changes, re-run `boot.sh`
+yourself — you know the command, don't bounce it back. But only when asked: never apply unprompted after an edit.**
+Re-running `boot.sh` fetches `main` into `~/.preemdeck` (`fetch` + `reset --hard`) and re-installs the named harness.
 
-Canonical flow — run on request (step 2 is yours now; `install.ts` never is):
+Canonical flow — run on request:
 
 ```bash
-git -C <dev-repo> add -A && git commit -m "…" && git push   # 1. dev repo: commit + push
-~/.preemdeck/scripts/preemdeck-bun ~/.preemdeck/update.ts   # 2. deployed source: pull --ff-only + re-install
+git -C <dev-repo> add -A && git commit -m "…" && git push                           # 1. dev repo: commit + push
+curl -fsSL https://raw.githubusercontent.com/mzpkdev/preemdeck/main/boot.sh | bash  # 2. deployed source: refresh ~/.preemdeck + re-install
 ```
 
 Then restart the host CLI — plugins load at startup. To reverse an install,

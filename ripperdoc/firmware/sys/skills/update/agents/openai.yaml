@@ -1,4 +1,0 @@
-# Codex equivalent of Claude's `disable-model-invocation: true`.
-# Keeps /sys:update a user-only command — the model never auto-invokes it.
-policy:
-  allow_implicit_invocation: false

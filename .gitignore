@@ -12,7 +12,7 @@
 .claude/settings.local.json
 
 # preemdeck user config — written from install.ts's built-in defaults on first install;
-# gitignored so update (pull/reset) never reverts the user's directive/channel edits
+# gitignored so a re-install (fetch/reset) never reverts the user's directive edits
 preemdeck.json
 
 # preemdeck install manifest (generated per-install local state)

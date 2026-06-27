@@ -21,16 +21,9 @@ SOURCE_DIRECTORY="$HOME/.preemdeck"
 
 command -v git >/dev/null     || { echo "      ⊘ git not found"; exit 1; }
 
-# Release channel -> branch. PREEMDECK_CHANNEL picks a published stream (default stable);
-# install from dist-<channel>. An unknown/unpublished channel errors out rather than
-# silently serving main's full (un-pruned) tree.
-CHANNEL="${PREEMDECK_CHANNEL:-stable}"
-TARGET_BRANCH="dist-$CHANNEL"
-git ls-remote --exit-code --heads "$REPOSITORY" "$TARGET_BRANCH" >/dev/null 2>&1 \
-  || { echo "      ⊘ unknown channel '$CHANNEL' (no $TARGET_BRANCH branch)"; exit 1; }
-
-# Re-runnable: ~/.preemdeck is preemdeck's own source, not user config — refresh it
-# in place rather than backing it up. (Full update logic lives in update.ts.)
+# preemdeck installs from main. ~/.preemdeck is preemdeck's own source, not user
+# config — re-runnable, so refresh it in place rather than backing it up.
+TARGET_BRANCH="main"
 if [ -d "$SOURCE_DIRECTORY/.git" ]; then
   git -C "$SOURCE_DIRECTORY" fetch --depth 1 --quiet origin "$TARGET_BRANCH"
   git -C "$SOURCE_DIRECTORY" reset --hard --quiet FETCH_HEAD

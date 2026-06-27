@@ -90,9 +90,9 @@ describe("seedConfig", () => {
   });
 
   test("never overwrites an existing preemdeck.json", () => {
-    writeFileSync(join(dir, CONFIG_FILE), '{"update":{"channel":"edge"}}\n');
+    writeFileSync(join(dir, CONFIG_FILE), '{"directive":{"strategy":"solo"}}\n');
     seedConfig(dir, false);
-    expect(readFileSync(join(dir, CONFIG_FILE), "utf8")).toBe('{"update":{"channel":"edge"}}\n');
+    expect(readFileSync(join(dir, CONFIG_FILE), "utf8")).toBe('{"directive":{"strategy":"solo"}}\n');
   });
 
   test("dry-run does not write", () => {

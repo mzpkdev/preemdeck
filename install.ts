@@ -49,7 +49,7 @@ export const MARKETPLACE_HOSTS = new Set(["claude", "codex"]);
 export const STAGING_ROOT = "root";
 
 // Install manifest: records what each install wrote (overlay files + their
-// backups, registered marketplaces, installed plugins) so update.ts / uninstall.ts
+// backups, registered marketplaces, installed plugins) so uninstall.ts
 // can read it back. Lives at REPO_ROOT and is keyed + MERGED per harness.
 export const MANIFEST_FILE = ".install-manifest.json";
 export const MANIFEST_SCHEMA = 1;
@@ -58,10 +58,10 @@ export const MANIFEST_SCHEMA = 1;
 export const DISABLED_PLUGINS: ReadonlySet<string> = new Set(["ghost"]);
 
 // User-local config. preemdeck.json is gitignored per-install state (the directive
-// object set-mode.ts writes, plus update.channel); install.ts WRITES it from the
-// built-in DEFAULT_CONFIG on first install, so user edits survive every update — git
-// never tracks it (pull/reset can't revert it) and seedConfig never overwrites it.
-// The defaults live here, not in a tracked file.
+// object set-mode.ts writes); install.ts WRITES it from the built-in DEFAULT_CONFIG
+// on first install, so user edits survive a re-install — git never tracks it (a
+// re-clone can't revert it) and seedConfig never overwrites it. The defaults live
+// here, not in a tracked file.
 export const CONFIG_FILE = "preemdeck.json";
 export const DEFAULT_CONFIG = `${JSON.stringify({ directive: { strategy: "swarm", discretion: "ask" } }, null, 2)}\n`;
 
@@ -182,10 +182,10 @@ export async function registerMarketplace(host: string, path: string, dryRun: bo
 }
 
 /**
- * Refresh a host's cached marketplace clone so a freshly published plugin version is
- * seen. Claude reads a cached clone to resolve versions and does NOT re-fetch it on
- * install/update (claude-code#46081), so without this the new 0.0.<n> stays invisible
- * and the cached plugin copy goes stale. Best-effort — failure doesn't block the install.
+ * Refresh a host's cached marketplace clone so local marketplace edits are seen.
+ * Claude reads a cached clone to resolve plugins and does NOT re-fetch it on
+ * install/update (claude-code#46081), so without this the cached plugin copy can go
+ * stale. Best-effort — failure doesn't block the install.
  */
 export async function refreshMarketplace(host: string, name: string, dryRun: boolean): Promise<[boolean, string]> {
   return runCli([host, "plugin", "marketplace", "update", name], dryRun);
@@ -211,9 +211,9 @@ export async function installPlugin(
 
 /**
  * Install (or refresh) a Gemini extension from its local source. `install --path`
- * creates it on first run but no-ops once present and never re-copies on a version
- * bump — so on "already installed" fall back to `extensions update <name>`, which the
- * per-deploy version bump makes detect the change and re-copy. Takes effect next CLI start.
+ * creates it on first run but no-ops once present — so on "already installed" fall
+ * back to `extensions update <name>` to re-sync from the local source. Takes effect
+ * next CLI start.
  */
 async function installGeminiExtension(spec: PluginSpec, dryRun: boolean): Promise<[boolean, string]> {
   const [ok, err] = await runCli(["gemini", "extensions", "install", "--path", spec.sourcePath], dryRun);
@@ -440,10 +440,10 @@ export function printSummary(harness: string, results: Record<string, string>): 
 /**
  * Write the user-local preemdeck.json from the built-in DEFAULT_CONFIG, if absent.
  *
- * preemdeck.json is gitignored (the directive object + update.channel); the defaults live in
- * this install script, not a tracked file. Seed-if-absent: create it on first install, NEVER
- * overwrite an existing one — so set-mode.ts's writes and a user's channel choice persist across
- * updates (gitignored => pull/reset leave it alone; this won't clobber it).
+ * preemdeck.json is gitignored (the directive object); the defaults live in this
+ * install script, not a tracked file. Seed-if-absent: create it on first install, NEVER
+ * overwrite an existing one — so set-mode.ts's writes persist across re-installs
+ * (gitignored => a re-clone leaves it alone; this won't clobber it).
  */
 export function seedConfig(repoRoot: string, dryRun: boolean): void {
   const dst = join(repoRoot, CONFIG_FILE);
@@ -493,7 +493,7 @@ export async function installFor(harness: string, dryRun: boolean): Promise<numb
       }
       if (harness === "claude") {
         // Claude won't re-fetch the cached marketplace clone on install (claude-code#46081),
-        // so the freshly published version is invisible until the clone is refreshed.
+        // so local marketplace edits stay invisible until the clone is refreshed.
         await refreshMarketplace(harness, name, dryRun);
       }
       for (const spec of readPluginSpecs(path)) {
