@@ -12,11 +12,10 @@
  * Path resolution: SKILLS_DIR = <script-dir>/../skills.
  */
 
+import { existsSync } from "node:fs"
 import { readFile, stat } from "node:fs/promises"
 import { dirname, join } from "node:path"
-import { exists } from "../../../../common/fs.ts"
 import { runInjectionHook } from "../../../../common/inject.ts"
-import { pyName } from "./pyname.ts"
 
 const CONFIG_NAME = "preemdeck.json"
 const DIRECTIVE_KEY = "directive"
@@ -29,7 +28,7 @@ export const findConfig = async (start: string): Promise<string | null> => {
     let dir = start
     for (;;) {
         const candidate = join(dir, CONFIG_NAME)
-        if ((await exists(candidate)) && (await stat(candidate)).isFile()) return candidate
+        if (existsSync(candidate) && (await stat(candidate)).isFile()) return candidate
         const parent = dirname(dir)
         if (parent === dir) return null
         dir = parent
@@ -67,9 +66,9 @@ export const selectVariants = async (config: string): Promise<string[]> => {
  * can't escape the skills dir.
  */
 export const loadModeText = async (skillsDir: string, value: string): Promise<string | null> => {
-    if (pyName(value) !== value) return null
+    if (value.includes("/") || value === ".") return null
     const body = join(skillsDir, value, "directive.md")
-    if (!(await exists(body)) || !(await stat(body)).isFile()) return null
+    if (!existsSync(body) || !(await stat(body)).isFile()) return null
     const text = (await readFile(body, "utf8")).trim()
     return text || null
 }

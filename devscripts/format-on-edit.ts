@@ -27,10 +27,10 @@
  * tracked `*.json` files.
  */
 
+import { existsSync } from "node:fs"
 import { stat } from "node:fs/promises"
 import { dirname, relative, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
-import { exists } from "../source/common/fs.ts"
 import { spawn } from "../source/common/proc.ts"
 
 // Two distinct roots:
@@ -54,7 +54,7 @@ const BIOME_BIN = resolve(REPO_ROOT, "node_modules", ".bin", "biome")
 // at module load is disallowed — so the Biome command is resolved on demand
 // inside `format()` instead of as a load-time const.
 const biomeCmd = async (): Promise<string[]> =>
-    (await exists(BIOME_BIN)) ? [BIOME_BIN, "format", "--write"] : ["bun", "x", "@biomejs/biome", "format", "--write"]
+    existsSync(BIOME_BIN) ? [BIOME_BIN, "format", "--write"] : ["bun", "x", "@biomejs/biome", "format", "--write"]
 
 // Suffixes routed to Biome; resolved via `biomeCmd()` at format time.
 const BIOME_SUFFIXES = new Set([".ts", ".json"])
@@ -65,7 +65,7 @@ const PRETTIER_BIN = resolve(REPO_ROOT, "node_modules", ".bin", "prettier")
 // Lazy-init for the same reason as `biomeCmd` — the binary probe is async and a
 // top-level await at module load is disallowed.
 const prettierCmd = async (): Promise<string[]> =>
-    (await exists(PRETTIER_BIN)) ? [PRETTIER_BIN, "--write"] : ["bun", "x", "prettier", "--write"]
+    existsSync(PRETTIER_BIN) ? [PRETTIER_BIN, "--write"] : ["bun", "x", "prettier", "--write"]
 
 // Suffixes routed to Prettier; resolved via `prettierCmd()` at format time.
 const PRETTIER_SUFFIXES = new Set([".md", ".markdown", ".yml", ".yaml"])
@@ -106,7 +106,7 @@ const extractFilePath = (payload: Record<string, unknown>): string | null => {
 /** Resolve `filePath`; return it only if it's an existing file under the containment root. */
 const resolveInsideRoot = async (filePath: string): Promise<string | null> => {
     const abs = resolve(filePath)
-    if (!(await exists(abs)) || !(await stat(abs)).isFile()) {
+    if (!existsSync(abs) || !(await stat(abs)).isFile()) {
         return null
     }
     // relative(root, abs) escaping the root starts with ".." (or is absolute on a

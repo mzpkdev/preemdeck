@@ -3,7 +3,6 @@ import * as fs from "node:fs/promises"
 import { defineCommand, execute } from "cmdore"
 import { assertIdea } from "./assert-idea.ts"
 import { reapLater } from "./core"
-import { boolean } from "./core/coercers.ts"
 import { openFile } from "./open-file.ts"
 import { writeTemp } from "./tmp.ts"
 
@@ -57,14 +56,12 @@ const command = defineCommand({
         {
             name: "wait",
             arity: 0,
-            description: "block until the tab closes, then print the file back",
-            coerce: boolean
+            description: "block until the tab closes, then print the file back"
         },
         {
             name: "preview",
             arity: 0,
-            description: "flip the editor to the rendered preview after opening",
-            coerce: boolean
+            description: "flip the editor to the rendered preview after opening"
         }
     ],
     run: async ({ inline, suffix, wait, preview }) => {

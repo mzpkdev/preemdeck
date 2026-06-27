@@ -10,9 +10,9 @@
  * missing subcommand prints usage to stderr and exits 1.
  */
 
+import { existsSync } from "node:fs"
 import { readFile, unlink, writeFile } from "node:fs/promises"
 import { dirname, join } from "node:path"
-import { exists } from "../../../../common/fs.ts"
 
 /** The <MD> ⇄ <DAT> persona files, in the fixed order every subcommand walks. */
 export const MAPPINGS: ReadonlyArray<readonly [string, string]> = [
@@ -30,7 +30,7 @@ export const pluginRoot = (): string => {
 export const encode = async (root: string, log: (line: string) => void = console.log): Promise<void> => {
     for (const [mdName, datName] of MAPPINGS) {
         const md = join(root, mdName)
-        if (!(await exists(md))) continue
+        if (!existsSync(md)) continue
         const dat = join(root, datName)
         // b64encode(md bytes) -> ASCII base64 bytes written verbatim to <DAT>.
         await writeFile(dat, Buffer.from(await readFile(md)).toString("base64"))
@@ -43,7 +43,7 @@ export const encode = async (root: string, log: (line: string) => void = console
 export const decode = async (root: string, log: (line: string) => void = console.log): Promise<void> => {
     for (const [mdName, datName] of MAPPINGS) {
         const dat = join(root, datName)
-        if (!(await exists(dat))) continue
+        if (!existsSync(dat)) continue
         const md = join(root, mdName)
         await writeFile(md, Buffer.from((await readFile(dat)).toString("utf8"), "base64"))
         log(`${datName} -> ${mdName}`)
@@ -55,7 +55,7 @@ export const flatline = async (root: string, log: (line: string) => void = conso
     const stockDir = join(root, "stock")
     for (const [mdName] of MAPPINGS) {
         const src = join(stockDir, mdName)
-        if (!(await exists(src))) continue
+        if (!existsSync(src)) continue
         const dst = join(root, mdName)
         await writeFile(dst, await readFile(src))
     }

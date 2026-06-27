@@ -7,11 +7,12 @@
  * resolves its own env/default). Ports the load-bearing _serve_argv cases from
  * the original wire's lifecycle suite.
  *
- * E2E (subprocess): the real start -> status -> stop cycle, idempotent re-start
- * (no second server), and the mint-a-secret path — each under a throwaway
- * WIRE_STATE_DIR so it never touches a real ~/.wire and the spawned pid is torn
- * down. Plus the idempotent reuse path driven hermetically against a stub /health
- * (no real server spawned). Mirrors the original wire's start/status/stop suite.
+ * E2E (subprocess): the real start -> stop cycle — asserting the server is up via
+ * a direct /health probe after start and down after stop — idempotent re-start (no
+ * second server), and the mint-a-secret path, each under a throwaway WIRE_STATE_DIR
+ * so it never touches a real ~/.wire and the spawned pid is torn down. Plus the
+ * idempotent reuse path driven hermetically against a stub /health (no real server
+ * spawned). Mirrors the original wire's start/stop suite.
  */
 
 import { afterEach, describe, expect, it } from "bun:test"
@@ -56,6 +57,18 @@ const pidGone = (pid: number): boolean => {
         return false
     } catch {
         return true
+    }
+}
+
+// True iff the wire server answers GET /health with {"status":"ok"} on the tracked
+// port — the liveness signal the (now-removed) `status` command reported. A dead
+// room can't answer, so any connection error reads as down.
+const healthOk = async (port: number): Promise<boolean> => {
+    try {
+        const resp = await fetch(`http://127.0.0.1:${port}/health`, { signal: AbortSignal.timeout(2000) })
+        return resp.status === 200 && JSON.stringify(await resp.json()) === '{"status":"ok"}'
+    } catch {
+        return false
     }
 }
 
@@ -172,8 +185,8 @@ describe("start", () => {
         })
     })
 
-    context("the real start -> status -> stop cycle (subprocess)", () => {
-        it("starts detached, reports up, then stops and clears state", async () => {
+    context("the real start -> stop cycle (subprocess)", () => {
+        it("starts detached, answers /health, then stops and clears state", async () => {
             const dir = await tmpStateDir()
             let pid: number | undefined
             try {
@@ -193,19 +206,17 @@ describe("start", () => {
                 expect(state?.secret).toBe("s")
                 expect(started.stdout).toContain(state?.url as string)
 
-                const statusUp = await run("status.ts", ["status"], dir)
-                expect(statusUp.code).toBe(0)
-                expect(statusUp.stdout).toContain("wire: up")
-                expect(statusUp.stdout).toContain(`port:   ${state?.port}`)
-                expect(statusUp.stdout).toContain("secret: s")
+                // Up: the server actually answers /health on the tracked port
+                // (the same liveness signal the old `status` command reported).
+                expect(await healthOk(state?.port as number)).toBe(true)
 
                 const stopped = await run("stop.ts", ["stop"], dir)
                 expect(stopped.code).toBe(0)
                 expect(stopped.stdout).toContain("stopped")
                 expect(await readState(dir)).toBeNull()
 
-                const statusDown = await run("status.ts", ["status"], dir)
-                expect(statusDown.stdout).toContain("not running")
+                // Down: the port no longer answers (mirrors the old `not running`).
+                expect(await healthOk(state?.port as number)).toBe(false)
 
                 await sleep(300)
                 expect(pidGone(pid)).toBe(true)

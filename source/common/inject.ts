@@ -1,17 +1,13 @@
 /**
- * lib/inject.ts — byte-exact context-injection hook runner for the context
- * injectors.
+ * lib/inject.ts — context-injection hook runner for the context injectors.
  *
- * Same stdin/event/no-op contract as lib/hook.ts `runHook`, but the emitted
- * envelope is serialized with lib/pyjson.ts to match the reference BARE
- * `json.dumps({...})` defaults (", "/": " separators + ensure_ascii). See
- * pyjson.ts for why hook.ts's compact emitter isn't byte-identical to these
- * injectors. Event precedence is identical to runHook:
+ * Same stdin/event/no-op contract as lib/hook.ts `runHook`. The envelope is
+ * emitted with native `JSON.stringify` — the host JSON-parses stdout, so the
+ * exact byte framing (separator spacing / ascii-escaping) is irrelevant.
+ * Event precedence is identical to runHook:
  *   payload.hook_event_name (non-empty string) > options.event > "UserPromptSubmit".
  * A throwing/empty render is a silent `{}` no-op. The caller exits 0 unconditionally.
  */
-
-import { injectionEnvelope } from "./pyjson.ts"
 
 const DEFAULT_EVENT = "UserPromptSubmit"
 
@@ -30,7 +26,7 @@ export type RunInjectionOptions = {
     write?: (line: string) => void
 }
 
-/** Read stdin, resolve the event, emit the reference-faithful envelope (or `{}`). */
+/** Read stdin, resolve the event, emit the JSON envelope (or `{}`). */
 export const runInjectionHook = async (options: RunInjectionOptions): Promise<void> => {
     const { event, render } = options
     const stdin = options.stdin ?? Bun.stdin
@@ -64,5 +60,9 @@ export const runInjectionHook = async (options: RunInjectionOptions): Promise<vo
         write("{}")
         return
     }
-    write(injectionEnvelope(eventName, text))
+    write(
+        JSON.stringify({
+            hookSpecificOutput: { hookEventName: eventName, additionalContext: text }
+        })
+    )
 }

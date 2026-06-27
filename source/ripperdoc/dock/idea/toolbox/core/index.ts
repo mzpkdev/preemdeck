@@ -71,28 +71,15 @@ export const resolveLogDir = async (): Promise<string> => {
 }
 
 /** Shared error types callers `catch`/`instanceof` across the toolbox. */
-export { IdeaError, NotImplementedError } from "./errors.ts"
+export { IdeaError } from "./errors.ts"
 /** Shared ideScript bridge: escape a Groovy literal, target the terminal's window, run a one-shot script (against the ancestry IDE, or every running IDE via runGroovyOn). */
-export {
-    escapeGroovy,
-    groovyProjectByCwd,
-    type ProjectByCwdOptions,
-    type RunGroovyDeps,
-    runGroovy,
-    runGroovyOn
-} from "./groovy.ts"
+export { escapeGroovy, groovyProjectByCwd, runGroovy, runGroovyOn } from "./groovy.ts"
 /**
  * Cross-platform launch (resolves resolveExecPath lazily at call time — see
  * launch.ts — so the static import cycle with this module is import-safe).
  */
-export { type LaunchOptions, launch } from "./launch.ts"
+export { launch } from "./launch.ts"
 /** Preview helpers (layer on the bridge) for forcing a rendered preview / URL tab. */
-export {
-    HTML_PREVIEW_EXTS,
-    previewUrl,
-    setPreview,
-    type WebpreviewOpenBodyOptions,
-    webpreviewOpenBody
-} from "./preview.ts"
+export { previewUrl, setPreview, webpreviewOpenBody } from "./preview.ts"
 /** Deferred temp cleanup for the toolbox's fire-and-forget (no-wait) modes. */
-export { REAP_DELAY_MS, reapLater } from "./reap.ts"
+export { reapLater } from "./reap.ts"

@@ -10,7 +10,7 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test"
 import { mkdtemp, rm } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
-import { readJson, writeJson } from "./json-store.ts"
+import { writeJson } from "./json-store.ts"
 
 let dir = ""
 let path = ""
@@ -31,10 +31,10 @@ describe("jsonStore", () => {
         expect(text).toBe('{\n  "directive": {\n    "strategy": "swarm",\n    "discretion": "ask"\n  }\n}\n')
     })
 
-    test("write then read round-trips the object", async () => {
+    test("writeJson serializes an object that round-trips back equal", async () => {
         const data = { directive: { strategy: "swarm" }, other: [1, 2, 3] }
         await writeJson(path, data)
-        expect(await readJson<typeof data>(path)).toEqual(data)
+        expect(JSON.parse(await Bun.file(path).text())).toEqual(data)
     })
 
     test("write does not leave a .tmp sibling behind", async () => {
@@ -42,19 +42,9 @@ describe("jsonStore", () => {
         expect(await Bun.file(`${path}.tmp`).exists()).toBe(false)
     })
 
-    test("readJson returns the fallback for a missing file", async () => {
-        expect(await readJson(join(dir, "nope.json"), { fallback: true })).toEqual({ fallback: true })
-        expect(await readJson<Record<string, unknown>>(join(dir, "nope.json"))).toEqual({}) // default fallback is {}
-    })
-
-    test("readJson returns the fallback for invalid JSON", async () => {
-        await Bun.write(path, "}{ not json")
-        expect(await readJson(path, { ok: false })).toEqual({ ok: false })
-    })
-
     test("writeJson overwrites an existing file atomically (last write wins)", async () => {
         await writeJson(path, { v: 1 })
         await writeJson(path, { v: 2 })
-        expect(await readJson<{ v: number }>(path)).toEqual({ v: 2 })
+        expect(JSON.parse(await Bun.file(path).text())).toEqual({ v: 2 })
     })
 })

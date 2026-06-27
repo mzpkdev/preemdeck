@@ -1,9 +1,7 @@
 #!/usr/bin/env bun
 import type { StandardSchemaV1 } from "cmdore"
 import { defineCommand, effect, execute } from "cmdore"
-import type { Action } from "../../../../common/args.ts"
 import { assertIdea } from "./assert-idea.ts"
-import { boolean } from "./core/coercers.ts"
 import {
     escapeGroovy,
     groovyProjectByCwd,
@@ -12,6 +10,9 @@ import {
     runGroovyOn,
     webpreviewOpenBody
 } from "./core/index.ts"
+
+/** One parsed `--action`: its `name`, and the `=arg` payload (`null` when bare). */
+export type Action = { name: string; arg: string | null }
 
 /** The notification group id the balloon registers under. */
 export const NOTIFY_GROUP_ID = "idea.toolbox"
@@ -294,8 +295,7 @@ const command = defineCommand({
         {
             name: "all",
             arity: 0,
-            description: "broadcast to every running JetBrains IDE (one balloon each), not just the launching one",
-            coerce: boolean
+            description: "broadcast to every running JetBrains IDE (one balloon each), not just the launching one"
         }
     ],
     run: async ({ message, title, type, action, all }) => {

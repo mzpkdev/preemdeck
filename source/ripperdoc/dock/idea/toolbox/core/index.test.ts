@@ -30,7 +30,6 @@ describe("public API", () => {
         const exported = new Set(Object.keys(core))
         for (const name of [
             "IdeaError",
-            "NotImplementedError",
             "escapeGroovy",
             "runGroovy",
             "runGroovyOn",
@@ -40,11 +39,9 @@ describe("public API", () => {
             "resolveLogDir",
             "launch",
             "reapLater",
-            "REAP_DELAY_MS",
             "setPreview",
             "previewUrl",
-            "webpreviewOpenBody",
-            "HTML_PREVIEW_EXTS"
+            "webpreviewOpenBody"
         ]) {
             expect(exported.has(name)).toBe(true)
         }

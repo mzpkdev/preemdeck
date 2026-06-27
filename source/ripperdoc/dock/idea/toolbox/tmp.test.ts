@@ -7,10 +7,10 @@
  */
 
 import { afterEach, describe, expect, test } from "bun:test"
+import { existsSync } from "node:fs"
 import { realpath, rm } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { basename, isAbsolute, join } from "node:path"
-import { exists } from "../../../../common/fs.ts"
 import { mkstemp, resolveStrict, writeTemp } from "./tmp.ts"
 
 // Clean up the flat temp files each helper mints directly under the system tmp dir.
@@ -30,7 +30,7 @@ afterEach(async () => {
 describe("mkstemp", () => {
     test("creates a fresh empty flat file directly under the system temp dir, ending in the suffix", async () => {
         const path = track(await mkstemp(".md"))
-        expect(await exists(path)).toBe(true)
+        expect(existsSync(path)).toBe(true)
         expect(path.endsWith(".md")).toBe(true)
         // Flat file directly in tmpdir() (no per-call dir): its parent IS tmpdir()
         // and the basename carries the idea-tmp- prefix, so reapLater fully cleans it.
@@ -55,7 +55,7 @@ describe("writeTemp", () => {
     test("spills the content to a fresh temp ending in the suffix and round-trips it", async () => {
         const path = track(await writeTemp("hello — world", ".groovy"))
         expect(path.endsWith(".groovy")).toBe(true)
-        expect(await exists(path)).toBe(true)
+        expect(existsSync(path)).toBe(true)
         expect(await Bun.file(path).text()).toBe("hello — world")
     })
 })

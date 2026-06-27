@@ -3,7 +3,6 @@ import * as fs from "node:fs/promises"
 import { defineCommand, effect, execute } from "cmdore"
 import { assertIdea } from "./assert-idea.ts"
 import { launch } from "./core"
-import { boolean } from "./core/coercers.ts"
 import { resolveStrict } from "./tmp.ts"
 
 /**
@@ -40,8 +39,7 @@ const command = defineCommand({
         {
             name: "wait",
             arity: 0,
-            description: "block until the tab closes, then print the LEFT pane back",
-            coerce: boolean
+            description: "block until the tab closes, then print the LEFT pane back"
         }
     ],
     run: async ({ target, suggestion, wait }) => {

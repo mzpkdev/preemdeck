@@ -16,9 +16,9 @@
  * not found.
  */
 
+import { existsSync } from "node:fs"
 import { readdir, readFile, stat } from "node:fs/promises"
 import { dirname, join } from "node:path"
-import { exists } from "../../../../common/fs.ts"
 import { writeJson } from "../../../../common/json-store.ts"
 
 const CONFIG_NAME = "preemdeck.json"
@@ -33,7 +33,7 @@ export const findConfig = async (start: string): Promise<string | null> => {
     let dir = start
     for (;;) {
         const candidate = join(dir, CONFIG_NAME)
-        if ((await exists(candidate)) && (await stat(candidate)).isFile()) return candidate
+        if (existsSync(candidate) && (await stat(candidate)).isFile()) return candidate
         const parent = dirname(dir)
         if (parent === dir) return null
         dir = parent
@@ -42,13 +42,13 @@ export const findConfig = async (start: string): Promise<string | null> => {
 
 /** Sorted mode names — skill folders that ship a `directive.md`. */
 export const availableModes = async (skillsDir: string): Promise<string[]> => {
-    if (!(await exists(skillsDir)) || !(await stat(skillsDir)).isDirectory()) return []
+    if (!existsSync(skillsDir) || !(await stat(skillsDir)).isDirectory()) return []
     const names: string[] = []
     const entries = await readdir(skillsDir)
     for (const entry of entries) {
         const dir = join(skillsDir, entry)
         const body = join(dir, "directive.md")
-        if ((await stat(dir)).isDirectory() && (await exists(body)) && (await stat(body)).isFile()) {
+        if ((await stat(dir)).isDirectory() && existsSync(body) && (await stat(body)).isFile()) {
             names.push(entry)
         }
     }
@@ -107,12 +107,6 @@ export const setDirective = async (config: string, slot: string, value: string):
     await writeJson(config, obj)
 }
 
-/** Render a string the way the reference `{value!r}` does for the common cases. */
-const pyRepr = (value: string): string => {
-    if (!value.includes("'") || value.includes('"')) return `'${value}'`
-    return `"${value}"`
-}
-
 /**
  * The CLI entry: validate <value>, derive its slot from modes.json, confirm the
  * slot exists in the resolved config, and write it. Returns the process exit code
@@ -136,7 +130,7 @@ export const main = async (
     }
     const value = (argv[0] as string).trim()
     if (!modes.includes(value)) {
-        process.stderr.write(`unknown value ${pyRepr(value)}; available: ${listing}\n`)
+        process.stderr.write(`unknown value "${value}"; available: ${listing}\n`)
         return 2
     }
     let slot: string | null
@@ -147,7 +141,7 @@ export const main = async (
         return 2
     }
     if (slot === null) {
-        process.stderr.write(`mode ${pyRepr(value)} has no slot in modes.json\n`)
+        process.stderr.write(`mode "${value}" has no slot in modes.json\n`)
         return 2
     }
     const config = await findConfig(searchStart)
@@ -158,7 +152,7 @@ export const main = async (
     const slots = await configSlots(config)
     if (!slots.includes(slot)) {
         const slisting = slots.join(", ") || "none"
-        process.stderr.write(`unknown slot ${pyRepr(slot)}; defined slots: ${slisting}\n`)
+        process.stderr.write(`unknown slot "${slot}"; defined slots: ${slisting}\n`)
         return 2
     }
     await setDirective(config, slot, value)

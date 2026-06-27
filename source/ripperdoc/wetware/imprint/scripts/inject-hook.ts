@@ -13,9 +13,9 @@
  * <script-dir>/.. (scripts/ -> imprint/).
  */
 
+import { existsSync } from "node:fs"
 import { readFile, stat } from "node:fs/promises"
 import { dirname, resolve } from "node:path"
-import { exists } from "../../../../common/fs.ts"
 import { runInjectionHook } from "../../../../common/inject.ts"
 
 const PLUGIN_ROOT = dirname(import.meta.dir)
@@ -60,7 +60,7 @@ export const resolveTemplateArg = (argv: string[]): [string | null, string[]] =>
 }
 
 const isFile = async (path: string): Promise<boolean> => {
-    return (await exists(path)) && (await stat(path)).isFile()
+    return existsSync(path) && (await stat(path)).isFile()
 }
 
 /**

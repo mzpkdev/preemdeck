@@ -7,9 +7,9 @@
  * silent `{}` no-op. Default event UserPromptSubmit; stdin wins.
  */
 
+import { existsSync } from "node:fs"
 import { readFile } from "node:fs/promises"
 import { dirname, join } from "node:path"
-import { exists } from "../../../../common/fs.ts"
 import { runInjectionHook } from "../../../../common/inject.ts"
 
 const DEFAULT_EVENT = "UserPromptSubmit"
@@ -25,11 +25,11 @@ export const pluginRoot = (): string => {
  */
 export const readSource = async (root: string, datName: string, mdName: string): Promise<string | null> => {
     const dat = join(root, datName)
-    if (await exists(dat)) {
+    if (existsSync(dat)) {
         return Buffer.from((await readFile(dat)).toString("utf8"), "base64").toString("utf8")
     }
     const md = join(root, mdName)
-    if (await exists(md)) {
+    if (existsSync(md)) {
         return await readFile(md, "utf8")
     }
     return null

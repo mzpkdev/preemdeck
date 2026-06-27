@@ -4,7 +4,6 @@ import * as path from "node:path"
 import { defineCommand, effect, execute } from "cmdore"
 import { assertIdea } from "./assert-idea.ts"
 import { launch, reapLater } from "./core"
-import { boolean } from "./core/coercers.ts"
 import { mkstemp, resolveStrict } from "./tmp.ts"
 
 /**
@@ -73,8 +72,7 @@ const command = defineCommand({
         {
             name: "wait",
             arity: 0,
-            description: "join the native merge and print the merged output back",
-            coerce: boolean
+            description: "join the native merge and print the merged output back"
         }
     ],
     run: async ({ target, suggestion, base, wait }) => {

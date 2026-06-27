@@ -4,10 +4,10 @@
  */
 
 import { afterEach, beforeEach, describe, expect, test } from "bun:test"
+import { existsSync } from "node:fs"
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
-import { exists } from "../../../../common/fs.ts"
 import { decode, encode, flatline, MAPPINGS, main } from "./ghost.ts"
 
 let dir = ""
@@ -32,21 +32,21 @@ describe("encode", () => {
         await writeFile(join(dir, "ENGRAM.md"), "engram content")
         await encode(dir, log)
         const dat = join(dir, "engram.dat")
-        expect(await exists(dat)).toBe(true)
+        expect(existsSync(dat)).toBe(true)
         expect(await decodeDat(dat)).toBe("engram content")
     })
 
     test("removes the <MD> after encoding", async () => {
         await writeFile(join(dir, "ENGRAM.md"), "engram content")
         await encode(dir, log)
-        expect(await exists(join(dir, "ENGRAM.md"))).toBe(false)
+        expect(existsSync(join(dir, "ENGRAM.md"))).toBe(false)
     })
 
     test("skips missing <MD> files", async () => {
         await writeFile(join(dir, "PULSE.md"), "pulse")
         await encode(dir, log)
-        expect(await exists(join(dir, "pulse.dat"))).toBe(true)
-        expect(await exists(join(dir, "engram.dat"))).toBe(false)
+        expect(existsSync(join(dir, "pulse.dat"))).toBe(true)
+        expect(existsSync(join(dir, "engram.dat"))).toBe(false)
     })
 
     test("prints the mapping line", async () => {
@@ -58,7 +58,7 @@ describe("encode", () => {
     test("encodes all mappings", async () => {
         for (const [mdName] of MAPPINGS) await writeFile(join(dir, mdName), `content of ${mdName}`)
         await encode(dir, log)
-        for (const [, datName] of MAPPINGS) expect(await exists(join(dir, datName))).toBe(true)
+        for (const [, datName] of MAPPINGS) expect(existsSync(join(dir, datName))).toBe(true)
     })
 })
 
@@ -67,15 +67,15 @@ describe("decode", () => {
         await writeFile(join(dir, "engram.dat"), b64("engram data"))
         await decode(dir, log)
         const md = join(dir, "ENGRAM.md")
-        expect(await exists(md)).toBe(true)
+        expect(existsSync(md)).toBe(true)
         expect(await readFile(md, "utf8")).toBe("engram data")
     })
 
     test("skips missing <DAT> files", async () => {
         await writeFile(join(dir, "pulse.dat"), b64("pulse data"))
         await decode(dir, log)
-        expect(await exists(join(dir, "PULSE.md"))).toBe(true)
-        expect(await exists(join(dir, "ENGRAM.md"))).toBe(false)
+        expect(existsSync(join(dir, "PULSE.md"))).toBe(true)
+        expect(existsSync(join(dir, "ENGRAM.md"))).toBe(false)
     })
 
     test("prints the mapping line", async () => {
@@ -87,7 +87,7 @@ describe("decode", () => {
     test("does not remove the <DAT> (non-destructive)", async () => {
         await writeFile(join(dir, "engram.dat"), b64("data"))
         await decode(dir, log)
-        expect(await exists(join(dir, "engram.dat"))).toBe(true)
+        expect(existsSync(join(dir, "engram.dat"))).toBe(true)
     })
 })
 
@@ -100,7 +100,7 @@ describe("flatline", () => {
     test("restores stock then encodes (dat files exist after)", async () => {
         await seedStock()
         await flatline(dir, log)
-        for (const [, datName] of MAPPINGS) expect(await exists(join(dir, datName))).toBe(true)
+        for (const [, datName] of MAPPINGS) expect(existsSync(join(dir, datName))).toBe(true)
     })
 
     test("prints 'persona wiped to stock'", async () => {
@@ -113,8 +113,8 @@ describe("flatline", () => {
         await mkdir(join(dir, "stock"))
         await writeFile(join(dir, "stock", "PULSE.md"), "stock pulse")
         await flatline(dir, log)
-        expect(await exists(join(dir, "pulse.dat"))).toBe(true)
-        expect(await exists(join(dir, "engram.dat"))).toBe(false)
+        expect(existsSync(join(dir, "pulse.dat"))).toBe(true)
+        expect(existsSync(join(dir, "engram.dat"))).toBe(false)
     })
 })
 
@@ -122,13 +122,13 @@ describe("main", () => {
     test("encode command", async () => {
         await writeFile(join(dir, "PULSE.md"), "pulse")
         expect(await main(["encode"], dir, log)).toBe(0)
-        expect(await exists(join(dir, "pulse.dat"))).toBe(true)
+        expect(existsSync(join(dir, "pulse.dat"))).toBe(true)
     })
 
     test("decode command", async () => {
         await writeFile(join(dir, "pulse.dat"), b64("pulse data"))
         expect(await main(["decode"], dir, log)).toBe(0)
-        expect(await exists(join(dir, "PULSE.md"))).toBe(true)
+        expect(existsSync(join(dir, "PULSE.md"))).toBe(true)
     })
 
     test("unknown command returns 1", async () => {

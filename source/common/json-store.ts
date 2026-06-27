@@ -12,23 +12,6 @@
 import { rename, writeFile } from "node:fs/promises"
 
 /**
- * Read and parse the JSON file at `path`. Returns `fallback` (default `{}`) when
- * the file is missing, unreadable, or not valid JSON — mirrors the reference
- * `try: json.loads(...) except (JSONDecodeError, OSError): {}` degrade-to-empty.
- */
-export const readJson = async <T = unknown>(path: string, fallback?: T): Promise<T> => {
-    const fb = (fallback ?? ({} as T)) as T
-    try {
-        const file = Bun.file(path)
-        if (!(await file.exists())) return fb
-        const text = await file.text()
-        return JSON.parse(text) as T
-    } catch {
-        return fb
-    }
-}
-
-/**
  * Atomically write `data` as pretty JSON to `path`: serialize with 2-space
  * indent + trailing newline, write a sibling `<path>.tmp`, then rename over the
  * target. The rename is atomic on the same filesystem, so a reader never sees a

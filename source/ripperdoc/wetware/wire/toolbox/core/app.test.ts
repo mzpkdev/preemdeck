@@ -825,10 +825,12 @@ describe("wire HTTP app", () => {
             expect(ld.peer).toBe("peer-2")
         })
 
-        it("frames the lines id: -> event: -> data:, byte-identical to the original", async () => {
-            // The line ORDER is the contract (parseFrame above is order-agnostic).
-            // Read the raw stream bytes: the snapshot has NO id: (event: then
-            // data:); an event frame leads with id:, then event:, then data:.
+        it("frames carry the right fields: snapshot has event+data (no id), an event frame adds id", async () => {
+            // SSE fields are a SET, not a sequence (line order is not significant
+            // per spec), so assert on the field VALUES rather than an exact byte
+            // ordering: the snapshot has event+data and NO id; a live event frame
+            // carries id+event+data. Each frame is still a valid, blank-line-
+            // terminated SSE frame with exactly one data: line (parseFrame asserts).
             const { app, room } = makeApp()
             await room.jackin() // peer-1
             const resp = await Promise.resolve(
@@ -838,7 +840,9 @@ describe("wire HTTP app", () => {
             const decoder = new TextDecoder()
             let buf = ""
             try {
-                // Drain frames until we have the snapshot + one event frame.
+                // Drain bytes until we have the snapshot + one event frame, each
+                // properly terminated by a blank line (so split("\n\n") yields
+                // two complete frames plus a trailing remainder).
                 const deadline = Date.now() + 5000
                 let droveEvent = false
                 while (buf.split("\n\n").length < 3 && Date.now() < deadline) {
@@ -853,11 +857,20 @@ describe("wire HTTP app", () => {
                     }
                 }
                 const [snapRaw, eventRaw] = buf.split("\n\n") as [string, string]
-                // Snapshot: event: first, data: second, no id:.
-                expect(snapRaw.split("\n").map((l) => l.split(":")[0])).toEqual(["event", "data"])
+                // Every frame ends with a blank line: the raw stream contains the
+                // "\n\n" delimiters that split() consumed between frames.
+                expect(buf.startsWith(`${snapRaw}\n\n${eventRaw}\n\n`)).toBe(true)
+                // Snapshot frame: event+data fields, NO id (live-only start cursor).
+                const snap = parseFrame(snapRaw)
+                expect(snap.event).toBe("snapshot")
+                expect(snap.id).toBe(null)
+                expect(snap.data).not.toBe(null)
                 expect(snapRaw.includes("id:")).toBe(false)
-                // Event frame: id: first, then event:, then data:.
-                expect(eventRaw.split("\n").map((l) => l.split(":")[0])).toEqual(["id", "event", "data"])
+                // Event frame: id+event+data fields (id present so a reconnect can resume).
+                const event = parseFrame(eventRaw)
+                expect(event.event).toBe("join")
+                expect(typeof event.id).toBe("number")
+                expect(event.data).not.toBe(null)
             } finally {
                 await reader.cancel().catch(() => {})
             }

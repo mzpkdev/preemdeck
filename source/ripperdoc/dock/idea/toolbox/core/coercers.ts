@@ -6,7 +6,3 @@ export const integer = (value: string, { label }: CoerceContext): number => {
     }
     return Number.parseInt(value, 10)
 }
-
-export const boolean = (value: string | boolean): boolean => {
-    return value === true || value === "true"
-}

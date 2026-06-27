@@ -4,7 +4,7 @@ import * as path from "node:path"
 import { defineCommand, effect, execute } from "cmdore"
 import { assertIdea } from "./assert-idea.ts"
 import { launch, setPreview } from "./core"
-import { boolean, integer } from "./core/coercers.ts"
+import { integer } from "./core/coercers.ts"
 
 export type OpenOptions = {
     line?: number
@@ -71,10 +71,9 @@ const command = defineCommand({
         {
             name: "wait",
             arity: 0,
-            description: "block until the tab closes, then print the file back",
-            coerce: boolean
+            description: "block until the tab closes, then print the file back"
         },
-        { name: "preview", arity: 0, description: "flip the editor to the rendered preview", coerce: boolean }
+        { name: "preview", arity: 0, description: "flip the editor to the rendered preview" }
     ],
     run: async ({ path: file, line, column, wait, preview }) => {
         assertIdea()
