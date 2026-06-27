@@ -37,6 +37,21 @@ else
   git clone --depth 1 --quiet --branch "$TARGET_BRANCH" "$REPOSITORY" "$SOURCE_DIRECTORY"
 fi
 
+# Strip dev-only paths from the deployed clone (tests, CI, dev configs, docs) so a
+# user's ~/.preemdeck carries only what's needed to RUN. Everything listed in .trash
+# is sparse-checkout'd out; '/*' '/.*' keep all else (incl .trash itself, which must
+# never list itself). Survives the fetch+reset above; re-applied each run so .trash
+# edits take effect on update. No-ops on git too old for sparse-checkout.
+if [ -f "$SOURCE_DIRECTORY/.trash" ]; then
+  prune=()
+  while IFS= read -r p; do
+    case "$p" in '' | \#*) continue ;; esac
+    prune+=("!$p")
+  done < "$SOURCE_DIRECTORY/.trash"
+  git -C "$SOURCE_DIRECTORY" sparse-checkout set --no-cone '/*' '/.*' "${prune[@]}" 2>/dev/null \
+    || echo "      ⚠ sparse-checkout unavailable — deployed tree keeps dev-only files"
+fi
+
 # Ship-the-runtime: fetch the PINNED Bun into ~/.preemdeck/.runtime/bin/bun so all
 # .ts source runs on one known interpreter. Idempotent (skips when already present),
 # best-effort (a fetch failure warns but never aborts the install handoff).

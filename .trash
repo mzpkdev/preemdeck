@@ -1,0 +1,16 @@
+# Dev-only paths stripped from the deployed ~/.preemdeck clone by boot.sh
+# (git sparse-checkout, gitignore-style patterns). None of this is needed to RUN
+# preemdeck — only to develop it. This file must NOT list itself. See boot.sh.
+/.github
+/.claude
+/.codex
+/.gemini
+/.prettierrc.json
+/.prettierignore
+/biome.json
+/tsconfig.json
+/llm-docs
+/AGENTS.md
+/CLAUDE.md
+*.test.ts
+*.spec.ts
