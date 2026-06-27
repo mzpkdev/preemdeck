@@ -14,7 +14,7 @@ The repo settles these for you. State them, don't argue them.
 | Runtime       | Bun (pinned `1.3.14`), via `preemdeck-runtime`. Native `.ts`, no build step.                   |
 | Module system | ESM only (`"type": "module"`). No CommonJS, no `require`.                                      |
 | Format + lint | Biome — `bun run format` (write), `bun run lint` (check). CI enforces.                         |
-| Tests         | `bun test` — `bun:test` API, files colocated as `*.test.ts`.                                   |
+| Tests         | `bun test` — `bun:test` API, files colocated as `*.spec.ts`.                                   |
 | Type-check    | `tsgo` (`@typescript/native-preview`, pinned) — `bun run typecheck` (`--noEmit`). CI enforces. |
 
 **Biome formatting** (don't hand-format against it): 2-space indent, 120-column lines, double quotes, semicolons
@@ -32,15 +32,15 @@ as-needed (omitted where optional), trailing commas everywhere, `recommended` li
 
 ## Naming
 
-| Kind                    | Style                | Example                              |
-| ----------------------- | -------------------- | ------------------------------------ |
-| File / module           | `kebab-case`         | `os-notify.ts`, `render-dispatch.ts` |
-| Test file               | `kebab-case.test.ts` | `args.test.ts`, `proc.test.ts`       |
-| Function / method       | `camelCase` verb     | `parseAction`, `runCmd`              |
-| Variable                | `camelCase` noun     | `costPrice`                          |
-| Type / type-alias       | `PascalCase` noun    | `SpawnOptions`, `Action`             |
-| Constant (module-level) | `UPPER_SNAKE` noun   | `DEFAULT_MARGIN_PERCENT`             |
-| Test-seam object        | leading `_`          | `_internals`                         |
+| Kind                    | Style                | Example                                |
+| ----------------------- | -------------------- | -------------------------------------- |
+| File / module           | `kebab-case`         | `os-notify.ts`, `render-dispatch.ts`   |
+| Test file               | `kebab-case.spec.ts` | `process.spec.ts`, `open-file.spec.ts` |
+| Function / method       | `camelCase` verb     | `parseAction`, `runCmd`                |
+| Variable                | `camelCase` noun     | `costPrice`                            |
+| Type / type-alias       | `PascalCase` noun    | `SpawnOptions`, `Action`               |
+| Constant (module-level) | `UPPER_SNAKE` noun   | `DEFAULT_MARGIN_PERCENT`               |
+| Test-seam object        | leading `_`          | `_internals`                           |
 
 Names explain themselves — no truncation gymnastics, no magic numbers.
 
@@ -68,7 +68,7 @@ ESM, native, no bundler step. A few hard rules:
 
 ```ts
 // 1. Relative imports ALWAYS carry the .ts extension (allowImportingTsExtensions).
-import { runCmd } from "../source/common/proc.ts";
+import { runCmd } from "../source/common/process.ts";
 
 // 2. Node stdlib ALWAYS uses the node: prefix.
 import { parseArgs } from "node:util";
@@ -334,7 +334,7 @@ const getRate = (category: keyof typeof RATES): number => RATES[category];
 
 ## Testing
 
-`bun:test`, files colocated next to source as `*.test.ts`.
+`bun:test`, files colocated next to source as `*.spec.ts`.
 
 ```ts
 import { describe, expect, spyOn, test } from "bun:test";
@@ -393,5 +393,5 @@ Errors     ── custom Error subclasses w/ .name; throw not Result; validate e
 Async      ── async/await; Bun.spawn/file/which; node:fs/promises; no *Sync
 CLI        ── shebang; main(): Promise<number>; process.exit only under import.meta.main
 Comments   ── JSDoc on all public exports; WHY not WHAT; no zombie code
-Tests      ── bun:test; colocated *.test.ts; DI-first then _internals; restore in afterEach
+Tests      ── bun:test; colocated *.spec.ts; DI-first then _internals; restore in afterEach
 ```

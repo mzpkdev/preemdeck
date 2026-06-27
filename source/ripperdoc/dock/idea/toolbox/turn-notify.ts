@@ -1,10 +1,27 @@
 #!/usr/bin/env bun
 import * as path from "node:path"
 import { defineCommand, execute } from "cmdore"
-import { spawn } from "../../../../common/proc.ts"
-import { htmlEscape } from "../../../../common/text.ts"
+import { PIPED, type Reaped, reap } from "../../../../common/process.ts"
 import { inIdea } from "./core/index.ts"
 import { notify } from "./notify.ts"
+
+/**
+ * Escape `&`, `<`, `>`, `"`, `'` exactly as the reference `html.escape(s, quote=True)`.
+ * `&` is replaced first so the entities it introduces aren't double-escaped.
+ *
+ *   &  -> &amp;
+ *   <  -> &lt;
+ *   >  -> &gt;
+ *   "  -> &quot;
+ *   '  -> &#x27;
+ */
+export const htmlEscape = (s: string): string =>
+    s
+        .replaceAll("&", "&amp;")
+        .replaceAll("<", "&lt;")
+        .replaceAll(">", "&gt;")
+        .replaceAll('"', "&quot;")
+        .replaceAll("'", "&#x27;")
 
 /**
  * Body cap: a couple of wrapped balloon lines. Longer gists truncate on a word
@@ -106,9 +123,9 @@ export const gitBranch = async (cwd: string | null | undefined): Promise<string 
     if (!cwd) {
         return null
     }
-    let result: Awaited<ReturnType<typeof spawn>>
+    let result: Reaped
     try {
-        result = await spawn(["git", "-C", cwd, "rev-parse", "--abbrev-ref", "HEAD"], { timeoutMs: 2000 })
+        result = await reap(Bun.spawn(["git", "-C", cwd, "rev-parse", "--abbrev-ref", "HEAD"], PIPED), 2000)
     } catch {
         return null
     }

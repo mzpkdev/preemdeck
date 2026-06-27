@@ -37,7 +37,6 @@
  */
 
 import { extname } from "node:path"
-import { parseUrl } from "../../../../../common/text.ts"
 import { escapeGroovy, groovyProjectByCwd, type RunGroovyDeps, runGroovy } from "./groovy.ts"
 
 /**
@@ -222,9 +221,20 @@ ${body}
  * always gets a non-empty label.
  */
 const titleFor = (url: string): string => {
-    const parts = parseUrl(url)
-    if (parts.hostname) {
-        return parts.port !== null ? `${parts.hostname}:${parts.port}` : parts.hostname
+    // Parse host[:port] the forgiving urlsplit way: never throw, and treat
+    // host-less input as no host. WHATWG `new URL` requires a host and rejects
+    // bare `localhost:3000` (reading `localhost` as the protocol), so both an
+    // invalid URL (catch) and a host-less one (empty hostname) leave `hostname`
+    // null -> fall back to the raw url, matching the reference `_title_for`.
+    let hostname: string | null = null
+    let port: number | null = null
+    try {
+        const u = new URL(url)
+        hostname = u.hostname ? u.hostname.toLowerCase() : null
+        port = u.port ? Number(u.port) : null
+    } catch {}
+    if (hostname) {
+        return port !== null ? `${hostname}:${port}` : hostname
     }
     return url
 }

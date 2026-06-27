@@ -7,14 +7,14 @@
  * fires. Wired as a Stop hook: it ignores stdin entirely. Best-effort — never
  * throws; the command always exits 0.
  *
- * The subprocess seam rides lib/proc.ts (argv-only, no shell), wrapped in cmdore's
+ * The subprocess seam rides process.ts (argv-only, no shell), wrapped in cmdore's
  * `effect()` so `--dry-run` skips the real spawn yet still reports a mechanism. A
  * missing binary makes Bun.spawn throw, which `runCmd` catches -> false (matches
  * the original's subprocess FileNotFoundError -> False).
  */
 
 import { defineCommand, effect, execute } from "cmdore"
-import { spawn } from "../../../../common/proc.ts"
+import { PIPED, type Reaped, reap } from "../../../../common/process.ts"
 
 // macOS: a built-in system sound that reads as a clean "ding".
 const MACOS_SOUND = "/System/Library/Sounds/Glass.aiff"
@@ -41,9 +41,7 @@ export const LINUX_CANDIDATES: string[][] = [
  */
 export const runCmd = async (cmd: string[]): Promise<boolean> => {
     try {
-        const result = (await effect(() => spawn(cmd, { timeoutMs: 10_000 }))) as
-            | Awaited<ReturnType<typeof spawn>>
-            | undefined
+        const result = (await effect(() => reap(Bun.spawn(cmd, PIPED), 10_000))) as Reaped | undefined
         if (result === undefined) return true
         return !result.timedOut && result.exitCode === 0
     } catch {

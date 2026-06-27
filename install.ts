@@ -4,22 +4,17 @@
  *
  * Registers the marketplace (claude/codex) or installs per-extension (gemini) for
  * ONE harness, copies the per-harness overlay into the host config dir, and writes
- * the install manifest. Subprocess shell-outs go through lib/proc.ts `spawn` (the
- * timeout/kill is solved there); the .bak/.bak.<ts> backup scheme, the schema-1
- * manifest shape, and every printed line are byte-identical to the original.
+ * the install manifest. Subprocess shell-outs spawn inline via `Bun.spawn(argv, PIPED)`
+ * and reap through process.ts `reap` (the timeout/kill is solved there); the
+ * .bak/.bak.<ts> backup scheme, the schema-1 manifest shape, and every printed line
+ * are byte-identical to the original.
  */
 
 import { copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join, relative, resolve, sep } from "node:path";
 import { parseArgs } from "node:util";
-import { spawn } from "./source/common/proc.ts";
-
-// Subprocess seam. All shell-outs go through `_internals.spawn` so tests can
-// override it WITHOUT mock.module on the shared ./source/common/proc.ts (which leaks into
-// source/common/proc.test.ts across a single `bun test` run). Production code reads the
-// real source/common/proc.ts `spawn`; this is purely a test injection point.
-export const _internals = { spawn };
+import { PIPED, type Reaped, reap } from "./source/common/process.ts";
 
 // Where preemdeck's source lives. Under the decoupled layout boot.sh clones to
 // ~/.preemdeck, so import.meta.dir resolves there — distinct from any host config dir.
@@ -148,23 +143,26 @@ export function readPluginSpecs(rackPath: string): PluginSpec[] {
   return specs;
 }
 
-export async function runCli(cmd: string[], dryRun: boolean): Promise<[boolean, string]> {
+// timeoutMs is injectable (default 10_000) so tests can drive the timeout path with
+// a real fast-firing reap timer; the default keeps the byte-identical "timed out
+// after 10s" message on the production path (10_000 / 1000 = 10).
+export async function runCli(cmd: string[], dryRun: boolean, timeoutMs = 10_000): Promise<[boolean, string]> {
   if (dryRun) {
     return [true, ""];
   }
-  let result: Awaited<ReturnType<typeof spawn>>;
+  let result: Reaped;
   try {
-    result = await _internals.spawn(cmd, { timeoutMs: 10_000 });
+    result = await reap(Bun.spawn(cmd, PIPED), timeoutMs);
   } catch (err) {
-    // Bun.spawn rejects (ENOENT) when cmd[0] is not on PATH — the lib/proc.ts
-    // spawn does not swallow it. Mirror the original's FileNotFoundError branch.
+    // Bun.spawn throws (ENOENT) when cmd[0] is not on PATH, before reap ever sees
+    // the child — reap does not swallow it. Mirror the original's FileNotFoundError branch.
     if (isNotFound(err)) {
       return [false, `${cmd[0]} not on PATH`];
     }
     throw err;
   }
   if (result.timedOut) {
-    return [false, "timed out after 10s"];
+    return [false, `timed out after ${timeoutMs / 1000}s`];
   }
   if (result.exitCode === 0) {
     return [true, ""];
@@ -378,7 +376,7 @@ export async function stampMirror(repoRoot: string, mirrored: string[], dryRun: 
   }
   let sha = "";
   try {
-    const r = await _internals.spawn(["git", "-C", repoRoot, "describe", "--tags", "--always"], { timeoutMs: 10_000 });
+    const r = await reap(Bun.spawn(["git", "-C", repoRoot, "describe", "--tags", "--always"], PIPED), 10_000);
     if (r.exitCode === 0) {
       sha = r.stdout.trim();
     }
@@ -521,7 +519,7 @@ export function writeManifest(
 
 /** Whether `bin` resolves on PATH (mirrors the original's shutil.which truthiness). */
 async function onPath(bin: string): Promise<boolean> {
-  const result = await _internals.spawn(["sh", "-c", `command -v "$1" >/dev/null 2>&1`, "sh", bin]);
+  const result = await reap(Bun.spawn(["sh", "-c", `command -v "$1" >/dev/null 2>&1`, "sh", bin], PIPED));
   return result.exitCode === 0;
 }
 

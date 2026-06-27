@@ -1,7 +1,24 @@
-import { describe, expect, it } from "bun:test"
+import { describe, expect, it, test } from "bun:test"
 import * as path from "node:path"
+import { htmlEscape } from "./turn-notify.ts"
 
 const context = describe
+
+describe("htmlEscape", () => {
+    test("escapes the five html.escape(quote=True) characters", () => {
+        // Golden value produced by the reference: html.escape('<a href="x">&\'</a>')
+        expect(htmlEscape('<a href="x">&\'</a>')).toBe("&lt;a href=&quot;x&quot;&gt;&amp;&#x27;&lt;/a&gt;")
+    })
+
+    test("ampersand is escaped first, so entities are not double-escaped", () => {
+        expect(htmlEscape("a & b")).toBe("a &amp; b")
+        expect(htmlEscape("<")).toBe("&lt;") // not &amp;lt;
+    })
+
+    test("leaves plain text untouched", () => {
+        expect(htmlEscape("Claude finished responding")).toBe("Claude finished responding")
+    })
+})
 
 const run = async (
     args: string[],

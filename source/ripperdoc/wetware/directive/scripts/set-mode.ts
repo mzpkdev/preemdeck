@@ -8,8 +8,7 @@
  * slot. preemdeck.json is found by walking up from this script; the derived slot
  * must already be present in the config's `directive` object; `directive[slot]` is
  * set, every other slot/top-level key preserved, and the file rewritten atomically
- * via lib/json-store.ts (2-space indent + trailing newline, byte-identical). Same
- * input -> same bytes.
+ * (tmp file + rename; 2-space indent + trailing newline). Same input -> same bytes.
  *
  * Exit codes: 0 slot set (idempotent); 2 usage / unknown value / no slot in
  * modes.json / missing-or-malformed modes.json / unknown derived slot / config
@@ -17,9 +16,8 @@
  */
 
 import { existsSync } from "node:fs"
-import { readdir, readFile, stat } from "node:fs/promises"
+import { readdir, readFile, rename, stat, writeFile } from "node:fs/promises"
 import { dirname, join } from "node:path"
-import { writeJson } from "../../../../common/json-store.ts"
 
 const CONFIG_NAME = "preemdeck.json"
 const DIRECTIVE_KEY = "directive"
@@ -88,6 +86,14 @@ export const configSlots = async (config: string): Promise<string[]> => {
     const field = (data as Record<string, unknown>)[DIRECTIVE_KEY]
     if (field === null || typeof field !== "object" || Array.isArray(field)) return []
     return Object.keys(field as Record<string, unknown>)
+}
+
+/** Atomically write `data` as 2-space JSON + trailing newline: write a sibling
+ *  `<path>.tmp`, then rename over `path` so a reader never sees a partial file. */
+const writeJson = async (path: string, data: unknown): Promise<void> => {
+    const tmp = `${path}.tmp`
+    await writeFile(tmp, `${JSON.stringify(data, null, 2)}\n`, "utf8")
+    await rename(tmp, path)
 }
 
 /** Set `directive[slot] = value`, preserving other slots/keys; atomic write. */

@@ -10,7 +10,7 @@
  * osascript path reads title/body from environment variables (`system attribute`);
  * notify-send and terminal-notifier take them as argv. So quotes/backslashes/
  * newlines in the title/body can't break out into code — there's no script string
- * to break out of. The env vars are passed out-of-band via lib/proc.ts (merged
+ * to break out of. The env vars are passed out-of-band via process.ts (merged
  * over process.env), never interpolated into the command line. cmdore only parses
  * the argv here; it never touches the spawn/env path below.
  *
@@ -20,7 +20,7 @@
 
 import type { StandardSchemaV1 } from "cmdore"
 import { defineCommand, effect, execute } from "cmdore"
-import { spawn } from "../../../../common/proc.ts"
+import { PIPED, type Reaped, reap } from "../../../../common/process.ts"
 
 const DEFAULT_TITLE = "PreemDeck"
 
@@ -49,9 +49,11 @@ export const MACOS_APPLESCRIPT = `display notification (system attribute "${ENV_
  */
 export const runCmd = async (cmd: string[], env?: Record<string, string>): Promise<boolean> => {
     try {
-        const result = (await effect(() => spawn(cmd, { timeoutMs: 20_000, env }))) as
-            | Awaited<ReturnType<typeof spawn>>
-            | undefined
+        // env is merged OVER process.env (not replacing it) so PATH/DISPLAY survive and the
+        // notification vars are added — Bun.spawn's `env` otherwise REPLACES the environment.
+        const result = (await effect(() =>
+            reap(Bun.spawn(cmd, { ...PIPED, env: env ? { ...process.env, ...env } : undefined }), 20_000)
+        )) as Reaped | undefined
         if (result === undefined) return true
         return !result.timedOut && result.exitCode === 0
     } catch {

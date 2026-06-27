@@ -31,7 +31,7 @@ import { existsSync } from "node:fs"
 import { stat } from "node:fs/promises"
 import { dirname, relative, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
-import { spawn } from "../source/common/proc.ts"
+import { PIPED, reap } from "../source/common/process.ts"
 
 // Two distinct roots:
 //   CONTAINMENT_ROOT — the file-safety boundary. An edited file must live under
@@ -142,10 +142,7 @@ const format = async (path: string): Promise<void> => {
     }
     const name = path.slice(Math.max(path.lastIndexOf("/"), path.lastIndexOf("\\")) + 1)
     try {
-        const result = await spawn([...cmd, path], {
-            cwd: REPO_ROOT,
-            timeoutMs: FORMAT_TIMEOUT_MS
-        })
+        const result = await reap(Bun.spawn([...cmd, path], { ...PIPED, cwd: REPO_ROOT }), FORMAT_TIMEOUT_MS)
         if (result.timedOut) {
             process.stderr.write(`format-on-edit: ${name}: timed out after ${FORMAT_TIMEOUT_MS}ms\n`)
         }

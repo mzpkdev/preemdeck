@@ -6,8 +6,8 @@
  * object (slot -> value; a bare string is a single legacy value), resolves each
  * active value to `skills/<value>/directive.md`, and injects the concatenated
  * (slot order, deduped) bodies via lib/hook.ts. A missing config / empty directive
- * / all-unknown values is a silent `{}` no-op. Default event UserPromptSubmit;
- * `--event <name>` is the fallback; stdin's hook_event_name wins.
+ * / all-unknown values is a silent `{}` no-op. `--event <name>` is the required
+ * host event; stdin's hook_event_name wins.
  *
  * Path resolution: SKILLS_DIR = <script-dir>/../skills.
  */
@@ -15,7 +15,7 @@
 import { existsSync } from "node:fs"
 import { readFile, stat } from "node:fs/promises"
 import { dirname, join } from "node:path"
-import { runInjectionHook } from "../../../../common/inject.ts"
+import { runInjectionHook } from "../../../../common/hook-inject.ts"
 
 const CONFIG_NAME = "preemdeck.json"
 const DIRECTIVE_KEY = "directive"
@@ -96,9 +96,13 @@ export const renderBodies = async (searchStart: string, skillsDir: string): Prom
 
 if (import.meta.main) {
     const cliEvent = extractEvent(Bun.argv.slice(2))
+    if (cliEvent === null || cliEvent.length === 0) {
+        process.stderr.write("usage: inject-mode --event <name>\n")
+        process.exit(2)
+    }
     const bodies = await renderBodies(SEARCH_START, SKILLS_DIR)
     await runInjectionHook({
-        event: cliEvent ?? undefined,
+        event: cliEvent,
         render: () => bodies
     })
     process.exit(0)

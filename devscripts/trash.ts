@@ -14,10 +14,7 @@
  */
 import { existsSync, readFileSync } from "node:fs"
 import { dirname, join } from "node:path"
-import { spawn } from "../source/common/proc.ts"
-
-// Subprocess seam — tests override this to assert the git argv without spawning.
-export const _internals = { spawn }
+import { PIPED, reap } from "../source/common/process.ts"
 
 // devscripts/ sits at the repo root, so the root is this file's parent directory.
 export const REPO_ROOT = dirname(import.meta.dir)
@@ -57,7 +54,7 @@ export async function applyTrash(repoRoot: string = REPO_ROOT): Promise<void> {
         return
     }
     try {
-        const result = await _internals.spawn(["git", "-C", repoRoot, ...sparseArgs(patterns)], { timeoutMs: 10_000 })
+        const result = await reap(Bun.spawn(["git", "-C", repoRoot, ...sparseArgs(patterns)], PIPED), 10_000)
         if (result.exitCode !== 0) {
             process.stderr.write("      ⚠ sparse-checkout unavailable — deployed tree keeps dev-only files\n")
         }

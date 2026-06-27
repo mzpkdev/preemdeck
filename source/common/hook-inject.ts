@@ -1,23 +1,21 @@
 /**
- * lib/inject.ts — context-injection hook runner for the context injectors.
+ * hook-inject.ts — context-injection hook runner for the context injectors.
  *
  * Same stdin/event/no-op contract as lib/hook.ts `runHook`. The envelope is
  * emitted with native `JSON.stringify` — the host JSON-parses stdout, so the
  * exact byte framing (separator spacing / ascii-escaping) is irrelevant.
  * Event precedence is identical to runHook:
- *   payload.hook_event_name (non-empty string) > options.event > "UserPromptSubmit".
+ *   payload.hook_event_name (non-empty string) > options.event.
  * A throwing/empty render is a silent `{}` no-op. The caller exits 0 unconditionally.
  */
 
-const DEFAULT_EVENT = "UserPromptSubmit"
-
 /**
- * The knobs `runInjectionHook` needs: the rendering callback plus the fallback
+ * The knobs `runInjectionHook` needs: the rendering callback plus the host
  * event, with seams (`stdin`/`write`) so tests can drive it without real IO.
  */
 export type RunInjectionOptions = {
-    /** Fallback event when stdin omits hook_event_name (the manifest's --event). */
-    event?: string
+    /** Host event, always supplied by the caller/manifest; stdin's hook_event_name overrides it. */
+    event: string
     /** Produce additionalContext; non-empty string injects, null/"" is a no-op. */
     render: (payload: Record<string, unknown>) => string | null
     /** Stdin source. Defaults to Bun.stdin. Override in tests. */
@@ -43,7 +41,7 @@ export const runInjectionHook = async (options: RunInjectionOptions): Promise<vo
         payload = {}
     }
 
-    let eventName = event && event.length > 0 ? event : DEFAULT_EVENT
+    let eventName = event
     const fromPayload = payload.hook_event_name
     if (typeof fromPayload === "string" && fromPayload.length > 0) {
         eventName = fromPayload

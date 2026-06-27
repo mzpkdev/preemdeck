@@ -1,17 +1,16 @@
 /**
- * app.test.ts — the HTTP layer over the frozen room core. Port of the
- * load-bearing cases from the original wire's API + spectate suites.
+ * app.spec.ts — the HTTP layer over the frozen room core.
  *
  * Drives the app via `app.fetch(new Request(...))` (Hono's fetch handler) — no
  * real port bound for the JSON cases. SSE (/spectate) reads the streamed Response
  * body incrementally under a bounded frame-count + timeout, then cancels, so the
- * endless stream can never hang the test (mirrors the original ASGI harness).
+ * endless stream can never hang the test.
  *
  * The one-status-401 contract (three distinct bodies), the jackin -> send ->
  * recv loop, jackout, the heartbeat, /schema honesty, the SSE snapshot/event/
  * heartbeat/replay/invisibility surface, and the reaper start-gate + self-close
  * hook are all covered. recv cases use wait=0 to stay fast — the parked-wake
- * concurrency is proven at the unit layer (room.test.ts).
+ * concurrency is proven at the unit layer (room.spec.ts).
  */
 
 import { describe, expect, it } from "bun:test"
@@ -654,7 +653,7 @@ describe("wire HTTP app", () => {
             }
         })
 
-        it("the plain routes document a 200 success body (matching the original doc)", async () => {
+        it("the plain routes document a 200 success body", async () => {
             const { app } = makeApp()
             const doc = await schemaDoc(app)
             // /send returns JSON shaped by SendResponse (a component $ref).
@@ -883,7 +882,7 @@ describe("wire HTTP app", () => {
         // The heartbeat is a 15s module constant; we can't easily shorten it from
         // the test, but we can prove the snapshot path and the LIVE-replay paths
         // below cover the same roster frame. The heartbeat shape is exercised via
-        // the room.spectateRoster() unit tests in room.test.ts; here we assert the
+        // the room.spectateRoster() unit tests in room.spec.ts; here we assert the
         // snapshot (same payload shape the heartbeat reuses) carries quiet_for.
         it("the snapshot reports quiet_for as an int after a message", async () => {
             const { app, room } = makeApp()

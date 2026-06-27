@@ -10,7 +10,7 @@
 import { existsSync } from "node:fs"
 import { readFile } from "node:fs/promises"
 import { dirname, join } from "node:path"
-import { runInjectionHook } from "../../../../common/inject.ts"
+import { runInjectionHook } from "../../../../common/hook-inject.ts"
 
 const DEFAULT_EVENT = "UserPromptSubmit"
 

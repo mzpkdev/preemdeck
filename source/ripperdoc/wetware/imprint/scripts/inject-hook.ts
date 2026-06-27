@@ -5,8 +5,8 @@
  * Resolves a template (positional path, or `--file <name>` -> <NAME>.md), reads it
  * from the plugin root, substitutes the optional host-tools file's contents for
  * `{{host_tools}}`, strips, and injects via lib/hook.ts. Missing/empty files are a
- * silent `{}` no-op; a missing host-tools file substitutes empty. Default event
- * UserPromptSubmit; `--event <name>` (first only) is the fallback; stdin wins.
+ * silent `{}` no-op; a missing host-tools file substitutes empty. `--event <name>`
+ * (first only) is the required host event; stdin wins.
  *
  * Path note: args resolve as `PLUGIN_ROOT / arg` with an "absolute arg wins"
  * rule — Node's `resolve()` honors absolute temp paths verbatim. PLUGIN_ROOT =
@@ -16,10 +16,10 @@
 import { existsSync } from "node:fs"
 import { readFile, stat } from "node:fs/promises"
 import { dirname, resolve } from "node:path"
-import { runInjectionHook } from "../../../../common/inject.ts"
+import { runInjectionHook } from "../../../../common/hook-inject.ts"
 
 const PLUGIN_ROOT = dirname(import.meta.dir)
-// (The UserPromptSubmit default lives in lib/inject.ts; the --event flag overrides it.)
+// (The host event is required; --event <name> supplies it, stdin's hook_event_name overrides it.)
 
 /**
  * Pull `--event <name>` out of argv; return [event_or_null, remaining_argv].
@@ -90,9 +90,13 @@ export const renderTemplate = async (argv: string[], pluginRoot: string = PLUGIN
 
 if (import.meta.main) {
     const [cliEvent, argv] = extractEventArg(Bun.argv.slice(2))
+    if (cliEvent === null || cliEvent.length === 0) {
+        process.stderr.write("usage: inject-hook --event <name> <template> [host-tools]\n")
+        process.exit(2)
+    }
     const text = await renderTemplate(argv)
     await runInjectionHook({
-        event: cliEvent ?? undefined,
+        event: cliEvent,
         render: () => text
     })
     process.exit(0)

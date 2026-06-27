@@ -1,6 +1,5 @@
 #!/usr/bin/env bun
 import { defineCommand, effect, execute } from "cmdore"
-import { parseUrl } from "../../../../common/text.ts"
 import { assertIdea } from "./assert-idea.ts"
 import { IdeaError, previewUrl, resolveExecPath } from "./core"
 
@@ -37,7 +36,13 @@ const command = defineCommand({
     run: async ({ url, title }) => {
         assertIdea()
         // The IDE's JCEF preview only speaks http(s); reject anything else up front.
-        if (!["http", "https"].includes(parseUrl(url).scheme)) {
+        // Parse the scheme the forgiving way `new URL` does NOT — never throw, and
+        // treat invalid/host-less input as "" so it falls through the gate below.
+        let scheme = ""
+        try {
+            scheme = new URL(url).protocol.replace(/:$/, "").toLowerCase()
+        } catch {}
+        if (!["http", "https"].includes(scheme)) {
             throw new IdeaError("url must be a non-empty http/https URL")
         }
         await openUrl(url, title)

@@ -69,7 +69,7 @@ describe("makeConfig", () => {
     })
 
     context("immutability", () => {
-        it("freezes the returned config (the @dataclass(frozen=True) analog)", () => {
+        it("freezes the returned config", () => {
             const config = makeConfig(REQUIRED)
             expect(Object.isFrozen(config)).toBe(true)
         })
