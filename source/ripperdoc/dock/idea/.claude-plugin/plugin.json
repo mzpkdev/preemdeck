@@ -35,6 +35,16 @@
             "timeout": 5
           }
         ]
+      },
+      {
+        "matcher": "AskUserQuestion",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "$HOME/.preemdeck/preemdeck-runtime \"$HOME/.preemdeck/source/ripperdoc/dock/idea/toolbox/ask-notify.ts\" Claude",
+            "timeout": 5
+          }
+        ]
       }
     ]
   }
