@@ -1,0 +1,77 @@
+import * as os from "node:os"
+import * as path from "node:path"
+
+export const ENV = {
+    get PLUGIN_ROOT() {
+        const seg = (process.argv[1] ?? "").split(path.sep)
+        const r = seg.lastIndexOf("ripperdoc")
+        if (r === -1) throw new Error("PLUGIN_ROOT: not running from a ripperdoc plugin")
+        return seg.slice(0, r + 3).join(path.sep)
+    },
+    get MARKETPLACE_ROOT() {
+        const seg = (process.argv[1] ?? "").split(path.sep)
+        const r = seg.lastIndexOf("ripperdoc")
+        if (r === -1) throw new Error("MARKETPLACE_ROOT: not running from a ripperdoc plugin")
+        return seg.slice(0, r + 2).join(path.sep)
+    },
+    get PREEMDECK_ROOT() {
+        return path.join(os.homedir(), ".preemdeck")
+    },
+    get CACHED_PLUGIN_ROOT() {
+        const plugin = path.basename(this.PLUGIN_ROOT)
+        if (path.basename(this.HARNESS_ROOT) === ".gemini") {
+            return path.join(this.HARNESS_ROOT, "extensions", plugin)
+        }
+        return path.join(this.HARNESS_ROOT, "plugins", "cache", path.basename(this.MARKETPLACE_ROOT), plugin)
+    },
+    get CACHED_MARKETPLACE_ROOT() {
+        const dotdir = path.basename(this.HARNESS_ROOT)
+        if (dotdir === ".gemini") throw new Error("CACHED_MARKETPLACE_ROOT: Gemini has no marketplace cache")
+        const rack = path.basename(this.MARKETPLACE_ROOT)
+        return dotdir === ".codex"
+            ? path.join(this.HARNESS_ROOT, "marketplaces", rack)
+            : path.join(this.HARNESS_ROOT, "plugins", "marketplaces", rack)
+    },
+    get HARNESS_ROOT() {
+        const env = process.env
+        if (env.GEMINI_SESSION_ID || env.GEMINI_PROJECT_DIR) return path.join(os.homedir(), ".gemini")
+        if (env.CLAUDECODE === "1") return path.join(os.homedir(), ".claude")
+        if (env.PLUGIN_ROOT || env.CODEX_HOME) return path.join(os.homedir(), ".codex")
+        return path.join(os.homedir(), ".claude")
+    }
+}
+
+export type Config = {}
+
+export type Recipe<TDraft> = (draft: TDraft) => TDraft | void | Promise<TDraft | void>
+
+export const config = {
+    async read(): Promise<Config> {
+        const file = Bun.file(path.join(ENV.PREEMDECK_ROOT, "preemdeck.json"))
+        return (await file.exists()) ? await file.json() : {}
+    },
+    async mutate(recipe: Recipe<Config>): Promise<void> {
+        const draft = await this.read()
+        const next = (await recipe(draft)) ?? draft
+        await Bun.write(path.join(ENV.PREEMDECK_ROOT, "preemdeck.json"), `${JSON.stringify(next, null, 2)}\n`)
+    }
+}
+
+export const markdown = {
+    async read(path: string): Promise<string> {
+        return Bun.file(path).text()
+    },
+    join(...markdowns: string[]): string {
+        return markdowns
+            .map((md) => md.trim())
+            .filter((md) => md !== "")
+            .join("\n\n")
+    },
+    interpolate(md: string, context: Record<string, string>): string {
+        let out = md
+        for (const [key, value] of Object.entries(context)) {
+            out = out.replaceAll(`{{${key}}}`, value)
+        }
+        return out
+    }
+}
