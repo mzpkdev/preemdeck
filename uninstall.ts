@@ -29,7 +29,7 @@ import {
   type OverlayRecord,
   runCli,
   STAGE_ROOT,
-} from "./install.ts";
+} from "./install";
 
 // uninstall.ts lives in the same dir as install.ts (~/.preemdeck), so this
 // resolves to the same REPO_ROOT — the manifest and rack paths line up.

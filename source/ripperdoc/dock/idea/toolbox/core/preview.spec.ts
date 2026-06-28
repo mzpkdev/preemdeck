@@ -1,11 +1,11 @@
 import { describe, expect, it } from "bun:test"
-import { IdeaError, NotImplementedError } from "./errors.ts"
-import type { RunGroovyDeps } from "./groovy.ts"
-import { previewUrl, setPreview, webpreviewOpenBody } from "./preview.ts"
+import { IdeaError, NotImplementedError } from "./errors"
+import type { RunGroovyDeps } from "./groovy"
+import { previewUrl, setPreview, webpreviewOpenBody } from "./preview"
 
 const context = describe
 
-// --- GOLDEN OUTPUTS (byte-identical to the reference engine) --------------------
+// --- GOLDEN OUTPUTS (byte-exact golden) -----------------------------------------
 
 const GOLDEN_SETLAYOUT_MD = `import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.fileEditor.FileEditorManager
@@ -226,19 +226,19 @@ describe("setPreview", () => {
     })
 
     context("the generated groovy", () => {
-        it("GOLDEN: markdown route is byte-identical to the reference", async () => {
+        it("GOLDEN: markdown route is byte-exact golden", async () => {
             const cap = captureDeps()
             await setPreview("/Users/me/notes.md", CWD, cap.deps)
             expect(cap.scripts[0]).toBe(GOLDEN_SETLAYOUT_MD)
         })
 
-        it("GOLDEN: HTML route is byte-identical to the reference", async () => {
+        it("GOLDEN: HTML route is byte-exact golden", async () => {
             const cap = captureDeps()
             await setPreview("/Users/me/page.html", CWD, cap.deps)
             expect(cap.scripts[0]).toBe(GOLDEN_WEBPREVIEW_HTML)
         })
 
-        it("GOLDEN: escaped path (quote + backslash) is byte-identical to the reference", async () => {
+        it("GOLDEN: escaped path (quote + backslash) is byte-exact golden", async () => {
             const cap = captureDeps()
             await setPreview('/tmp/we"ird\\name.md', CWD, cap.deps)
             expect(cap.scripts[0]).toBe(GOLDEN_SETLAYOUT_ESCAPED)
@@ -329,13 +329,13 @@ describe("previewUrl", () => {
     })
 
     context("the generated groovy", () => {
-        it("GOLDEN: host:port default title is byte-identical to the reference", async () => {
+        it("GOLDEN: host:port default title is byte-exact golden", async () => {
             const cap = captureDeps()
             await previewUrl("http://localhost:3000", undefined, CWD, cap.deps)
             expect(cap.scripts[0]).toBe(GOLDEN_URL_HOSTPORT)
         })
 
-        it("GOLDEN: query string + quote/backslash escaping is byte-identical to the reference", async () => {
+        it("GOLDEN: query string + quote/backslash escaping is byte-exact golden", async () => {
             const cap = captureDeps()
             await previewUrl('http://localhost:3000/search?a=1&b=2&q="x\\y"', undefined, CWD, cap.deps)
             expect(cap.scripts[0]).toBe(GOLDEN_URL_QUERY_SPECIALS)
@@ -393,7 +393,7 @@ describe("previewUrl", () => {
 
 describe("webpreviewOpenBody", () => {
     context("rendering the shared fragment", () => {
-        it("GOLDEN: default (no indent, project var) is byte-identical to the reference", () => {
+        it("GOLDEN: default (no indent, project var) is byte-exact golden", () => {
             expect(webpreviewOpenBody("http://h:1/x", "h:1")).toBe(GOLDEN_FRAG_DEFAULT)
         })
 

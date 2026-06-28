@@ -1,21 +1,19 @@
 /**
  * knobs.ts — the flag > env > default resolvers shared by serve and start.
- * Port of the original `_idle_timeout` / `_sweep_interval` / `_empty_grace` /
- * `_max_connections` / `_public_url` / `_start_timeout` helpers.
  *
  * Each resolver takes the already-parsed flag value (`undefined` when the flag
  * was not passed — cmdore leaves an absent arity-1 option `undefined`) and
- * applies the same precedence as the original: an explicit flag wins; else the
- * env var (if valid); else the Config default. The "valid" bar matches the
- * original per-knob — most accept any non-negative int (0 is MEANINGFUL: it
- * disables idle drop / empty self-close / the connection cap), while the sweep
- * interval requires a positive cadence and the start timeout a positive float.
+ * applies the precedence: an explicit flag wins; else the env var (if valid);
+ * else the Config default. The "valid" bar is per-knob — most accept any
+ * non-negative int (0 is MEANINGFUL: it disables idle drop / empty self-close /
+ * the connection cap), while the sweep interval requires a positive cadence and
+ * the start timeout a positive float.
  *
  * Kept dependency-free and primitive-parameterized (no Config import) so it
  * stays unit-testable and the command files import a single resolver each.
  */
 
-import { CONFIG_DEFAULTS } from "./core/config.ts"
+import { CONFIG_DEFAULTS } from "./core/config"
 
 /** Generous default `start` waits for the detached child to come up, in seconds. */
 export const START_TIMEOUT_DEFAULT = 30
@@ -44,8 +42,7 @@ const parseIntStrict = (raw: string): number | null => {
 /**
  * Resolve a non-negative-int knob: flag > env > default. 0 is accepted (it is a
  * meaningful "disable" for idle/empty/cap); only a negative or unparseable env
- * value falls through. Mirrors `_idle_timeout` / `_empty_grace` /
- * `_max_connections`.
+ * value falls through.
  */
 const resolveNonNegative = (flag: number | undefined, envName: string, fallback: number): number => {
     if (flag !== undefined) {
@@ -76,7 +73,7 @@ export const resolveMaxConnections = (flag: number | undefined): number =>
 /**
  * Resolve the sweep interval: flag > `WIRE_SWEEP_INTERVAL` env > default. The
  * interval is a positive cadence, so the env requires `> 0`; anything else falls
- * back. Mirrors `_sweep_interval`.
+ * back.
  */
 export const resolveSweepInterval = (flag: number | undefined): number => {
     if (flag !== undefined) {
@@ -97,7 +94,7 @@ export const resolveSweepInterval = (flag: number | undefined): number => {
  * value is normalized — a trailing `/` is stripped so callers can pass
  * `https://x.ngrok.io/` or `https://x.ngrok.io` interchangeably. Does NOT
  * validate the scheme (that check lives in serve, which can fail the launch
- * cleanly); this stays a pure precedence helper. Mirrors `_public_url`.
+ * cleanly); this stays a pure precedence helper.
  */
 export const resolvePublicUrl = (flag: string | undefined): string | null => {
     const value = flag !== undefined ? flag : process.env.WIRE_PUBLIC_URL
@@ -112,7 +109,7 @@ export const resolvePublicUrl = (flag: string | undefined): string | null => {
  * env > default. A fresh child must import the runtime, bind a port, write state,
  * and answer /health — generous, not tight, so a slow-to-wake but healthy child
  * is not mistaken for a dead one. Anything unparseable or non-positive falls
- * back to the default. Mirrors `_start_timeout`.
+ * back to the default.
  */
 export const resolveStartTimeout = (): number => {
     const raw = process.env.WIRE_START_TIMEOUT

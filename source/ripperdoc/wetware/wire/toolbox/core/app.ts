@@ -1,5 +1,5 @@
 /**
- * app.ts — the Hono app factory and routes. Port of the original wire's app layer.
+ * app.ts — the Hono app factory and routes.
  *
  * {@link createApp} builds the app, constructs the one {@link Room}, wires the
  * eight endpoints, and hands back the room plus a {@link startReaper} the CLI
@@ -15,12 +15,12 @@
 
 import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi"
 import { streamSSE } from "hono/streaming"
-import { renderAuthError, requireSecret, requireToken, WireAuthError } from "./auth.ts"
-import type { Clock } from "./clock.ts"
-import type { Config } from "./config.ts"
-import { renderShard } from "./manual.ts"
-import type { LogEntry, Room, SpectateRoster } from "./room.ts"
-import { makeRoom } from "./room.ts"
+import { renderAuthError, requireSecret, requireToken, WireAuthError } from "./auth"
+import type { Clock } from "./clock"
+import type { Config } from "./config"
+import { renderShard } from "./manual"
+import type { LogEntry, Room, SpectateRoster } from "./room"
+import { makeRoom } from "./room"
 import {
     type Action,
     HealthResponse,
@@ -30,7 +30,7 @@ import {
     PresenceEvent,
     RecvResponse,
     SendResponse
-} from "./schemas.ts"
+} from "./schemas"
 
 /** The markdown body a wrong/missing-secret /shard returns (NOT JSON). */
 const SHARD_401 = "You are not authorized to view this resource, your secret is invalid."
@@ -54,7 +54,7 @@ const SPECTATE_HEARTBEAT_SECONDS = 15
  * element from a discriminated union to a plain `z.union` so generation succeeds.
  * The three other fields are reused straight from the real schema, preserving
  * their exact descriptions; the events description is copied verbatim from
- * schemas.ts so /schema stays byte-honest.
+ * schemas.ts so /schema shows the exact same text.
  */
 const RECV_EVENTS_DESC =
     "Events past your read-cursor you haven't seen yet, oldest first; empty on a heartbeat. An id-ordered " +
@@ -79,7 +79,7 @@ type WireEvent = MessageEvent | PresenceEvent
  * Render one room log entry to its wire JSON shape, per-type (no null-padding).
  *
  * The single serialization seam shared by /recv and /spectate, so a peer and a
- * spectator see byte-identical event JSON. A message emits
+ * spectator see identical event JSON. A message emits
  * id/type/from/message{seq,body}/sent_at; a presence event id/type/peer/sent_at.
  * `sentAt` is already an ISO second-precision UTC `Z` string from the room — the
  * boundary just renames it to `sent_at` (and `sender` -> `from`).
@@ -123,13 +123,13 @@ const SSE_EVENT_NAME: Record<LogEntry["type"], string> = {
 }
 
 /**
- * Build one SSE frame, byte-identical to the original's `_sse_frame`: an optional
- * `id:` line FIRST, then `event:`, then `data:`, terminated by the blank line
- * that delimits SSE events. Written raw via `stream.write` rather than Hono's
- * `writeSSE` because that helper emits `event:`/`data:`/`id:` in a fixed order
- * (id LAST) — the wire contract puts `id:` first, so a reconnecting client and
- * the original framing stay identical. `data` is one already-serialized compact
- * JSON line (every payload is a single line, so each `data:` is one JSON.parse).
+ * Build one SSE frame: an optional `id:` line FIRST, then `event:`, then
+ * `data:`, terminated by the blank line that delimits SSE events. Written raw via
+ * `stream.write` rather than Hono's `writeSSE` because that helper emits
+ * `event:`/`data:`/`id:` in a fixed order (id LAST) — the wire contract puts
+ * `id:` first, so a reconnecting client reads the frame as expected. `data` is
+ * one already-serialized compact JSON line (every payload is a single line, so
+ * each `data:` is one JSON.parse).
  */
 const sseFrame = (event: string, data: string, eventId?: number): string => {
     const head = eventId === undefined ? "" : `id: ${eventId}\n`
@@ -173,9 +173,9 @@ const resolveBase = (config: Config, requestUrl: string): string => {
 }
 
 // -- /schema doc post-processing -----------------------------------------
-// The original keeps secret/token OPTIONAL in the signatures (so a missing one
-// 401s, not 422) but marks them required in the DOC only. These tables drive the
-// same post-process here over the generated OpenAPI document.
+// secret/token stay OPTIONAL in the route signatures (so a missing one 401s, not
+// 422) but are marked required in the DOC only. These tables drive that
+// post-process over the generated OpenAPI document.
 
 /** A query-param doc object the generated doc lacks (creds are read raw, not via zod). */
 type DocParam = { name: string; in: "query"; required?: boolean; description: string; schema: { type: string } }
@@ -266,7 +266,7 @@ const SEND_DESCRIPTION =
  * generator never saw them, so it emitted no success response). `/send` returns
  * JSON shaped by `SendResponse` (registered as a component below, so this is a
  * `$ref`); `/shard` returns markdown; `/spectate` an SSE stream. The
- * `Successful Response` summary mirrors the original's autogen default.
+ * `Successful Response` summary matches the generator's autogen default.
  */
 const SEND_200 = {
     description: "Successful Response",
@@ -294,7 +294,7 @@ const SPECTATE_DESCRIPTION =
     "in the `Last-Event-ID` request header."
 
 /**
- * Mutate the generated OpenAPI document to match the original's honest /schema:
+ * Mutate the generated OpenAPI document to make /schema honest:
  * inject the cred + wait + name query params (read raw at runtime, so the
  * generator never saw them), the raw-text /send body, the hand-documented plain
  * routes (/shard, /send, /spectate — not registered via .openapi(), so the
@@ -409,7 +409,7 @@ export const createApp = (config: Config, now?: Clock): WireApp => {
     // /send is a PLAIN route (raw-text body), so the generator never sees its
     // SendResponse body and would drop it from `components`. Register it on the
     // registry directly so the schema lands in the doc — decorateDoc then $refs
-    // it from /send's hand-added 200, matching the original's component + ref.
+    // it from /send's hand-added 200.
     app.openAPIRegistry.register("SendResponse", SendResponse)
 
     // The one-status-401 error handler: a WireAuthError renders {detail, code}.
@@ -593,7 +593,7 @@ export const createApp = (config: Config, now?: Clock): WireApp => {
                 }
                 const batch = room.eventsSince(cursor)
                 for (const entry of batch) {
-                    // id: -> event: -> data:, byte-identical to the original framing.
+                    // id: -> event: -> data:, the wire frame order.
                     await stream.write(
                         sseFrame(SSE_EVENT_NAME[entry.type], JSON.stringify(eventToModel(entry)), entry.id)
                     )

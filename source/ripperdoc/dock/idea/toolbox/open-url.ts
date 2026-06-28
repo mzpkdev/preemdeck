@@ -1,6 +1,6 @@
 #!/usr/bin/env bun
 import { defineCommand, effect, execute } from "cmdore"
-import { assertIdea } from "./assert-idea.ts"
+import { assertIdea } from "./assert-idea"
 import { IdeaError, previewUrl, resolveExecPath } from "./core"
 
 /**

@@ -15,7 +15,7 @@
 import { existsSync } from "node:fs"
 import { readFile, stat } from "node:fs/promises"
 import { dirname, join } from "node:path"
-import { runInjectionHook } from "../../../../common/hook-inject.ts"
+import { runInjectionHook } from "../../../../common/hook-inject"
 
 const CONFIG_NAME = "preemdeck.json"
 const DIRECTIVE_KEY = "directive"

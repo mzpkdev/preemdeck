@@ -1,6 +1,6 @@
 import { describe, expect, it } from "bun:test"
-import { IdeaError } from "./errors.ts"
-import { launch, type Spawn } from "./launch.ts"
+import { IdeaError } from "./errors"
+import { launch, type Spawn } from "./launch"
 
 const context = describe
 

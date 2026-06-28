@@ -2,9 +2,9 @@
 import * as fs from "node:fs/promises"
 import * as path from "node:path"
 import { defineCommand, execute } from "cmdore"
-import { assertIdea } from "./assert-idea.ts"
+import { assertIdea } from "./assert-idea"
 import { resolveLogDir } from "./core"
-import { integer } from "./core/coercers.ts"
+import { integer } from "./core/coercers"
 
 /**
  * Split `text` into lines on \r\n / \n / \r, dropping the trailing empty

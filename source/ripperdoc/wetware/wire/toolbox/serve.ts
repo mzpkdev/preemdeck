@@ -1,7 +1,6 @@
 #!/usr/bin/env bun
 /**
- * serve.ts — the FOREGROUND wire server (blocking). Port of the original
- * `wire serve` command.
+ * serve.ts — the FOREGROUND wire server (blocking).
  *
  * Resolves a free port, builds the frozen Config (which asserts
  * idleTimeout > waitMax), writes the state file — it is the SINGLE writer —
@@ -17,22 +16,22 @@
 
 import * as crypto from "node:crypto"
 import { defineCommand, effect, execute } from "cmdore"
-import { integer } from "./coerce.ts"
-import { createApp } from "./core/app.ts"
-import { makeConfig } from "./core/config.ts"
-import { detectLanIp, findFreePort, writeState } from "./core/lifecycle.ts"
+import { integer } from "./coerce"
+import { createApp } from "./core/app"
+import { makeConfig } from "./core/config"
+import { detectLanIp, findFreePort, writeState } from "./core/lifecycle"
 import {
     resolveEmptyGrace,
     resolveIdleTimeout,
     resolveMaxConnections,
     resolvePublicUrl,
     resolveSweepInterval
-} from "./knobs.ts"
+} from "./knobs"
 
 /** Bun's idle-timeout is a byte, capped at 255s; trim slow-loris holds like a server keep-alive. */
 const SERVE_IDLE_SECONDS = 10
 
-/** Raised to fail the launch cleanly (exit 1) with a `wire: error:` message, like the original's early returns. */
+/** Raised to fail the launch cleanly (exit 1) with a `wire: error:` message. */
 export class ServeError extends Error {}
 
 /** The launch knobs serve resolves; the integer knobs are `undefined` when unset (flag>env>default applies). */
@@ -190,7 +189,7 @@ export const serve = async (options: ServeOptions): Promise<void> => {
                     }
                     stopped = true
                     stopReaper()
-                    // serve does NOT clear state — `stop` owns that (mirrors the original).
+                    // serve does NOT clear state — `stop` owns that.
                     void server.stop(true)
                     resolve()
                 }

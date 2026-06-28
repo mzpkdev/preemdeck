@@ -9,12 +9,12 @@
  *
  * The subprocess seam rides process.ts (argv-only, no shell), wrapped in cmdore's
  * `effect()` so `--dry-run` skips the real spawn yet still reports a mechanism. A
- * missing binary makes Bun.spawn throw, which `runCmd` catches -> false (matches
- * the original's subprocess FileNotFoundError -> False).
+ * missing binary makes Bun.spawn throw, which `runCmd` catches -> false, so the
+ * candidate is treated as unavailable and the next mechanism is tried.
  */
 
 import { defineCommand, effect, execute } from "cmdore"
-import { PIPED, type Reaped, reap } from "../../../../common/process.ts"
+import { PIPED, type Reaped, reap } from "../../../../common/process"
 
 // macOS: a built-in system sound that reads as a clean "ding".
 const MACOS_SOUND = "/System/Library/Sounds/Glass.aiff"

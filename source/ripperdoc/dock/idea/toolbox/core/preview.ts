@@ -1,6 +1,6 @@
 /**
  * preview.ts — force the running JetBrains IDE to a rendered preview
- * (best-effort). Port of core/_preview.py.
+ * (best-effort).
  *
  * Opt-in companion to the open commands: after a file is open, switch its editor
  * to the right rendered preview — or, for `previewUrl`, open an arbitrary
@@ -32,12 +32,12 @@
  * reapLater. `setPreview` is BEST-EFFORT — a missing live IDE / unavailable
  * ideScript / stub platform is swallowed with a short stderr note and it returns
  * without throwing, leaving the open intact. `previewUrl` shares that
- * never-throw scaffolding too, but open_url (no fallback) treats the stderr note
- * as a hard failure and exits non-zero.
+ * never-throw scaffolding too, but the open-url CLI (no fallback) treats the
+ * stderr note as a hard failure and exits non-zero.
  */
 
 import { extname } from "node:path"
-import { escapeGroovy, groovyProjectByCwd, type RunGroovyDeps, runGroovy } from "./groovy.ts"
+import { escapeGroovy, groovyProjectByCwd, type RunGroovyDeps, runGroovy } from "./groovy"
 
 /**
  * HTML-family extensions that route to the JCEF web preview instead of the
@@ -133,8 +133,8 @@ ${groovyProjectByCwd({ indent: "        " })}
  * <title>"). No VFS lookup (the dummy stands in).
  *
  * NOTE: line 1 is intentionally one physical line — the two Registry.is(...)
- * calls are joined (the original source used `\` line-continuations), and the
- * block has NO trailing newline. Both are load-bearing for byte-parity.
+ * calls are joined — and the block has NO trailing newline. Both are
+ * load-bearing: the golden test pins these exact bytes.
  */
 const webpreviewOpenBodyRaw = (url: string, title: string, projectVar: string): string => {
     return `if (!(com.intellij.openapi.util.registry.Registry.is("ide.web.preview.enabled") && com.intellij.openapi.util.registry.Registry.is("ide.browser.jcef.enabled"))) return
@@ -221,11 +221,11 @@ ${body}
  * always gets a non-empty label.
  */
 const titleFor = (url: string): string => {
-    // Parse host[:port] the forgiving urlsplit way: never throw, and treat
-    // host-less input as no host. WHATWG `new URL` requires a host and rejects
+    // Parse host[:port] forgivingly: never throw, and treat host-less input as
+    // no host. WHATWG `new URL` requires a host and rejects
     // bare `localhost:3000` (reading `localhost` as the protocol), so both an
     // invalid URL (catch) and a host-less one (empty hostname) leave `hostname`
-    // null -> fall back to the raw url, matching the reference `_title_for`.
+    // null -> fall back to the raw url.
     let hostname: string | null = null
     let port: number | null = null
     try {
@@ -289,14 +289,14 @@ export const setPreview = async (path: string, cwd = "", deps: RunGroovyDeps = {
  *
  * Like setPreview, NEVER throws: no live IDE / stub platform / spawn failure is
  * swallowed with a stderr note. Unlike setPreview there is no in-IDE fallback,
- * so the open_url CLI turns that note into a non-zero exit.
+ * so the open-url CLI turns that note into a non-zero exit.
  *
  * `cwd` picks the target window (longest basePath prefix); empty (the default)
  * leaves the open in the first project, matching the pre-targeting behavior.
  */
 export const previewUrl = async (url: string, title?: string, cwd = "", deps: RunGroovyDeps = {}): Promise<void> => {
     const label = title !== undefined ? title : titleFor(url)
-    // The open itself is the shared fragment (parity with notify's open-preview);
+    // The open itself is the shared fragment (same as notify's open-preview);
     // this script only adds the EDT + window-targeting + throwable-guard wrapper.
     // The body sits two levels deep (invokeLater + try), so indent it to 8 spaces.
     const body = webpreviewOpenBody(escapeGroovy(url), escapeGroovy(label), { indent: " ".repeat(8) })

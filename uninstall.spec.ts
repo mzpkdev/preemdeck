@@ -14,8 +14,8 @@ import { afterEach, beforeEach, describe, expect, it, spyOn } from "bun:test"
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
-import { MANIFEST_SCHEMA, type OverlayRecord, STAGE_ROOT } from "./install.ts"
-import { loadManifestOrExit, main, reverseOverlay, uninstallFor, unregister, writeManifest } from "./uninstall.ts"
+import { MANIFEST_SCHEMA, type OverlayRecord, STAGE_ROOT } from "./install"
+import { loadManifestOrExit, main, reverseOverlay, uninstallFor, unregister, writeManifest } from "./uninstall"
 
 const context = describe
 

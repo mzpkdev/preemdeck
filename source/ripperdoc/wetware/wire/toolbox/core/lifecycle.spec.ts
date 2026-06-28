@@ -22,7 +22,7 @@ import {
     statePath,
     type UdpSocketFactory,
     writeState
-} from "./lifecycle.ts"
+} from "./lifecycle"
 
 const context = describe
 

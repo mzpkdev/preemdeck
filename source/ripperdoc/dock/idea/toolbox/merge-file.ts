@@ -2,9 +2,9 @@
 import * as fs from "node:fs/promises"
 import * as path from "node:path"
 import { defineCommand, effect, execute } from "cmdore"
-import { assertIdea } from "./assert-idea.ts"
+import { assertIdea } from "./assert-idea"
 import { launch, reapLater } from "./core"
-import { mkstemp, resolveStrict } from "./tmp.ts"
+import { mkstemp, resolveStrict } from "./tmp"
 
 /**
  * Open a 3-way merge of `target`/`suggestion` (optional common-ancestor `base`)

@@ -1,10 +1,10 @@
 #!/usr/bin/env bun
 import * as fs from "node:fs/promises"
 import { defineCommand, execute } from "cmdore"
-import { assertIdea } from "./assert-idea.ts"
+import { assertIdea } from "./assert-idea"
 import { reapLater } from "./core"
-import { diffFile } from "./diff-file.ts"
-import { writeTemp } from "./tmp.ts"
+import { diffFile } from "./diff-file"
+import { writeTemp } from "./tmp"
 
 /** Options for {@link diffInline}: the temp-file suffix (drives IDE syntax highlighting) and the wait toggle. */
 export type DiffInlineOptions = {

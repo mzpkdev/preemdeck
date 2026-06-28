@@ -6,7 +6,7 @@
  */
 
 import { describe, expect, it } from "bun:test"
-import { DispatchError, parse, render } from "./render-dispatch.ts"
+import { DispatchError, parse, render } from "./render-dispatch"
 
 const context = describe
 

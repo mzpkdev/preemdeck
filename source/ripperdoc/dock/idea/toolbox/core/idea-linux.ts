@@ -13,11 +13,11 @@
  */
 
 import { readdir, readFile, readlink } from "node:fs/promises"
-import { IdeaError, NotImplementedError } from "./errors.ts"
+import { IdeaError, NotImplementedError } from "./errors"
 // IDE launcher basenames + the shared dedupe filter are platform-neutral; share
 // the single source of truth with macOS (index.ts loads both per-OS modules, so
 // this adds no extra cost).
-import { filterIdeExecs, IDE_BINARIES } from "./idea-mac.ts"
+import { filterIdeExecs, IDE_BINARIES } from "./idea-mac"
 
 /** One ancestry step: a process's parent pid and its executable path. */
 type ProcEntry = {

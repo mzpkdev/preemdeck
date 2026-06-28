@@ -1,5 +1,5 @@
 import { describe, expect, it } from "bun:test"
-import { CONFIG_DEFAULTS, type Config, makeConfig } from "./config.ts"
+import { CONFIG_DEFAULTS, type Config, makeConfig } from "./config"
 
 const context = describe
 

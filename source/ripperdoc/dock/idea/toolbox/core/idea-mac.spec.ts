@@ -2,8 +2,8 @@ import { afterEach, beforeEach, describe, expect, it } from "bun:test"
 import { mkdir, mkdtemp, rm, utimes } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
-import { IdeaError } from "./errors.ts"
-import { inIdea, type PsList, type PsProbe, resolveExecPath, resolveExecPaths, resolveLogDir } from "./idea-mac.ts"
+import { IdeaError } from "./errors"
+import { inIdea, type PsList, type PsProbe, resolveExecPath, resolveExecPaths, resolveLogDir } from "./idea-mac"
 
 const context = describe
 
@@ -25,12 +25,12 @@ const NO_IDE: Record<number, [number, string]> = {
     4241: [1, "/sbin/launchd"]
 }
 
-/** Build a PsProbe keyed off the pid, like the reference `_fake_ps` (async seam). */
+/** Build a PsProbe keyed off the pid (async seam). */
 const fakeProbe = (ancestry: Record<number, [number, string]>): PsProbe => {
     return async (pid) => {
         const entry = ancestry[pid]
         if (entry === undefined) {
-            return null // unknown pid -> ps yields <2 fields -> break (reference parity)
+            return null // unknown pid -> ps yields <2 fields -> break
         }
         return { ppid: entry[0], exe: entry[1] }
     }

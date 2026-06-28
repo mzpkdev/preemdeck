@@ -3,7 +3,7 @@
  * no mocks (MOCK PATTERN E): each helper mints a real temp in the system temp
  * dir, and we assert the file exists, ends with the suffix, and round-trips its
  * content. resolveStrict is checked against a real file (resolves) and a missing
- * path (throws ENOENT, the FileNotFoundError parity the CLIs catch).
+ * path (throws ENOENT, which the CLIs catch).
  */
 
 import { afterEach, describe, expect, it } from "bun:test"
@@ -11,7 +11,7 @@ import { existsSync } from "node:fs"
 import { realpath, rm } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { basename, isAbsolute, join } from "node:path"
-import { mkstemp, resolveStrict, writeTemp } from "./tmp.ts"
+import { mkstemp, resolveStrict, writeTemp } from "./tmp"
 
 const context = describe
 
@@ -38,7 +38,7 @@ describe("mkstemp", () => {
         // and the basename carries the idea-tmp- prefix, so reapLater fully cleans it.
         expect(join(tmpdir(), basename(path))).toBe(path)
         expect(basename(path).startsWith("idea-tmp-")).toBe(true)
-        expect(await Bun.file(path).text()).toBe("") // empty, like os.close(fd) after mkstemp
+        expect(await Bun.file(path).text()).toBe("") // empty: the handle is closed right after creation
     })
 
     it("defaults the suffix to .txt", async () => {
@@ -76,7 +76,7 @@ describe("resolveStrict", () => {
     })
 
     context("for a missing path", () => {
-        it("throws ENOENT (FileNotFoundError parity)", async () => {
+        it("throws ENOENT for a missing path", async () => {
             const missing = join(tmpdir(), `idea-nope-${crypto.randomUUID()}.txt`)
             await expect(resolveStrict(missing)).rejects.toMatchObject({ code: "ENOENT" })
         })

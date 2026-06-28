@@ -1,18 +1,18 @@
 /**
  * schemas.ts — zod contract for the wire protocol's JSON I/O shapes and the
- * /schema document. Port of the original wire schema models.
+ * /schema document.
  *
  * Every field carries its human/LLM-facing `description` via `.openapi({...})`:
  * this is load-bearing product content shown at /schema so LLM peers read meaning
  * off the document instead of inferring it from field names.
  *
- * The one wrinkle is `from`: a reserved word the original model carried as an
- * alias on `sender`. Here the JSON key IS `from` — defined literally in the zod
- * object, which parses and lands in the generated JSON Schema.
+ * The one wrinkle is `from`: a JS reserved word. The JSON key IS `from` — defined
+ * literally in the zod object, which parses and lands in the generated JSON
+ * Schema.
  *
- * The 401 error body (`{detail, code}`) has no schema model — the original builds
- * it inline and only documents it via the gated routes' 401 `responses`. Its
- * field descriptions here are synthesized from those route docs.
+ * The 401 error body (`{detail, code}`) has no schema model — it is built inline
+ * and documented only via the gated routes' 401 `responses`. Its field
+ * descriptions here are synthesized from those route docs.
  */
 
 import { z } from "@hono/zod-openapi"
@@ -270,10 +270,10 @@ export const HealthResponse = z
 
 /**
  * The JSON 401 error body for the gated routes. There is NO schema model for
- * this — the original builds it inline as `{detail, code}` and the shape is only
- * documented via the routes' 401 `responses`. The field descriptions
- * here are synthesized from those route docs (_SECRET_401 / _TOKEN_401): `detail`
- * is the human prose, `code` the machine-readable branch key (e.g. `invalid_secret`
+ * this — it is built inline as `{detail, code}` and the shape is only documented
+ * via the routes' 401 `responses`. The field descriptions here are synthesized
+ * from those route docs (the SECRET_401 / TOKEN_401 descriptions): `detail` is
+ * the human prose, `code` the machine-readable branch key (e.g. `invalid_secret`
  * for a bad secret, `invalid_token` for a missing/unknown token).
  */
 export const AuthErrorResponse = z

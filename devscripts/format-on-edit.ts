@@ -20,18 +20,17 @@
  *   .ts / .json                    -> the shipped Biome from the JS scaffold (`biome format --write`)
  *   .md / .markdown / .yml / .yaml -> Prettier (`prettier --write`)
  *
- * JSON key order: Biome preserves object key order and reproduces the existing
- * `json.dumps(indent=2)` framing byte-for-byte across all tracked manifests, so
- * `.json` folds into Biome (no dedicated format_json.ts). The install manifest +
- * marketplace ordering is load-bearing and is preserved — verified on all 33
- * tracked `*.json` files.
+ * JSON key order: Biome preserves object key order and formats with 2-space
+ * indent across all tracked manifests, so `.json` folds into Biome (no dedicated
+ * JSON formatter). The install manifest + marketplace ordering is load-bearing and
+ * is preserved — verified on all 33 tracked `*.json` files.
  */
 
 import { existsSync } from "node:fs"
 import { stat } from "node:fs/promises"
 import { dirname, relative, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
-import { PIPED, reap } from "../source/common/process.ts"
+import { PIPED, reap } from "../source/common/process"
 
 // Two distinct roots:
 //   CONTAINMENT_ROOT — the file-safety boundary. An edited file must live under
@@ -110,7 +109,7 @@ const resolveInsideRoot = async (filePath: string): Promise<string | null> => {
         return null
     }
     // relative(root, abs) escaping the root starts with ".." (or is absolute on a
-    // different drive) — mirrors the reference path.relative_to(root) ValueError guard.
+    // different drive) — reject paths that escape the containment root.
     const rel = relative(CONTAINMENT_ROOT, abs)
     if (rel === "" || rel.startsWith("..") || resolve(CONTAINMENT_ROOT, rel) !== abs) {
         return null
@@ -123,7 +122,7 @@ const suffix = (path: string): string => {
     const slash = Math.max(path.lastIndexOf("/"), path.lastIndexOf("\\"))
     const base = slash >= 0 ? path.slice(slash + 1) : path
     const dot = base.lastIndexOf(".")
-    // A leading-dot dotfile (".bashrc") has no suffix, matching Path(...).suffix.
+    // A leading-dot dotfile (".bashrc") has no suffix — the leading dot doesn't count.
     if (dot <= 0) return ""
     return base.slice(dot).toLowerCase()
 }

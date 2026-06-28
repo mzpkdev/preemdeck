@@ -16,7 +16,7 @@
 import { readdir, stat } from "node:fs/promises"
 import { homedir } from "node:os"
 import { join } from "node:path"
-import { IdeaError } from "./errors.ts"
+import { IdeaError } from "./errors"
 
 /** Basenames of JetBrains IDE launchers at `<App>.app/Contents/MacOS/<name>`. */
 export const IDE_BINARIES: ReadonlySet<string> = new Set([
@@ -40,12 +40,12 @@ type PsEntry = {
 
 /**
  * One `ps -o ppid=,comm= -p <pid>` probe, parsed. Returns null when `ps`
- * produced fewer than two whitespace-split fields (the reference `len(out) < 2`
- * break — a dead/exited pid). Split on the FIRST run of whitespace only, so an
- * exe path with spaces stays intact (the reference `.split(maxsplit=1)`).
+ * produced fewer than two whitespace-split fields (a dead/exited pid). Split on
+ * the FIRST whitespace run only, keeping the rest, so an exe path with spaces
+ * stays intact.
  *
- * Injectable so tests can feed canned ancestry without spawning `ps` (mirrors
- * the reference tests monkeypatching `idea_mac.subprocess.run`).
+ * Injectable so tests can feed canned ancestry without spawning `ps` (the spec
+ * injects a fake probe).
  */
 export type PsProbe = (pid: number) => Promise<PsEntry | null>
 
@@ -55,7 +55,7 @@ const defaultPsProbe: PsProbe = async (pid) => {
     })
     const out = await new Response(proc.stdout).text()
     await proc.exited
-    // Reference: out.split(maxsplit=1) — leading whitespace stripped, split once.
+    // Strip leading whitespace, then split on the first whitespace run, keeping the rest.
     const trimmed = out.replace(/^\s+/, "")
     const match = trimmed.match(/^(\S+)\s+([\s\S]*)$/)
     if (match === null) {
@@ -101,7 +101,7 @@ export const resolveExecPath = async (
             break
         }
         const { ppid, exe } = entry
-        // basename: everything after the last "/" (the reference str.rpartition("/")[2]).
+        // basename: everything after the last "/".
         const base = exe.slice(exe.lastIndexOf("/") + 1)
         if (IDE_BINARIES.has(base)) {
             return exe
@@ -185,14 +185,14 @@ export const resolveExecPaths = async (list: PsList = defaultPsList): Promise<st
 export const resolveLogDir = async (
     resolveExec: () => string | Promise<string> = () => resolveExecPath()
 ): Promise<string> => {
-    // Path(exec).stem.lower(): the basename without its final suffix, lowercased.
+    // The basename without its final suffix, lowercased.
     const execPath = await resolveExec()
     const baseName = execPath.slice(execPath.lastIndexOf("/") + 1)
     const dot = baseName.lastIndexOf(".")
     const stem = (dot > 0 ? baseName.slice(0, dot) : baseName).toLowerCase()
     const product = stem === "idea" ? "intellijidea" : stem
 
-    // Path.home() honors $HOME; mirror that so the tmp-HOME tests work.
+    // Honor $HOME (falling back to the OS home dir) so the tmp-HOME tests work.
     const home = process.env.HOME ?? homedir()
     const base = join(home, "Library/Logs/JetBrains")
 
@@ -221,7 +221,7 @@ export const resolveLogDir = async (
         matches.push({ path, mtime: st.mtimeMs })
     }
 
-    // Newest mtime first (the reference sorted(..., key=mtime, reverse=True)).
+    // Newest mtime first.
     matches.sort((a, b) => b.mtime - a.mtime)
     const newest = matches[0]
     if (newest === undefined) {

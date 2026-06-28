@@ -8,7 +8,7 @@ import { afterEach, beforeEach, describe, expect, it, spyOn } from "bun:test"
 import { glob, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
-import { availableModes, configSlots, ModesError, main, setDirective, slotFor } from "./set-mode.ts"
+import { availableModes, configSlots, ModesError, main, setDirective, slotFor } from "./set-mode"
 
 const context = describe
 

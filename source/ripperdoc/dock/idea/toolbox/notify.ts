@@ -1,7 +1,7 @@
 #!/usr/bin/env bun
 import type { StandardSchemaV1 } from "cmdore"
 import { defineCommand, effect, execute } from "cmdore"
-import { assertIdea } from "./assert-idea.ts"
+import { assertIdea } from "./assert-idea"
 import {
     escapeGroovy,
     groovyProjectByCwd,
@@ -9,7 +9,7 @@ import {
     runGroovy,
     runGroovyOn,
     webpreviewOpenBody
-} from "./core/index.ts"
+} from "./core/index"
 
 /** One parsed `--action`: its `name`, and the `=arg` payload (`null` when bare). */
 export type Action = { name: string; arg: string | null }
@@ -39,7 +39,7 @@ com.intellij.openapi.fileEditor.FileEditorManager.getInstance(actionProject).ope
 
 // The "open-preview" closure body: fetch the project under action*-prefixed names
 // (so it doesn't shadow the enclosing invokeLater scope), then splice in the
-// shared WebPreview-open fragment (parity with previewUrl), pointed at that
+// shared WebPreview-open fragment (shared with previewUrl), pointed at that
 // re-fetched project. {arg} is the URL; the tab title reuses the same URL literal.
 // Built by passing the literal "{arg}" sentinel through webpreviewOpenBody so the
 // slot lands in BOTH the url and title positions, then substituted at render time.

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "bun:test"
 import * as path from "node:path"
-import { groovyFor } from "./notify.ts"
+import { groovyFor } from "./notify"
 
 const context = describe
 

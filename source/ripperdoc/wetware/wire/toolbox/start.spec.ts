@@ -4,22 +4,21 @@
  * UNIT (hermetic): serveArgv — the detached child's argv. The =value form (so a
  * dash-leading secret can't be misparsed), and the idle/sweep/empty/cap/
  * public-url knobs forwarded ONLY when set (an unset knob is omitted so the child
- * resolves its own env/default). Ports the load-bearing _serve_argv cases from
- * the original wire's lifecycle suite.
+ * resolves its own env/default). Covers the load-bearing serveArgv cases.
  *
  * E2E (subprocess): the real start -> stop cycle — asserting the server is up via
  * a direct /health probe after start and down after stop — idempotent re-start (no
  * second server), and the mint-a-secret path, each under a throwaway WIRE_STATE_DIR
  * so it never touches a real ~/.wire and the spawned pid is torn down. Plus the
  * idempotent reuse path driven hermetically against a stub /health (no real server
- * spawned). Mirrors the original wire's start/stop suite.
+ * spawned).
  */
 
 import { afterEach, describe, expect, it } from "bun:test"
 import * as fs from "node:fs/promises"
 import * as os from "node:os"
 import * as path from "node:path"
-import { serveArgv } from "./start.ts"
+import { serveArgv } from "./start"
 
 const context = describe
 
@@ -215,7 +214,7 @@ describe("start", () => {
                 expect(stopped.stdout).toContain("stopped")
                 expect(await readState(dir)).toBeNull()
 
-                // Down: the port no longer answers (mirrors the old `not running`).
+                // Down: the port no longer answers.
                 expect(await healthOk(state?.port as number)).toBe(false)
 
                 await sleep(300)

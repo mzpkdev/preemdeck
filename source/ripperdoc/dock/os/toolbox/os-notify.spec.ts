@@ -15,7 +15,7 @@
 
 import { describe, expect, it } from "bun:test"
 import * as path from "node:path"
-import { MACOS_APPLESCRIPT, notify, notifyLinux, notifyMacos, platformWorker, runCmd } from "./os-notify.ts"
+import { MACOS_APPLESCRIPT, notify, notifyLinux, notifyMacos, platformWorker, runCmd } from "./os-notify"
 
 const context = describe
 

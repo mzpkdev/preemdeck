@@ -1,7 +1,7 @@
 import { describe, expect, it } from "bun:test"
-import * as ideaLinux from "./idea-linux.ts"
-import * as ideaMac from "./idea-mac.ts"
-import * as core from "./index.ts"
+import * as ideaLinux from "./idea-linux"
+import * as ideaMac from "./idea-mac"
+import * as core from "./index"
 
 const context = describe
 

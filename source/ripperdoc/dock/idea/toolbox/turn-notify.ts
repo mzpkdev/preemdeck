@@ -1,12 +1,12 @@
 #!/usr/bin/env bun
 import * as path from "node:path"
 import { defineCommand, execute } from "cmdore"
-import { PIPED, type Reaped, reap } from "../../../../common/process.ts"
-import { inIdea } from "./core/index.ts"
-import { notify } from "./notify.ts"
+import { PIPED, type Reaped, reap } from "../../../../common/process"
+import { inIdea } from "./core/index"
+import { notify } from "./notify"
 
 /**
- * Escape `&`, `<`, `>`, `"`, `'` exactly as the reference `html.escape(s, quote=True)`.
+ * Escape `&`, `<`, `>`, `"`, `'` for HTML, quoting `"` and `'` too.
  * `&` is replaced first so the entities it introduces aren't double-escaped.
  *
  *   &  -> &amp;

@@ -1,10 +1,10 @@
 #!/usr/bin/env bun
 import * as fs from "node:fs/promises"
 import { defineCommand, execute } from "cmdore"
-import { assertIdea } from "./assert-idea.ts"
+import { assertIdea } from "./assert-idea"
 import { reapLater } from "./core"
-import { mergeFile } from "./merge-file.ts"
-import { writeTemp } from "./tmp.ts"
+import { mergeFile } from "./merge-file"
+import { writeTemp } from "./tmp"
 
 /** Options for {@link mergeInline}: the temp-file suffix (drives IDE syntax highlighting) and the wait toggle. */
 export type MergeInlineOptions = {

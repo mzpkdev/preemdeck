@@ -8,8 +8,8 @@ import { afterEach, beforeEach, describe, expect, it } from "bun:test"
 import { mkdtemp, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
-import { runInjectionHook } from "../../../../common/hook-inject.ts"
-import { extractEventArg, renderTemplate, resolveTemplateArg } from "./inject-hook.ts"
+import { runInjectionHook } from "../../../../common/hook-inject"
+import { extractEventArg, renderTemplate } from "./inject-hook"
 
 const context = describe
 
@@ -60,21 +60,6 @@ describe("inject-hook", () => {
         })
         it("yields null for a dangling --event", () => {
             expect(extractEventArg(["--event"])).toEqual([null, []])
-        })
-    })
-
-    context("resolving the template arg", () => {
-        it("maps --file <name> to <NAME>.md", () => {
-            expect(resolveTemplateArg(["--file", "imprint", "x"])).toEqual(["IMPRINT.md", ["x"]])
-        })
-        it("uses a bare path verbatim", () => {
-            expect(resolveTemplateArg(["IMPRINT.md", "hosts/h.md"])).toEqual(["IMPRINT.md", ["hosts/h.md"]])
-        })
-        it("yields null for no args", () => {
-            expect(resolveTemplateArg([])).toEqual([null, []])
-        })
-        it("yields null for --file with no name", () => {
-            expect(resolveTemplateArg(["--file"])).toEqual([null, []])
         })
     })
 
@@ -137,9 +122,9 @@ describe("inject-hook", () => {
             expect(JSON.parse(out).hookSpecificOutput.additionalContext).toBe("just some static body")
         })
 
-        it("parses --file imprint --event SessionStart with --event present", async () => {
+        it("parses IMPRINT.md --event SessionStart with --event present", async () => {
             // Resolves IMPRINT.md against the real plugin root (renderTemplate default).
-            const [cliEvent, rest] = extractEventArg(["--file", "imprint", "--event", "SessionStart"])
+            const [cliEvent, rest] = extractEventArg(["IMPRINT.md", "--event", "SessionStart"])
             expect(cliEvent).toBe("SessionStart")
             const text = await renderTemplate(rest)
             let out = ""

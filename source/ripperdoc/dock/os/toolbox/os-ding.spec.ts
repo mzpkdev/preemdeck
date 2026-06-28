@@ -12,7 +12,7 @@
 
 import { describe, expect, it } from "bun:test"
 import * as path from "node:path"
-import { ding, dingLinux, dingMacos, LINUX_CANDIDATES, platformWorker, runCmd } from "./os-ding.ts"
+import { ding, dingLinux, dingMacos, LINUX_CANDIDATES, platformWorker, runCmd } from "./os-ding"
 
 const context = describe
 

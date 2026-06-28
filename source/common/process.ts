@@ -49,18 +49,18 @@ export const reap = async (
         timeoutMs > 0
             ? setTimeout(() => {
                   timedOut = true
-                  // kill() then awaiting child.exited below guarantees the child is reaped, not leaked.
                   child.kill(killSignal)
               }, timeoutMs)
             : undefined
     try {
-        const [stdout, stderr] = await Promise.all([
-            new Response(child.stdout as ReadableStream).text(),
-            new Response(child.stderr as ReadableStream).text()
-        ])
+        const [stdout, stderr] = await Promise.all([drain(child.stdout), drain(child.stderr)])
         await child.exited
         return { exitCode: child.exitCode, stdout, stderr, timedOut }
     } finally {
-        if (timer) clearTimeout(timer)
+        clearTimeout(timer)
     }
 }
+
+/** Drain a piped child stream fully to text. */
+const drain = (stream: ReadableStream | number | undefined): Promise<string> =>
+    new Response(stream as ReadableStream).text()

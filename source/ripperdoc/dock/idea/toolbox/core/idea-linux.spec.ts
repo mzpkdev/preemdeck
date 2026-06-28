@@ -1,6 +1,6 @@
 import { describe, expect, it } from "bun:test"
-import { IdeaError } from "./errors.ts"
-import { type ProcList, type ProcProbe, resolveExecPath, resolveExecPaths } from "./idea-linux.ts"
+import { IdeaError } from "./errors"
+import { type ProcList, type ProcProbe, resolveExecPath, resolveExecPaths } from "./idea-linux"
 
 const context = describe
 
@@ -28,7 +28,7 @@ const fakeProbe = (ancestry: Record<number, [number, string]>): ProcProbe => {
     return async (pid) => {
         const entry = ancestry[pid]
         if (entry === undefined) {
-            return null // unknown pid -> dead/unreadable -> break (parity with macOS)
+            return null // unknown pid -> dead/unreadable -> break (same as macOS)
         }
         return { ppid: entry[0], exe: entry[1] }
     }

@@ -1,7 +1,6 @@
 #!/usr/bin/env bun
 /**
- * stop.ts — TERM/KILL the tracked room, confirm it's down, clear state. Port of
- * the original `wire stop` command.
+ * stop.ts — TERM/KILL the tracked room, confirm it's down, clear state.
  *
  * Reads the state file: nothing → "nothing running". A dead pid (the process is
  * gone) → clear the stale state and report it, no signal. A live pid → SIGTERM,
@@ -14,8 +13,8 @@
  */
 
 import { defineCommand, effect, execute } from "cmdore"
-import { clearState, healthOk, readState } from "./core/lifecycle.ts"
-import { STOP_POLL_INTERVAL, STOP_TIMEOUT } from "./knobs.ts"
+import { clearState, healthOk, readState } from "./core/lifecycle"
+import { STOP_POLL_INTERVAL, STOP_TIMEOUT } from "./knobs"
 
 /** The outcome of {@link stop}: the line to print, where it goes, and the exit code. */
 export type StopResult = {
@@ -30,7 +29,7 @@ const sleep = (ms: number): Promise<void> => new Promise((resolve) => setTimeout
 /**
  * True if a signal can be delivered to `pid` (the process exists). `kill(pid, 0)`
  * delivers no signal — it only probes: ESRCH (no such process) → false, EPERM
- * (exists but not ours) → true. Mirrors the original `_pid_alive`.
+ * (exists but not ours) → true.
  */
 export const pidAlive = (pid: number): boolean => {
     try {

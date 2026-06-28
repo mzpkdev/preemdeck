@@ -18,8 +18,8 @@
 
 import { defineCommand, execute } from "cmdore"
 import { inIdea } from "./core"
-import { openFile } from "./open-file.ts"
-import { openInline } from "./open-inline.ts"
+import { openFile } from "./open-file"
+import { openInline } from "./open-inline"
 
 type HookData = Record<string, unknown>
 

@@ -30,37 +30,35 @@ export const runInjectionHook = async (options: RunInjectionOptions): Promise<vo
     const stdin = options.stdin ?? Bun.stdin
     const write = options.write ?? ((line: string) => console.log(line))
 
-    let payload: Record<string, unknown> = {}
-    try {
-        const raw = (await stdin.text()) || "{}"
-        const parsed: unknown = JSON.parse(raw)
-        if (parsed !== null && typeof parsed === "object" && !Array.isArray(parsed)) {
-            payload = parsed as Record<string, unknown>
-        }
-    } catch {
-        payload = {}
-    }
-
-    let eventName = event
+    const payload = parsePayload((await stdin.text()) || "{}")
     const fromPayload = payload.hook_event_name
-    if (typeof fromPayload === "string" && fromPayload.length > 0) {
-        eventName = fromPayload
-    }
+    const eventName = typeof fromPayload === "string" && fromPayload.length > 0 ? fromPayload : event
 
-    let text: string | null
-    try {
-        text = render(payload)
-    } catch {
-        text = null
-    }
-
-    if (text == null || text.length === 0) {
+    const text = tryRender(render, payload)
+    if (!text) {
         write("{}")
         return
     }
-    write(
-        JSON.stringify({
-            hookSpecificOutput: { hookEventName: eventName, additionalContext: text }
-        })
-    )
+    write(JSON.stringify({ hookSpecificOutput: { hookEventName: eventName, additionalContext: text } }))
+}
+
+/** Parse stdin JSON into a plain object; invalid or non-object input → `{}`. */
+const parsePayload = (raw: string): Record<string, unknown> => {
+    try {
+        const parsed: unknown = JSON.parse(raw)
+        return parsed !== null && typeof parsed === "object" && !Array.isArray(parsed)
+            ? (parsed as Record<string, unknown>)
+            : {}
+    } catch {
+        return {}
+    }
+}
+
+/** Run the render callback; a throw becomes `null` (a silent no-op upstream). */
+const tryRender = (render: RunInjectionOptions["render"], payload: Record<string, unknown>): string | null => {
+    try {
+        return render(payload)
+    } catch {
+        return null
+    }
 }

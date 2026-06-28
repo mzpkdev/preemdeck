@@ -7,8 +7,8 @@ import { afterEach, beforeEach, describe, expect, it } from "bun:test"
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
-import { runInjectionHook } from "../../../../common/hook-inject.ts"
-import { extractEvent, findConfig, loadModeText, renderBodies, selectVariants } from "./inject-mode.ts"
+import { runInjectionHook } from "../../../../common/hook-inject"
+import { extractEvent, findConfig, loadModeText, renderBodies, selectVariants } from "./inject-mode"
 
 const context = describe
 

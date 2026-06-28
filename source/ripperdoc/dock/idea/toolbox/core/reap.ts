@@ -8,12 +8,11 @@
  * working (it shows a dismissible "deleted from disk" marker). So instead of
  * leaking the temp, schedule an unlink a short delay after launch.
  *
- * The original spawns a NON-DAEMON thread: the interpreter waits for it
- * at process exit, so cleanup is guaranteed rather than killed. The faithful JS
- * analog is a plain (REF'd) `setTimeout` — a pending ref'd timer keeps Bun's
- * event loop alive, so the process stays up until the unlink runs. Do NOT
- * `.unref()` it, and do NOT `process.exit()` for this fire-and-forget cleanup
- * (the contract settled this) — either would drop the pending reap.
+ * Cleanup must be guaranteed rather than killed at process exit, so use a plain
+ * (REF'd) `setTimeout` — a pending ref'd timer keeps Bun's event loop alive, so
+ * the process stays up until the unlink runs. Do NOT `.unref()` it, and do NOT
+ * `process.exit()` for this fire-and-forget cleanup (the contract settled this)
+ * — either would drop the pending reap.
  */
 
 import { unlink } from "node:fs/promises"
@@ -53,7 +52,7 @@ const reap = async (targets: string[]): Promise<void> => {
         try {
             await unlink(path)
         } catch {
-            // never raise from the reaper (matches missing_ok=True + suppress(OSError))
+            // never raise from the reaper (a missing file or any FS error is ignored)
         }
     }
 }

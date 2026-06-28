@@ -8,9 +8,9 @@
  */
 
 import { describe, expect, it } from "bun:test"
-import { type FakeClock, fakeClock } from "./clock.ts"
-import { makeConfig } from "./config.ts"
-import { type LogEntry, type Message, makeRoom, type Presence, type Room } from "./room.ts"
+import { type FakeClock, fakeClock } from "./clock"
+import { makeConfig } from "./config"
+import { type LogEntry, type Message, makeRoom, type Presence, type Room } from "./room"
 
 const context = describe
 

@@ -15,7 +15,7 @@ import { describe, expect, it } from "bun:test"
 import * as fs from "node:fs/promises"
 import * as os from "node:os"
 import * as path from "node:path"
-import { capConcurrency } from "./serve.ts"
+import { capConcurrency } from "./serve"
 
 const context = describe
 

@@ -1,9 +1,9 @@
 #!/usr/bin/env bun
 import * as fs from "node:fs/promises"
 import { defineCommand, effect, execute } from "cmdore"
-import { assertIdea } from "./assert-idea.ts"
+import { assertIdea } from "./assert-idea"
 import { launch } from "./core"
-import { resolveStrict } from "./tmp.ts"
+import { resolveStrict } from "./tmp"
 
 /**
  * Open a 2-way (`target` vs `suggestion`) diff in the running JetBrains IDE. The

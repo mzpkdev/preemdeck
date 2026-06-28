@@ -1,6 +1,6 @@
 import { describe, expect, it } from "bun:test"
-import { IdeaError, NotImplementedError } from "./errors.ts"
-import { escapeGroovy, groovyProjectByCwd, type RunGroovyDeps, runGroovy, runGroovyOn } from "./groovy.ts"
+import { IdeaError, NotImplementedError } from "./errors"
+import { escapeGroovy, groovyProjectByCwd, type RunGroovyDeps, runGroovy, runGroovyOn } from "./groovy"
 
 const context = describe
 

@@ -6,14 +6,14 @@
  * the matching per-OS module, plus the cross-platform launch() / reapLater()
  * helpers, the shared ideScript bridge (escapeGroovy / runGroovy), the preview
  * helpers, and the shared error types. Importing on an unsupported platform
- * throws (the analog of the reference ImportError).
+ * throws.
  *
  * The per-OS pick is resolved at module load by `process.platform`; selecting an
  * unsupported OS throws immediately, before any detection function is reachable.
  */
 
-import * as ideaLinux from "./idea-linux.ts"
-import * as ideaMac from "./idea-mac.ts"
+import * as ideaLinux from "./idea-linux"
+import * as ideaMac from "./idea-mac"
 
 type PlatformModule = {
     inIdea: () => boolean
@@ -71,15 +71,15 @@ export const resolveLogDir = async (): Promise<string> => {
 }
 
 /** Shared error types callers `catch`/`instanceof` across the toolbox. */
-export { IdeaError } from "./errors.ts"
+export { IdeaError } from "./errors"
 /** Shared ideScript bridge: escape a Groovy literal, target the terminal's window, run a one-shot script (against the ancestry IDE, or every running IDE via runGroovyOn). */
-export { escapeGroovy, groovyProjectByCwd, runGroovy, runGroovyOn } from "./groovy.ts"
+export { escapeGroovy, groovyProjectByCwd, runGroovy, runGroovyOn } from "./groovy"
 /**
  * Cross-platform launch (resolves resolveExecPath lazily at call time — see
  * launch.ts — so the static import cycle with this module is import-safe).
  */
-export { launch } from "./launch.ts"
+export { launch } from "./launch"
 /** Preview helpers (layer on the bridge) for forcing a rendered preview / URL tab. */
-export { previewUrl, setPreview, webpreviewOpenBody } from "./preview.ts"
+export { previewUrl, setPreview, webpreviewOpenBody } from "./preview"
 /** Deferred temp cleanup for the toolbox's fire-and-forget (no-wait) modes. */
-export { reapLater } from "./reap.ts"
+export { reapLater } from "./reap"

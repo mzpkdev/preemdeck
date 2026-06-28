@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it } from "bun:test"
 import * as fs from "node:fs/promises"
 import * as os from "node:os"
 import * as path from "node:path"
-import { openFile } from "./open-file.ts"
+import { openFile } from "./open-file"
 
 const context = describe
 

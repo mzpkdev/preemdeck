@@ -40,7 +40,7 @@ import {
     STAGE_ROOT,
     stampMirror,
     writeManifest
-} from "./install.ts"
+} from "./install"
 
 const context = describe
 
@@ -163,10 +163,9 @@ describe("install", () => {
     context("configDir", () => {
         // NOTE: configDir joins os.homedir() (not process.env.HOME). Bun's os.homedir()
         // snapshots $HOME at process startup on POSIX, so a runtime process.env.HOME
-        // mutation is NOT observable here (unlike the original's Path.home(), which re-reads
-        // os.environ each call). The real CLI never mutates HOME mid-process, and a
-        // spawned process WITH HOME set is honored (see the golden-diff harness), so
-        // parity holds at the only point that matters. Assert against the live homedir.
+        // mutation is NOT observable here. The real CLI never mutates HOME mid-process,
+        // and a spawned process WITH HOME set is honored (see the golden-diff harness),
+        // so this holds at the only point that matters. Assert against the live homedir.
         it("joins the per-harness dirname onto the real home", () => {
             const home = homedir()
             expect(configDir("claude")).toBe(join(home, ".claude"))
@@ -719,9 +718,9 @@ describe("install", () => {
         // NOTE: the marketplace-failure path (-> rc 1) is NOT unit-tested here. With
         // dryRun=false, installFor's copyOverlay writes the real overlay into $HOME and
         // writeManifest writes the real repo's .install-manifest.json — destructive side
-        // effects the original test sidesteps via patch("install.copy_overlay"/...), which
-        // has no equivalent for install.ts's own self-calls. The path is covered by the
-        // golden-diff dry-run and the registerMarketplace unit tests above.
+        // effects with no clean seam to stub for install.ts's own self-calls. The path
+        // is covered by the golden-diff dry-run and the registerMarketplace unit tests
+        // above.
     })
 
     // parseInstallArgs — exit-code behavior (process.exit seam)

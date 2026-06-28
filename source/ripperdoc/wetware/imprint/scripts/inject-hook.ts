@@ -2,7 +2,7 @@
 /**
  * inject-hook.ts — imprint-template context injector.
  *
- * Resolves a template (positional path, or `--file <name>` -> <NAME>.md), reads it
+ * Resolves a template (positional path), reads it
  * from the plugin root, substitutes the optional host-tools file's contents for
  * `{{host_tools}}`, strips, and injects via lib/hook.ts. Missing/empty files are a
  * silent `{}` no-op; a missing host-tools file substitutes empty. `--event <name>`
@@ -16,7 +16,7 @@
 import { existsSync } from "node:fs"
 import { readFile, stat } from "node:fs/promises"
 import { dirname, resolve } from "node:path"
-import { runInjectionHook } from "../../../../common/hook-inject.ts"
+import { runInjectionHook } from "../../../../common/hook-inject"
 
 const PLUGIN_ROOT = dirname(import.meta.dir)
 // (The host event is required; --event <name> supplies it, stdin's hook_event_name overrides it.)
@@ -45,20 +45,6 @@ export const extractEventArg = (argv: string[]): [string | null, string[]] => {
     return [event, out]
 }
 
-/**
- * Resolve argv[0] into a template path; return [path_or_null, remaining_argv].
- *   --file <name>  -> <NAME>.md (uppercased)
- *   <path>         -> used verbatim
- */
-export const resolveTemplateArg = (argv: string[]): [string | null, string[]] => {
-    if (argv.length === 0) return [null, []]
-    if (argv[0] === "--file") {
-        if (argv.length < 2) return [null, []]
-        return [`${(argv[1] as string).toUpperCase()}.md`, argv.slice(2)]
-    }
-    return [argv[0] as string, argv.slice(1)]
-}
-
 const isFile = async (path: string): Promise<boolean> => {
     return existsSync(path) && (await stat(path)).isFile()
 }
@@ -69,8 +55,8 @@ const isFile = async (path: string): Promise<boolean> => {
  * after substitution+strip). `pluginRoot` defaults to the real plugin root.
  */
 export const renderTemplate = async (argv: string[], pluginRoot: string = PLUGIN_ROOT): Promise<string | null> => {
-    const [templateRel, rest] = resolveTemplateArg(argv)
-    if (templateRel === null) return null
+    const [templateRel, ...rest] = argv
+    if (!templateRel) return null
 
     const promptPath = resolve(pluginRoot, templateRel)
     if (!(await isFile(promptPath))) return null

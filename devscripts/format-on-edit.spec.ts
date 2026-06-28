@@ -22,7 +22,7 @@ import {
     readPayload,
     resolveInsideRoot,
     suffix
-} from "./format-on-edit.ts"
+} from "./format-on-edit"
 
 const context = describe
 

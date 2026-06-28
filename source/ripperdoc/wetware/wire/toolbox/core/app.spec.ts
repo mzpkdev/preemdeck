@@ -14,9 +14,9 @@
  */
 
 import { describe, expect, it } from "bun:test"
-import { createApp } from "./app.ts"
-import { fakeClock } from "./clock.ts"
-import { type Config, makeConfig } from "./config.ts"
+import { createApp } from "./app"
+import { fakeClock } from "./clock"
+import { type Config, makeConfig } from "./config"
 
 const context = describe
 

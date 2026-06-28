@@ -1,10 +1,8 @@
 /**
- * config.ts — launch configuration for a wire room. Port of the original wire's
- * config layer.
+ * config.ts — launch configuration for a wire room.
  *
- * The single anchor every other core module reads. Frozen (the original's frozen
- * dataclass analog via `Object.freeze`) and dependency-free, so
- * the core stays unit-testable without binding a port.
+ * The single anchor every other core module reads. Frozen (via `Object.freeze`)
+ * and dependency-free, so the core stays unit-testable without binding a port.
  *
  * Field docs (host/port are never read by the core; durations are SECONDS):
  *  - host / port      — where the HTTP layer binds.
@@ -40,7 +38,7 @@ export type Config = {
 /** The fields a caller must supply; every other field has a default. */
 export type ConfigInput = Pick<Config, "host" | "port" | "secret" | "topic"> & Partial<Config>
 
-/** Defaults for every optional field, mirroring the original's dataclass defaults. */
+/** Defaults for every optional field. */
 export const CONFIG_DEFAULTS = {
     publicUrl: null,
     waitDefault: 30,

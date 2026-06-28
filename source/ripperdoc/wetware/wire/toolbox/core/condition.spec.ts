@@ -1,5 +1,5 @@
 import { describe, expect, it } from "bun:test"
-import { type Condition, makeCondition } from "./condition.ts"
+import { type Condition, makeCondition } from "./condition"
 
 const context = describe
 

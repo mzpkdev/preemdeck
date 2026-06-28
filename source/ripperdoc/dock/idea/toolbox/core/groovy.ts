@@ -1,22 +1,22 @@
 /**
  * groovy.ts — shared ideScript bridge: escape a Groovy literal + run a one-shot
- * script. Port of core/_groovy.py.
+ * script.
  *
  * Neutral infra the in-IDE features build on, not tied to any one of them: escape
  * a string for safe embedding in a Groovy double-quoted literal, and run a
  * one-shot Groovy script against the live IntelliJ Platform API. The IDE binary
  * evaluates the script via `ideScript` (its output lands in idea.log); the script
  * reaches Groovy by spilling to a temp `.groovy`, blocking on the run, then
- * handing the temp to the deferred reaper. _preview and notify both layer their
- * templates on this bridge.
+ * handing the temp to the deferred reaper. preview.ts and notify both layer
+ * their templates on this bridge.
  */
 
 import { mkdtemp, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
-import { IdeaError, NotImplementedError } from "./errors.ts"
-import { launch as defaultLaunch, type LaunchOptions } from "./launch.ts"
-import { reapLater as defaultReapLater } from "./reap.ts"
+import { IdeaError, NotImplementedError } from "./errors"
+import { launch as defaultLaunch, type LaunchOptions } from "./launch"
+import { reapLater as defaultReapLater } from "./reap"
 
 /**
  * Escape `literal` for safe embedding inside a Groovy double-quoted string.
@@ -57,7 +57,7 @@ export type ProjectByCwdOptions = {
  * prefix of `cwdVar` — the window the terminal sits in — scanning `projectsVar`.
  *
  * The SINGLE SOURCE OF TRUTH for "target the terminal's window": notify and the
- * preview helpers grew the same byte-for-byte loop, so hoisting it here keeps the
+ * preview helpers grew the same identical loop, so hoisting it here keeps the
  * targeting from drifting between them. Emits ONLY the selection — from the
  * `def <varName> = <fallback>` line through the loop; the caller declares
  * `def <projectsVar> = ...getOpenProjects()` and the escaped `def <cwdVar> = "..."`
@@ -106,7 +106,7 @@ const defaultWriteTemp = async (groovy: string): Promise<string> => {
 }
 
 /**
- * The error categories run_groovy swallows: a missing live IDE (IdeaError), an
+ * The error categories runGroovy swallows: a missing live IDE (IdeaError), an
  * unimplemented platform (NotImplementedError), or an OS error spawning the
  * launcher (a Node system error carries a string `.code` like "ENOENT"). Any
  * other throwable propagates (it's a real bug, not a degrade case).
@@ -124,13 +124,13 @@ const isSwallowable = (err: unknown): boolean => {
  * The shared scaffolding behind setPreview/previewUrl: spill `groovy` to a temp
  * `.groovy`, run it via `launch(["ideScript", script], {wait: true})` (block
  * until the IDE has evaluated it), then hand the temp to the deferred reaper
- * rather than racing the IDE's async read (mirrors open_inline).
+ * rather than racing the IDE's async read (mirrors open-inline.ts).
  *
  * A missing live IDE (IdeaError), an unimplemented platform
  * (NotImplementedError), or an OS error spawning the launcher is swallowed with
  * a `{note}` stderr line — the function never rejects. Callers that have a
  * fallback (setPreview) let the note stand; callers that don't (previewUrl via
- * open_url) treat the note as a hard failure at the CLI boundary.
+ * open-url.ts) treat the note as a hard failure at the CLI boundary.
  */
 export const runGroovy = async (groovy: string, note: string, deps: RunGroovyDeps = {}): Promise<void> => {
     const launch = deps.launch ?? defaultLaunch
@@ -152,7 +152,7 @@ export const runGroovy = async (groovy: string, note: string, deps: RunGroovyDep
         }
     } finally {
         // ideScript forwards to the running IDE async; hand the temp to the
-        // deferred reaper rather than racing the read (mirrors open_inline).
+        // deferred reaper rather than racing the read (mirrors open-inline.ts).
         reapLater([script])
     }
 }

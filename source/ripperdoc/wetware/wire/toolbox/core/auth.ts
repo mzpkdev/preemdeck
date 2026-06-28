@@ -1,6 +1,5 @@
 /**
- * auth.ts — the one-status-401 credential gate. Port of the original wire's
- * auth layer.
+ * auth.ts — the one-status-401 credential gate.
  *
  * Every gated endpoint rejects a missing, wrong, or unknown credential with HTTP
  * 401; the body names the failed key and carries a machine-readable `code`. The
@@ -16,7 +15,7 @@
  */
 
 import type { Context, MiddlewareHandler } from "hono"
-import type { Room } from "./room.ts"
+import type { Room } from "./room"
 
 /** The machine-readable failure code on a {@link WireAuthError}. */
 export type WireAuthCode = "invalid_secret" | "invalid_token"
@@ -24,9 +23,8 @@ export type WireAuthCode = "invalid_secret" | "invalid_token"
 /**
  * A 401 carrying a machine-readable `code` beside the prose `detail`.
  *
- * Mirrors the original's `WireAuthError(HTTPException)`: `status` is always 401, and
- * the registered error handler renders `{detail, code}`. A peer branches on
- * `code` without parsing the prose.
+ * `status` is always 401, and the registered error handler renders
+ * `{detail, code}`. A peer branches on `code` without parsing the prose.
  */
 export class WireAuthError extends Error {
     readonly status = 401 as const

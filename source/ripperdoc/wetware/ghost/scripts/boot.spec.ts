@@ -7,8 +7,8 @@ import { afterEach, beforeEach, describe, expect, it } from "bun:test"
 import { mkdtemp, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
-import { runInjectionHook } from "../../../../common/hook-inject.ts"
-import { combinedPersona, readSource } from "./boot.ts"
+import { runInjectionHook } from "../../../../common/hook-inject"
+import { combinedPersona, readSource } from "./boot"
 
 const context = describe
 

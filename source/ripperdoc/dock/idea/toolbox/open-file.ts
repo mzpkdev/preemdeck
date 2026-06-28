@@ -2,9 +2,9 @@
 import * as fs from "node:fs/promises"
 import * as path from "node:path"
 import { defineCommand, effect, execute } from "cmdore"
-import { assertIdea } from "./assert-idea.ts"
+import { assertIdea } from "./assert-idea"
 import { launch, setPreview } from "./core"
-import { integer } from "./core/coercers.ts"
+import { integer } from "./core/coercers"
 
 export type OpenOptions = {
     line?: number

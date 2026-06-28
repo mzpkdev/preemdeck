@@ -1,7 +1,6 @@
 #!/usr/bin/env bun
 /**
- * start.ts — the detached ORCHESTRATOR. Port of the original `wire start`
- * command.
+ * start.ts — the detached ORCHESTRATOR.
  *
  * Idempotent: if a room is already on disk AND /health answers, re-print its
  * handoff and exit 0 — never a second server. Otherwise spawn `serve` DETACHED
@@ -22,9 +21,9 @@ import * as fs from "node:fs"
 import * as fsp from "node:fs/promises"
 import * as path from "node:path"
 import { defineCommand, effect, execute } from "cmdore"
-import { integer } from "./coerce.ts"
-import { healthOk, logPath, readState, renderHandoff, type WireState } from "./core/lifecycle.ts"
-import { resolveStartTimeout, START_POLL_INTERVAL } from "./knobs.ts"
+import { integer } from "./coerce"
+import { healthOk, logPath, readState, renderHandoff, type WireState } from "./core/lifecycle"
+import { resolveStartTimeout, START_POLL_INTERVAL } from "./knobs"
 
 /** Absolute path to the sibling `serve.ts` the child runs. */
 const SERVE_PATH = path.join(import.meta.dir, "serve.ts")

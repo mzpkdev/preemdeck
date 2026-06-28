@@ -1,10 +1,10 @@
 #!/usr/bin/env bun
 import * as fs from "node:fs/promises"
 import { defineCommand, execute } from "cmdore"
-import { assertIdea } from "./assert-idea.ts"
+import { assertIdea } from "./assert-idea"
 import { reapLater } from "./core"
-import { openFile } from "./open-file.ts"
-import { writeTemp } from "./tmp.ts"
+import { openFile } from "./open-file"
+import { writeTemp } from "./tmp"
 
 export type OpenInlineOptions = {
     suffix?: string

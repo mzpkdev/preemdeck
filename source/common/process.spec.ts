@@ -1,5 +1,5 @@
 import { describe, expect, it } from "bun:test"
-import { PIPED, reap } from "./process.ts"
+import { PIPED, reap } from "./process"
 
 const context = describe
 

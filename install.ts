@@ -4,17 +4,16 @@
  *
  * Registers the marketplace (claude/codex) or installs per-extension (gemini) for
  * ONE harness, copies the per-harness overlay into the host config dir, and writes
- * the install manifest. Subprocess shell-outs spawn inline via `Bun.spawn(argv, PIPED)`
- * and reap through process.ts `reap` (the timeout/kill is solved there); the
- * .bak/.bak.<ts> backup scheme, the schema-1 manifest shape, and every printed line
- * are byte-identical to the original.
+ * the install manifest. Shell-outs spawn inline via `Bun.spawn(argv, PIPED)`
+ * and reap through process.ts `reap` (the timeout/kill is solved there). Backups
+ * use a .bak/.bak.<ts> scheme and the manifest is written at schema 1.
  */
 
 import { copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join, relative, resolve, sep } from "node:path";
 import { parseArgs } from "node:util";
-import { PIPED, type Reaped, reap } from "./source/common/process.ts";
+import { PIPED, type Reaped, reap } from "./source/common/process";
 
 // Where preemdeck's source lives. Under the decoupled layout boot.sh clones to
 // ~/.preemdeck, so import.meta.dir resolves there — distinct from any host config dir.
@@ -144,8 +143,8 @@ export function readPluginSpecs(rackPath: string): PluginSpec[] {
 }
 
 // timeoutMs is injectable (default 10_000) so tests can drive the timeout path with
-// a real fast-firing reap timer; the default keeps the byte-identical "timed out
-// after 10s" message on the production path (10_000 / 1000 = 10).
+// a real fast-firing reap timer; the default keeps the "timed out after 10s"
+// message on the production path (10_000 / 1000 = 10).
 export async function runCli(cmd: string[], dryRun: boolean, timeoutMs = 10_000): Promise<[boolean, string]> {
   if (dryRun) {
     return [true, ""];
@@ -155,7 +154,7 @@ export async function runCli(cmd: string[], dryRun: boolean, timeoutMs = 10_000)
     result = await reap(Bun.spawn(cmd, PIPED), timeoutMs);
   } catch (err) {
     // Bun.spawn throws (ENOENT) when cmd[0] is not on PATH, before reap ever sees
-    // the child — reap does not swallow it. Mirror the original's FileNotFoundError branch.
+    // the child — reap does not swallow it. Treat a missing executable as not-found.
     if (isNotFound(err)) {
       return [false, `${cmd[0]} not on PATH`];
     }
@@ -517,7 +516,7 @@ export function writeManifest(
   writeFileSync(join(repoRoot, MANIFEST_FILE), `${JSON.stringify(manifest, null, 2)}\n`);
 }
 
-/** Whether `bin` resolves on PATH (mirrors the original's shutil.which truthiness). */
+/** Whether `bin` resolves on PATH (via `command -v`). */
 async function onPath(bin: string): Promise<boolean> {
   const result = await reap(Bun.spawn(["sh", "-c", `command -v "$1" >/dev/null 2>&1`, "sh", bin], PIPED));
   return result.exitCode === 0;

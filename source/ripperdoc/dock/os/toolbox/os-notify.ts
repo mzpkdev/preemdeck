@@ -20,7 +20,7 @@
 
 import type { StandardSchemaV1 } from "cmdore"
 import { defineCommand, effect, execute } from "cmdore"
-import { PIPED, type Reaped, reap } from "../../../../common/process.ts"
+import { PIPED, type Reaped, reap } from "../../../../common/process"
 
 const DEFAULT_TITLE = "PreemDeck"
 
@@ -61,7 +61,7 @@ export const runCmd = async (cmd: string[], env?: Record<string, string>): Promi
     }
 }
 
-/** Whether an executable is on PATH — the Bun analogue of shutil.which. */
+/** Whether an executable is on PATH (resolves via Bun.which). */
 const which = (name: string): boolean => {
     return Bun.which(name) !== null
 }

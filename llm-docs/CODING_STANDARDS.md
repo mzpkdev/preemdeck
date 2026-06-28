@@ -24,8 +24,6 @@ as-needed (omitted where optional), trailing commas everywhere, `recommended` li
 
 - `noUncheckedIndexedAccess` — `arr[i]` is `T | undefined`. Guard or narrow before use; don't assume the index is there.
 - `verbatimModuleSyntax` — type-only imports **must** say `import type`. The linter won't paper over it.
-- `allowImportingTsExtensions` — relative imports carry the **`.ts`** extension (see
-  [Modules & imports](#modules--imports)).
 - `noFallthroughCasesInSwitch` — every `case` ends in `break`/`return`/`throw`.
 
 ---
@@ -36,11 +34,10 @@ as-needed (omitted where optional), trailing commas everywhere, `recommended` li
 | ----------------------- | -------------------- | -------------------------------------- |
 | File / module           | `kebab-case`         | `os-notify.ts`, `render-dispatch.ts`   |
 | Test file               | `kebab-case.spec.ts` | `process.spec.ts`, `open-file.spec.ts` |
-| Function / method       | `camelCase` verb     | `parseAction`, `runCmd`                |
+| Function / method       | `camelCase` verb     | `reap`, `runCmd`                       |
 | Variable                | `camelCase` noun     | `costPrice`                            |
-| Type / type-alias       | `PascalCase` noun    | `SpawnOptions`, `Action`               |
+| Type / type-alias       | `PascalCase` noun    | `Reaped`, `Level`                      |
 | Constant (module-level) | `UPPER_SNAKE` noun   | `DEFAULT_MARGIN_PERCENT`               |
-| Test-seam object        | leading `_`          | `_internals`                           |
 
 Names explain themselves — no truncation gymnastics, no magic numbers.
 
@@ -56,9 +53,8 @@ return cost * (1 + DEFAULT_MARGIN_PERCENT / 100);
 
 Stay consistent with verbs — `getName` and `getCostPrice`, not `getName` and `fetchCostPrice`.
 
-The **only** leading underscore we keep is the `_internals` test seam (see [Testing](#testing)). Filenames and private
-helpers do **not** get a `_` prefix — privacy comes from module boundaries, not from a marker (see
-[Modules & imports](#modules--imports)).
+**No leading underscores.** Filenames and private helpers do **not** get a `_` prefix — privacy comes from module
+boundaries, not from a marker (see [Modules & imports](#modules--imports)).
 
 ---
 
@@ -67,18 +63,15 @@ helpers do **not** get a `_` prefix — privacy comes from module boundaries, no
 ESM, native, no bundler step. A few hard rules:
 
 ```ts
-// 1. Relative imports ALWAYS carry the .ts extension (allowImportingTsExtensions).
-import { runCmd } from "../source/common/process.ts";
+// 1. Relative imports are extensionless — Bun + bundler resolution add `.ts`.
+import { runCmd } from "../source/common/process";
 
 // 2. Node stdlib ALWAYS uses the node: prefix.
 import { parseArgs } from "node:util";
 import { writeFile, rename } from "node:fs/promises";
 
 // 3. Type-only imports say `import type` (verbatimModuleSyntax requires it).
-import type { Action } from "../source/common/args.ts";
-
-// 4. Named imports only — never `import * as`.
-import { notifyMacos } from "./os-notify.ts";
+import type { Reaped } from "../source/common/process";
 ```
 
 Group imports by origin, blank-line-separated: **stdlib (`node:`/`bun`) → external deps → local (`./`, `../`)**.
@@ -104,10 +97,11 @@ construct, uniform mental model.
 
 ```ts
 // Object shapes
-type SpawnOptions = {
-  cmd: string[];
-  cwd?: string;
-  env?: Record<string, string>;
+type Reaped = {
+  exitCode: number | null;
+  stdout: string;
+  stderr: string;
+  timedOut: boolean;
 };
 
 // Union literals instead of enums
@@ -127,7 +121,7 @@ Other rules:
 - **`| null` vs `?`** — use `?` for "the caller may omit this"; use `| null` when _absence is a real, distinct state_
   the value can hold and you want it explicit.
   ```ts
-  type ParsedUrl = {
+  type Endpoint = {
     host: string | null; // genuinely may have no host — explicit
     port?: number; // optional input, defaulted downstream
   };
@@ -144,9 +138,9 @@ Other rules:
 **Arrow functions, uniformly** — `const fn = (...) => ...`, including top-level exports.
 
 ```ts
-export const parseAction = (spec: string): Action => {
+export const splitOnce = (spec: string): [string, string] => {
   const [name, arg = ""] = spec.split(":", 2);
-  return { name, arg };
+  return [name, arg];
 };
 
 items.map((item) => item.id);
@@ -208,10 +202,10 @@ if (levelsOk && doorsClosed) { ... }
 **Custom `Error` subclasses for domain errors**, each setting `.name` so callers and logs can identify them precisely.
 
 ```ts
-export class UsageError extends Error {
+export class ModesError extends Error {
   constructor(message: string) {
     super(message);
-    this.name = "UsageError";
+    this.name = "ModesError";
   }
 }
 ```
@@ -223,7 +217,7 @@ export class UsageError extends Error {
   try {
     await launch(target);
   } catch (err) {
-    if (err instanceof UsageError) return usage(err.message);
+    if (err instanceof ModesError) return warn(err.message);
     throw err; // not ours — let it fly
   }
   ```
@@ -239,9 +233,9 @@ export class UsageError extends Error {
 
   ```ts
   const raw: unknown = JSON.parse(text);
-  if (typeof raw !== "object" || raw === null) throw new UsageError("expected a JSON object");
+  if (typeof raw !== "object" || raw === null) throw new ModesError("expected a JSON object");
   const obj = raw as Record<string, unknown>;
-  if (!Array.isArray(obj.items)) throw new UsageError("`items` must be a list");
+  if (!Array.isArray(obj.items)) throw new ModesError("`items` must be a list");
   ```
 
 ---
@@ -288,11 +282,10 @@ keep. Prose blocks with embedded examples; we don't use `@param`/`@returns` tag 
 
 ```ts
 /**
- * Transform an int into its labelled string form.
- * Mirrors the reference `transform()` byte-for-byte (see py-json parity notes).
+ * Transform a non-negative int into its labelled string form.
  */
 export const transform = (n: number): string => {
-  if (n < 0) throw new UsageError(`${n} must be non-negative`);
+  if (n < 0) throw new ModesError(`${n} must be non-negative`);
   return `The input was ${n}`;
 };
 ```
@@ -300,8 +293,8 @@ export const transform = (n: number): string => {
 - **Inline comments explain WHY, not WHAT.** If a comment narrates mechanics, the code wants a better name instead.
 - **No commented-out code.** Git remembers.
 - **`TODO:` only if you actually plan to return.** Otherwise fix it now or file an issue.
-- Module-header comments are welcome where a file's purpose or a non-obvious decision (e.g. reference parity) needs
-  stating.
+- Module-header comments are welcome where a file's purpose or a non-obvious decision (e.g. why a timeout kills _and_
+  awaits the child) needs stating.
 
 ---
 
@@ -322,7 +315,7 @@ Language-agnostic, still load-bearing:
 const getRate = (category: string): number => {
   if (category === "standard") return 0.03;
   if (category === "premium") return 0.05;
-  throw new UsageError(`unknown category ${category}`);
+  throw new ModesError(`unknown category ${category}`);
 };
 
 // Prefer — data-driven, open to extension
@@ -336,14 +329,34 @@ const getRate = (category: keyof typeof RATES): number => RATES[category];
 
 `bun:test`, files colocated next to source as `*.spec.ts`.
 
-```ts
-import { describe, expect, spyOn, test } from "bun:test";
-import { parseAction } from "./args.ts";
+One top-level `describe("<subject>")`; nest `context("when …")` for situations and `it("…")` for behavior. Titles are
+lowercase and describe behavior, not implementation. Alias `context` to `describe` once at module top so the nesting
+reads as prose. Use `it.each([...] as [...][])` for argument matrices. Never bare `test()`.
 
-// Plain expect — describe groups, test names describe BEHAVIOR.
-describe("parseAction", () => {
-  test("splits name from arg on the first colon", () => {
-    expect(parseAction("open:file.ts")).toEqual({ name: "open", arg: "file.ts" });
+```ts
+import { afterEach, describe, expect, it, spyOn } from "bun:test";
+import { splitOnce } from "./split-once.ts";
+
+const context = describe;
+
+describe("splitOnce", () => {
+  context("when the input has a colon", () => {
+    it("splits name from arg on the first colon only", () => {
+      expect(splitOnce("open:a:b")).toEqual(["open", "a:b"]);
+    });
+  });
+
+  context("when the input has no colon", () => {
+    it("returns the whole string as the name and an empty arg", () => {
+      expect(splitOnce("open")).toEqual(["open", ""]);
+    });
+  });
+
+  it.each([
+    ["open:file.ts", ["open", "file.ts"]],
+    ["a:", ["a", ""]],
+  ] as [string, [string, string]][])("splits %p into %p", (input, expected) => {
+    expect(splitOnce(input)).toEqual(expected);
   });
 });
 ```
@@ -356,27 +369,30 @@ describe("parseAction", () => {
    ```ts
    export const diffFile = (path: string, deps = { run: runCmd }) => deps.run(["diff", path]);
 
-   test("invokes diff with the path", async () => {
+   it("invokes diff with the path", async () => {
      const run = spyOn({ run: async () => 0 }, "run");
      await diffFile("a.ts", { run });
      expect(run).toHaveBeenCalledWith(["diff", "a.ts"]);
    });
    ```
 
-2. **`_internals` seam object (fallback).** When DI is awkward — module-level singletons, side-effecting imports —
-   export an `_internals` object holding the overridable functions, and have the module call through it. Tests mutate it
-   and **restore in `afterEach`** (one shared `bun test` process; leaks bleed across files).
+2. **`spyOn` for native / module-level calls (fallback).** When a unit reaches a global or imported function that can't
+   be passed in as a `dep` — `Bun.spawn`, an imported `writeFile`, the install/trash/uninstall side-effects — `spyOn`
+   the collaborator and supply a mock implementation. **Restore in `afterEach`** (one shared `bun test` process; leaks
+   bleed across files).
    ```ts
-   export const _internals = { launch, readFile };
-   // module code calls _internals.launch(...), never launch directly
+   const spawn = spyOn(Bun, "spawn").mockImplementation(
+     () => ({ exited: Promise.resolve(0), stdout: "", stderr: "" }) as unknown as Bun.Subprocess,
+   );
+   afterEach(() => spawn.mockRestore());
    ```
 
 Other conventions:
 
 - **Test names describe behavior** (`splits name from arg on the first colon`), not implementation.
-- **Golden-value tests** for parity-critical code — hardcode the expected reference output and assert byte equality (see
-  the `py-json` suite).
-- **Bump the timeout** for genuinely slow cases: `test("spawns a subprocess", async () => { ... }, 10_000)`.
+- **Golden-value tests** for deterministic generated output (e.g. generated Groovy scripts, rendered ASCII panels) —
+  hardcode the expected string and assert byte equality (see `preview.spec.ts` and `render-dispatch.spec.ts`).
+- **Bump the timeout** for genuinely slow cases: `it("spawns a subprocess", async () => { ... }, 10_000)`.
 - Don't mock the unit under test — only its collaborators.
 
 ---
@@ -386,12 +402,12 @@ Other conventions:
 ```
 Tooling    ── Biome-formatted (2sp/120/double-quote/no-semi); strict tsconfig; bun test
 Naming     ── kebab-case files; camelCase fns; PascalCase types; UPPER_SNAKE consts
-Imports    ── .ts extension always; node: prefix; `import type`; named only; facade index.ts
+Imports    ── extensionless relative imports; node: prefix; `import type`; facade index.ts
 Types      ── `type` not `interface`; `unknown` not `any`; union literals not enums; lenient-in/strict-out
 Functions  ── arrows everywhere; stepdown order; small + single-responsibility; deps injected
 Errors     ── custom Error subclasses w/ .name; throw not Result; validate external input only
 Async      ── async/await; Bun.spawn/file/which; node:fs/promises; no *Sync
 CLI        ── shebang; main(): Promise<number>; process.exit only under import.meta.main
 Comments   ── JSDoc on all public exports; WHY not WHAT; no zombie code
-Tests      ── bun:test; colocated *.spec.ts; DI-first then _internals; restore in afterEach
+Tests      ── bun:test; colocated *.spec.ts; DI-first; spyOn for native/module seams; restore in afterEach
 ```

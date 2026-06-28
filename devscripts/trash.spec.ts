@@ -11,7 +11,7 @@ import { afterEach, beforeEach, describe, expect, it, spyOn } from "bun:test"
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
-import { applyTrash, parseTrash, sparseArgs } from "./trash.ts"
+import { applyTrash, parseTrash, sparseArgs } from "./trash"
 
 const context = describe
 

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "bun:test"
-import { runInjectionHook } from "./hook-inject.ts"
+import { runInjectionHook } from "./hook-inject"
 
 const context = describe
 
