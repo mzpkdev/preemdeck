@@ -19,7 +19,11 @@ import { stat } from "node:fs/promises"
 import { resolve } from "node:path"
 import argvex from "argvex"
 import { runInjectionHook } from "../../../../common/hook-inject"
+import { throttle } from "../../../../common/hooks"
 import { ENV, markdown } from "../../../../common/preemdeck"
+
+/** Inject on a session's 1st prompt, then every Nth. */
+const EVERY = 5
 
 /**
  * Pull `--event <name>` out of argv; return [event_or_null, positionals]. Never
@@ -73,7 +77,7 @@ if (import.meta.main) {
     const text = await renderTemplate(argv)
     await runInjectionHook({
         event: cliEvent,
-        render: () => text
+        render: (payload) => (text && throttle(payload, EVERY) ? text : null)
     })
     process.exit(0)
 }
