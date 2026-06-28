@@ -49,14 +49,15 @@ const runHookCli = async (argv: string[], stdinText: string): Promise<{ out: str
 
 describe("inject-hook", () => {
     context("extracting the --event arg", () => {
-        it("pulls the first --event and leaves the rest", () => {
+        it("pulls --event and returns operands regardless of position", () => {
             expect(extractEventArg(["IMPRINT.md", "--event", "BeforeAgent", "hosts/h.md"])).toEqual([
                 "BeforeAgent",
                 ["IMPRINT.md", "hosts/h.md"]
             ])
         })
-        it("honors only the first --event", () => {
-            expect(extractEventArg(["--event", "A", "--event", "B"])).toEqual(["A", ["--event", "B"]])
+        it("honors only the first --event; later values fall through to operands", () => {
+            // argvex is first-wins for a repeated flag; the surplus value "B" lands in operands.
+            expect(extractEventArg(["--event", "A", "--event", "B"])).toEqual(["A", ["B"]])
         })
         it("yields null for a dangling --event", () => {
             expect(extractEventArg(["--event"])).toEqual([null, []])

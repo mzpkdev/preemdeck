@@ -106,6 +106,9 @@ describe("inject-mode", () => {
         it("returns the value after the first --event", () => {
             expect(extractEvent(["--event", "BeforeAgent", "x"])).toBe("BeforeAgent")
         })
+        it("accepts the inline --event=<value> form", () => {
+            expect(extractEvent(["--event=BeforeAgent"])).toBe("BeforeAgent")
+        })
         it("is null when absent or dangling", () => {
             expect(extractEvent(["x", "y"])).toBeNull()
             expect(extractEvent(["--event"])).toBeNull()

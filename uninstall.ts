@@ -16,7 +16,7 @@
 
 import { existsSync, mkdirSync, renameSync, rmSync, unlinkSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
-import { parseArgs } from "node:util";
+import argvex, { ArgvexError } from "argvex";
 import {
   CHECK,
   CROSS,
@@ -43,23 +43,22 @@ export interface UninstallArgs {
 
 export function parseUninstallArgs(argv: string[]): UninstallArgs {
   const prog = "uninstall.ts";
-  let parsed: ReturnType<
-    typeof parseArgs<{
-      options: { "dry-run": { type: "boolean" }; purge: { type: "boolean" } };
-      allowPositionals: true;
-    }>
-  >;
+  let parsed: ReturnType<typeof argvex>;
   try {
-    parsed = parseArgs({
-      args: argv,
-      options: { "dry-run": { type: "boolean" }, purge: { type: "boolean" } },
-      allowPositionals: true,
+    // strict: unknown options must be rejected (exit 2), as parseArgs did.
+    parsed = argvex({
+      argv,
+      schema: [
+        { name: "dry-run", arity: 0 },
+        { name: "purge", arity: 0 },
+      ],
+      strict: true,
     });
   } catch (err) {
-    process.stderr.write(`${prog}: ${err instanceof Error ? err.message : String(err)}\n`);
+    process.stderr.write(`${prog}: ${err instanceof ArgvexError ? err.message : String(err)}\n`);
     process.exit(2);
   }
-  const positionals = parsed.positionals;
+  const positionals = parsed._;
   let harness: string | null = null;
   if (positionals.length > 0) {
     harness = positionals[0] as string;
@@ -70,7 +69,7 @@ export function parseUninstallArgs(argv: string[]): UninstallArgs {
       process.exit(2);
     }
   }
-  return { harness, dryRun: parsed.values["dry-run"] === true, purge: parsed.values.purge === true };
+  return { harness, dryRun: parsed["dry-run"] != null, purge: parsed.purge != null };
 }
 
 /**

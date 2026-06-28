@@ -18,6 +18,7 @@
     },
     "dependencies": {
         "@hono/zod-openapi": "^1.4.0",
+        "argvex": "^0.0.6",
         "cmdore": "^0.4.1",
         "hono": "^4.12.27",
         "zod": "^4.4.3"

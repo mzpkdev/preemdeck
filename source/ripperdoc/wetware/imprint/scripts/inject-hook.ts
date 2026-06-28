@@ -16,33 +16,24 @@
 import { existsSync } from "node:fs"
 import { readFile, stat } from "node:fs/promises"
 import { dirname, resolve } from "node:path"
+import argvex from "argvex"
 import { runInjectionHook } from "../../../../common/hook-inject"
 
 const PLUGIN_ROOT = dirname(import.meta.dir)
 // (The host event is required; --event <name> supplies it, stdin's hook_event_name overrides it.)
 
 /**
- * Pull `--event <name>` out of argv; return [event_or_null, remaining_argv].
- * Only the first `--event` is honored.
+ * Pull `--event <name>` out of argv; return [event_or_null, positionals]. Never
+ * throws. Only the first `--event` is honored; the positionals are every operand
+ * regardless of where they sit relative to the flag.
  */
 export const extractEventArg = (argv: string[]): [string | null, string[]] => {
-    const out: string[] = []
-    let event: string | null = null
-    let i = 0
-    while (i < argv.length) {
-        if (argv[i] === "--event" && event === null) {
-            if (i + 1 < argv.length) {
-                event = argv[i + 1] as string
-                i += 2
-                continue
-            }
-            i += 1
-            continue
-        }
-        out.push(argv[i] as string)
-        i += 1
+    try {
+        const args = argvex({ argv, schema: [{ name: "event", arity: 1 }] })
+        return [args.event?.[0] ?? null, args._]
+    } catch {
+        return [null, []]
     }
-    return [event, out]
 }
 
 const isFile = async (path: string): Promise<boolean> => {

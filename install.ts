@@ -12,7 +12,7 @@
 import { copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join, relative, resolve, sep } from "node:path";
-import { parseArgs } from "node:util";
+import argvex, { ArgvexError } from "argvex";
 import { PIPED, type Reaped, reap } from "./source/common/process";
 
 // Where preemdeck's source lives. Under the decoupled layout boot.sh clones to
@@ -529,18 +529,15 @@ export interface CliArgs {
 
 export function parseInstallArgs(argv: string[]): CliArgs {
   const prog = "install.ts";
-  let parsed: ReturnType<typeof parseArgs<{ options: { "dry-run": { type: "boolean" } }; allowPositionals: true }>>;
+  let parsed: ReturnType<typeof argvex>;
   try {
-    parsed = parseArgs({
-      args: argv,
-      options: { "dry-run": { type: "boolean" } },
-      allowPositionals: true,
-    });
+    // strict: unknown options must be rejected (exit 2), as parseArgs did.
+    parsed = argvex({ argv, schema: [{ name: "dry-run", arity: 0 }], strict: true });
   } catch (err) {
-    process.stderr.write(`${prog}: ${err instanceof Error ? err.message : String(err)}\n`);
+    process.stderr.write(`${prog}: ${err instanceof ArgvexError ? err.message : String(err)}\n`);
     process.exit(2);
   }
-  const positionals = parsed.positionals;
+  const positionals = parsed._;
   if (positionals.length === 0) {
     process.stderr.write(`${prog}: the following arguments are required: harness\n`);
     process.exit(2);
@@ -550,7 +547,7 @@ export function parseInstallArgs(argv: string[]): CliArgs {
     process.stderr.write(`${prog}: argument harness: invalid choice: '${harness}' (choose from ${HOSTS.join(", ")})\n`);
     process.exit(2);
   }
-  return { harness, dryRun: parsed.values["dry-run"] === true };
+  return { harness, dryRun: parsed["dry-run"] != null };
 }
 
 export function printSummary(harness: string, results: Record<string, string>): void {

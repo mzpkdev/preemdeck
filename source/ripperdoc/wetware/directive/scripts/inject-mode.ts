@@ -15,6 +15,7 @@
 import { existsSync } from "node:fs"
 import { readFile, stat } from "node:fs/promises"
 import { dirname, join } from "node:path"
+import argvex from "argvex"
 import { runInjectionHook } from "../../../../common/hook-inject"
 
 const CONFIG_NAME = "preemdeck.json"
@@ -73,12 +74,13 @@ export const loadModeText = async (skillsDir: string, value: string): Promise<st
     return text || null
 }
 
-/** Return the value following the first `--event` flag, or null. */
+/** Value of the first/only `--event`, or null. Never throws. */
 export const extractEvent = (argv: string[]): string | null => {
-    for (let i = 0; i < argv.length; i++) {
-        if (argv[i] === "--event" && i + 1 < argv.length) return argv[i + 1] as string
+    try {
+        return argvex({ argv, schema: [{ name: "event", arity: 1 }] }).event?.[0] ?? null
+    } catch {
+        return null
     }
-    return null
 }
 
 /** Build the concatenated directive bodies for the active config, or "" / null. */
