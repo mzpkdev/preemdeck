@@ -170,11 +170,10 @@ const emit = async (host: string, deps: TurnNotifyDeps): Promise<void> => {
     const branch = await deps.gitBranch(cwd)
     const titleText = title(host, cwd, branch)
     const body = gist || `${host} finished responding`
-    // Pass the raw cwd (NOT html-escaped) so notify can match it against project
-    // basePaths and pop in the window the session actually ran in. `all` broadcasts
-    // one balloon to every running JetBrains IDE, so the turn-end alert is visible
-    // whichever IDE is focused (each still targets its own terminal/focused window).
-    await notify(htmlEscape(body), { title: htmlEscape(titleText), cwd: cwd ?? undefined, all: true })
+    // `all` broadcasts the turn-end balloon to every open project window of every
+    // running JetBrains product, so it's visible whichever window/IDE is focused.
+    // (No cwd: all-windows ignores it; the title already took the project name above.)
+    await notify(htmlEscape(body), { title: htmlEscape(titleText), all: true })
 }
 
 const command = defineCommand({

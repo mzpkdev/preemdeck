@@ -117,11 +117,11 @@ describe("notify CLI", () => {
 
 /**
  * groovyFor() is pure string-gen, so we assert the load-bearing structure
- * directly (no IDE, no ideScript): the per-target `fire` closure, the cwd
- * window-targeting (and its null/application-level fallback), and that the cwd
- * literal is escaped like every other embedded string (the injection guard). The
- * `--all` broadcast is NOT in this Groovy — it lives at dispatch (one run of this
- * same single-window script per running IDE) and is covered by runGroovyOn +
+ * directly (no IDE, no ideScript): the per-target `fire` closure, both targeting
+ * modes (single-window cwd match + its null fallback, and the all-windows branch),
+ * and that the cwd literal is escaped like every other embedded string (the
+ * injection guard). The cross-PRODUCT broadcast is NOT in this Groovy — it lives at
+ * dispatch (one run per running product) and is covered by runGroovyOn +
  * resolveExecPaths.
  */
 describe("groovyFor", () => {
@@ -140,7 +140,7 @@ describe("groovyFor", () => {
     context("single-window (terminal) targeting", () => {
         const g = groovyFor("T", "M", "info", [], "/Users/me/proj")
 
-        it("has no all-windows broadcast branch (broadcast is at dispatch)", () => {
+        it("does not emit the all-windows branch in single-window mode", () => {
             expect(g).not.toContain("projects.each { fire(it) }")
             expect(g).not.toContain("if (projects.length == 0) fire(null)")
         })
@@ -157,6 +157,24 @@ describe("groovyFor", () => {
             // cwd — IntelliJ routes a null target to the focused frame. In a non-launching
             // IDE (cwd outside all its projects) this is the path that fires.
             expect(g).toContain("def best = null")
+        })
+    })
+
+    context("all-windows broadcast (allWindows = true)", () => {
+        const g = groovyFor("T", "M", "info", [], "/Users/me/proj", true)
+
+        it("fires a balloon in every open project window", () => {
+            expect(g).toContain("projects.each { fire(it) }")
+        })
+
+        it("falls back to an application-level target when no project is open", () => {
+            expect(g).toContain("if (projects.length == 0) fire(null)")
+        })
+
+        it("drops the single-window cwd targeting entirely", () => {
+            expect(g).not.toContain("fire(best)")
+            expect(g).not.toContain("bp.length() > bestLen")
+            expect(g).not.toContain("def cwd =")
         })
     })
 

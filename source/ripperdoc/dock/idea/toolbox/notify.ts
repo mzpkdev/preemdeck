@@ -66,21 +66,32 @@ export const NOTIFICATION_ACTIONS: Record<string, ActionEntry> = {
 // Groovy run on the EDT against the live IntelliJ Platform API. {actions} is
 // zero-or-more rendered n.addAction(...) lines (empty when no --action).
 //
-// Targeting (within ONE IDE process): this script always pops in a SINGLE window —
-// the project whose basePath is the longest prefix of `cwd` (the window the
-// terminal sits in), falling back to a null/application-level target, which
-// IntelliJ routes to the focused frame. The `--all` broadcast lives a layer up:
-// notify dispatches this same script to every running IDE's launcher (see
-// runGroovyOn), so there is no all-windows branch here. The `fire` closure builds
-// a FRESH Notification per call — a Notification is single-shot.
+// Targeting (within ONE IDE process), per `allWindows`:
+//   - false (default): pop in a SINGLE window — the project whose basePath is the
+//     longest prefix of `cwd` (the window the terminal sits in), falling back to a
+//     null/application-level target, which IntelliJ routes to the focused frame.
+//   - true: pop in EVERY open project window (app-level fallback when none are
+//     open). Paired with notify's cross-product dispatch (runGroovyOn), `--all`
+//     thus reaches every window of every running product.
+// The `fire` closure builds a FRESH Notification per call — a Notification is
+// single-shot, so a reused instance would pop only once.
 const groovyNotify = (
     group: string,
     title: string,
     content: string,
     type: string,
     actions: string,
-    cwd: string
+    cwd: string,
+    allWindows: boolean
 ): string => {
+    // all-windows fires in every open project (app-level fallback when none are
+    // open); single-window declares `cwd` and picks its longest-prefix match.
+    const targeting = allWindows
+        ? `    if (projects.length == 0) fire(null)
+    else projects.each { fire(it) }`
+        : `    def cwd = "${cwd}"
+${groovyProjectByCwd({ varName: "best", fallback: "null", indent: "    " })}
+    fire(best)`
     return `import com.intellij.notification.Notification
 import com.intellij.notification.NotificationAction
 import com.intellij.notification.NotificationType
@@ -94,9 +105,7 @@ ApplicationManager.getApplication().invokeLater {
         Notifications.Bus.notify(n, target)
     }
     def projects = ProjectManager.getInstance().getOpenProjects()
-    def cwd = "${cwd}"
-${groovyProjectByCwd({ varName: "best", fallback: "null", indent: "    " })}
-    fire(best)
+${targeting}
 }
 `
 }
@@ -128,17 +137,19 @@ const renderActions = (actions: Action[]): string => {
 /**
  * Render the notification Groovy for title/message/typeToken/actions.
  *
- * `cwd` selects the target window (the project whose basePath is the longest
- * prefix of it) — escaped like every other literal so a path can't break out of
- * the Groovy string. The `--all` broadcast is handled at dispatch (one run of this
- * same script per running IDE), not in the rendered Groovy.
+ * `cwd` selects the single target window (the project whose basePath is the longest
+ * prefix of it) — escaped like every other literal so a path can't break out of the
+ * Groovy string. `allWindows` instead pops in every open project window (ignoring
+ * `cwd`); paired with notify's per-product dispatch it makes `--all` reach every
+ * window of every running product.
  */
 export const groovyFor = (
     title: string,
     message: string,
     typeToken: string,
     actions: Action[] = [],
-    cwd = ""
+    cwd = "",
+    allWindows = false
 ): string => {
     const constant = NOTIFICATION_TYPES[typeToken]
     if (constant === undefined) {
@@ -150,7 +161,8 @@ export const groovyFor = (
         escapeGroovy(message),
         constant,
         renderActions(actions),
-        escapeGroovy(cwd)
+        escapeGroovy(cwd),
+        allWindows
     )
 }
 
@@ -161,7 +173,7 @@ export type NotifyOptions = {
     actions?: Action[]
     /** Working directory used to pick the terminal's window (longest basePath prefix). Defaults to `process.cwd()`. */
     cwd?: string
-    /** Broadcast one balloon to every running JetBrains IDE (deduped by launcher) instead of just the one that launched the terminal. */
+    /** Broadcast to every open project window of every running JetBrains product (deduped by launcher) instead of just the terminal's window. */
     all?: boolean
 }
 
@@ -178,7 +190,7 @@ export type NotifyOptions = {
  * @example
  * await notify("Build finished") // plain info balloon titled "PreemDeck", in the terminal's window
  * await notify("Tests failed", { typeToken: "error", actions: [{ name: "open-file", arg: "log.txt" }] }) // error balloon with a clickable action
- * await notify("Deploy done", { all: true }) // one balloon in every running JetBrains IDE
+ * await notify("Deploy done", { all: true }) // a balloon in every open window of every running JetBrains product
  */
 export const notify = async (message: string, options: NotifyOptions = {}): Promise<void> => {
     const title = options.title ?? "PreemDeck"
@@ -186,7 +198,7 @@ export const notify = async (message: string, options: NotifyOptions = {}): Prom
     const actions = options.actions ?? []
     const cwd = options.cwd ?? process.cwd()
     const all = options.all ?? false
-    const groovy = groovyFor(title, message, typeToken, actions, cwd)
+    const groovy = groovyFor(title, message, typeToken, actions, cwd, all)
     const note = "notify: could not pop notification"
     // runGroovy / runGroovyOn never reject (a missing IDE / spawn error degrades to
     // a stderr note); --dry-run flips effect off so the IDE write is skipped.
@@ -295,7 +307,8 @@ const command = defineCommand({
         {
             name: "all",
             arity: 0,
-            description: "broadcast to every running JetBrains IDE (one balloon each), not just the launching one"
+            description:
+                "broadcast to every open project window of every running JetBrains product, not just the launching window"
         }
     ],
     run: async ({ message, title, type, action, all }) => {
