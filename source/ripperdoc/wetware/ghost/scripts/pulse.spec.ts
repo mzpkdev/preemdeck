@@ -1,5 +1,6 @@
 /**
- * pulse.spec.ts — Tmp-fixture FS + DI stdin/write.
+ * pulse.spec.ts — envelope emit over a tmp-fixture FS; DI stdin/write.
+ * (readSource lives in codec.spec.ts now.)
  */
 
 import { afterEach, beforeEach, describe, expect, it } from "bun:test"
@@ -7,7 +8,8 @@ import { mkdtemp, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { runInjectionHook } from "../../../../common/hook-inject"
-import { readSource } from "./pulse"
+import { markdown } from "../../../../common/preemdeck"
+import { readSource } from "./codec"
 
 const context = describe
 
@@ -19,31 +21,7 @@ afterEach(async () => {
     await rm(dir, { recursive: true, force: true })
 })
 
-const b64 = (s: string) => Buffer.from(s, "utf8").toString("base64")
-
 describe("pulse", () => {
-    context("reading the persona source", () => {
-        it("returns null when both missing", async () => {
-            expect(await readSource(dir, "pulse.dat", "PULSE.md")).toBeNull()
-        })
-
-        it("reads the .dat over the .md", async () => {
-            await writeFile(join(dir, "pulse.dat"), b64("dat content"))
-            await writeFile(join(dir, "PULSE.md"), "md content")
-            expect(await readSource(dir, "pulse.dat", "PULSE.md")).toBe("dat content")
-        })
-
-        it("reads the .md when the .dat is absent", async () => {
-            await writeFile(join(dir, "PULSE.md"), "pulse persona")
-            expect(await readSource(dir, "pulse.dat", "PULSE.md")).toBe("pulse persona")
-        })
-
-        it("decodes multi-line base64 correctly", async () => {
-            await writeFile(join(dir, "pulse.dat"), b64("multi\nline\ncontent"))
-            expect(await readSource(dir, "pulse.dat", "PULSE.md")).toBe("multi\nline\ncontent")
-        })
-    })
-
     context("emitting the envelope", () => {
         async function emit(stdinText: string): Promise<string> {
             let out = ""
@@ -54,9 +32,7 @@ describe("pulse", () => {
                 write: (l) => {
                     out = l
                 },
-                render: () => {
-                    return content ? content.trim() : null
-                }
+                render: () => markdown.join(content ?? "") || null
             })
             return out
         }

@@ -1,6 +1,6 @@
 /**
- * inject-mode.spec.ts — Tmp-fixture FS for the config walk-up + skills dir;
- * DI stdin/write for the envelope.
+ * inject-mode.spec.ts — config read via common/preemdeck (ENV.PREEMDECK_ROOT
+ * override) + tmp skills dir; DI stdin/write for the envelope.
  */
 
 import { afterEach, beforeEach, describe, expect, it } from "bun:test"
@@ -8,7 +8,8 @@ import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { runInjectionHook } from "../../../../common/hook-inject"
-import { extractEvent, findConfig, loadModeText, renderBodies, selectVariants } from "./inject-mode"
+import { ENV } from "../../../../common/preemdeck"
+import { extractEvent, loadModeText, renderBodies, selectVariants } from "./inject-mode"
 
 const context = describe
 
@@ -20,10 +21,8 @@ afterEach(async () => {
     await rm(dir, { recursive: true, force: true })
 })
 
-const writeCfg = async (text: string): Promise<string> => {
-    const p = join(dir, "preemdeck.json")
-    await writeFile(p, text)
-    return p
+const writeCfg = async (text: string): Promise<void> => {
+    await writeFile(join(dir, "preemdeck.json"), text)
 }
 const writeSkill = async (skillsDir: string, name: string, body: string) => {
     await mkdir(join(skillsDir, name), { recursive: true })
@@ -31,55 +30,24 @@ const writeSkill = async (skillsDir: string, name: string, body: string) => {
 }
 
 describe("inject-mode", () => {
-    context("finding the config", () => {
-        it("returns null when absent", async () => {
-            expect(await findConfig(dir)).toBeNull()
-        })
-        it("finds it in the start dir", async () => {
-            const cfg = await writeCfg("{}")
-            expect(await findConfig(dir)).toBe(cfg)
-        })
-        it("walks up to an ancestor", async () => {
-            const cfg = await writeCfg("{}")
-            const nested = join(dir, "plugins", "cache", "directive", "scripts")
-            await mkdir(nested, { recursive: true })
-            expect(await findConfig(nested)).toBe(cfg)
-        })
-        it("lets the nearest ancestor win", async () => {
-            await writeCfg('{"loc":"far"}')
-            const nearDir = join(dir, "a", "b")
-            await mkdir(nearDir, { recursive: true })
-            const near = join(nearDir, "preemdeck.json")
-            await writeFile(near, '{"loc":"near"}')
-            expect(await findConfig(nearDir)).toBe(near)
-        })
-    })
-
     context("selecting variants from the config", () => {
-        it("reads object values in slot order", async () => {
-            expect(
-                await selectVariants(await writeCfg('{"directive":{"strategy":"swarm","discretion":"auto"}}'))
-            ).toEqual(["swarm", "auto"])
+        it("reads slot values in order", () => {
+            expect(selectVariants({ directive: { strategy: "swarm", discretion: "auto" } })).toEqual(["swarm", "auto"])
         })
-        it("treats a bare string as a single value", async () => {
-            expect(await selectVariants(await writeCfg('{"directive":"swarm"}'))).toEqual(["swarm"])
+        it("treats a bare string as a single value (legacy)", () => {
+            expect(selectVariants({ directive: "swarm" })).toEqual(["swarm"])
         })
-        it("is empty when the field is missing", async () => {
-            expect(await selectVariants(await writeCfg('{"other":"x"}'))).toEqual([])
+        it("is empty when directive is absent", () => {
+            expect(selectVariants({})).toEqual([])
         })
-        it("is empty when malformed", async () => {
-            expect(await selectVariants(await writeCfg("{bad json"))).toEqual([])
+        it("is empty for an empty directive object", () => {
+            expect(selectVariants({ directive: {} })).toEqual([])
         })
-        it("is empty when the field is the wrong type", async () => {
-            expect(await selectVariants(await writeCfg('{"directive":42}'))).toEqual([])
+        it("skips empty slots", () => {
+            expect(selectVariants({ directive: { strategy: "swarm", discretion: "" } })).toEqual(["swarm"])
         })
-        it("yields nothing for an empty object", async () => {
-            expect(await selectVariants(await writeCfg('{"directive":{}}'))).toEqual([])
-        })
-        it("filters blanks/non-strings and dedupes", async () => {
-            expect(
-                await selectVariants(await writeCfg('{"directive":{"a":"swarm","b":"","c":5,"d":"swarm"}}'))
-            ).toEqual(["swarm"])
+        it("dedupes repeated values", () => {
+            expect(selectVariants({ directive: { strategy: "swarm", discretion: "swarm" } })).toEqual(["swarm"])
         })
     })
 
@@ -116,14 +84,21 @@ describe("inject-mode", () => {
     })
 
     context("running the main pipeline (renderBodies + envelope)", () => {
+        // renderBodies reads preemdeck.json from ENV.PREEMDECK_ROOT; point it at the fixture dir.
         let skillsDir = ""
+        let restore: PropertyDescriptor | undefined
         beforeEach(() => {
             skillsDir = join(dir, "skills")
+            restore = Object.getOwnPropertyDescriptor(ENV, "PREEMDECK_ROOT")
+            Object.defineProperty(ENV, "PREEMDECK_ROOT", { configurable: true, get: () => dir })
+        })
+        afterEach(() => {
+            if (restore) Object.defineProperty(ENV, "PREEMDECK_ROOT", restore)
         })
         async function emit(opts: { stdin?: string; event?: string } = {}): Promise<string> {
             const cliEvent = opts.event ?? "UserPromptSubmit"
             let out = ""
-            const bodies = await renderBodies(dir, skillsDir)
+            const bodies = await renderBodies(skillsDir)
             await runInjectionHook({
                 event: cliEvent,
                 stdin: { text: () => Promise.resolve(opts.stdin ?? "{}") },
@@ -137,6 +112,20 @@ describe("inject-mode", () => {
 
         it("is a no-op when there is no config", async () => {
             await mkdir(skillsDir, { recursive: true })
+            expect(await emit()).toBe("{}")
+        })
+
+        it("is a no-op when the config is malformed", async () => {
+            await mkdir(skillsDir, { recursive: true })
+            await writeCfg("{bad json")
+            await writeSkill(skillsDir, "swarm", "swarm body")
+            expect(await emit()).toBe("{}")
+        })
+
+        it("is a no-op when directive is the wrong type", async () => {
+            await mkdir(skillsDir, { recursive: true })
+            await writeCfg('{"directive":42}')
+            await writeSkill(skillsDir, "swarm", "swarm body")
             expect(await emit()).toBe("{}")
         })
 

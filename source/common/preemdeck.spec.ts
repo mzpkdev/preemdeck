@@ -291,16 +291,14 @@ describe("config", () => {
         expect(await Bun.file(file()).json()).toEqual({ directive: { strategy: "auto" } })
     })
 
-    it("mutate persists in-place edits when the recipe returns void", async () => {
+    it("mutate persists edits applied to the returned draft", async () => {
         await fs.writeFile(file(), JSON.stringify({ a: 1 }))
-        await config.mutate((draft) => {
-            Object.assign(draft, { b: 2 })
-        })
+        await config.mutate((draft) => Object.assign(draft, { b: 2 }))
         expect(await Bun.file(file()).json()).toEqual({ a: 1, b: 2 })
     })
 
     it("mutate bootstraps from {} when the file is absent", async () => {
-        await config.mutate(() => ({ seeded: true }))
-        expect(await Bun.file(file()).json()).toEqual({ seeded: true })
+        await config.mutate(() => ({ directive: { strategy: "swarm" } }))
+        expect(await Bun.file(file()).json()).toEqual({ directive: { strategy: "swarm" } })
     })
 })

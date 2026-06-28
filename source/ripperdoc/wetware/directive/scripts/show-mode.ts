@@ -10,10 +10,9 @@
  */
 
 import { existsSync } from "node:fs"
-import { readdir, readFile, stat } from "node:fs/promises"
-import { dirname, join } from "node:path"
-
-const SKILLS_DIR = join(dirname(import.meta.dir), "skills")
+import { readdir, stat } from "node:fs/promises"
+import { join } from "node:path"
+import { ENV, markdown } from "../../../../common/preemdeck"
 
 /** Sorted mode names — skill folders that ship a `directive.md`. */
 export const availableModes = async (skillsDir: string): Promise<string[]> => {
@@ -40,7 +39,7 @@ export const availableModes = async (skillsDir: string): Promise<string[]> => {
  */
 export const main = async (
     argv: string[],
-    skillsDir: string = SKILLS_DIR,
+    skillsDir: string = join(ENV.PLUGIN_ROOT, "skills"),
     write: (s: string) => void = (s) => process.stdout.write(s)
 ): Promise<number> => {
     const modes = await availableModes(skillsDir)
@@ -59,7 +58,7 @@ export const main = async (
         process.stderr.write(`unknown value "${value}"; available: ${listing}\n`)
         return 2
     }
-    write(await readFile(body, "utf8"))
+    write(await markdown.read(body))
     return 0
 }
 

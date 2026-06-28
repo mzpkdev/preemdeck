@@ -13,6 +13,7 @@ import { copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync,
 import { homedir } from "node:os";
 import { dirname, join, relative, resolve, sep } from "node:path";
 import argvex, { ArgvexError } from "argvex";
+import type { Config } from "./source/common/preemdeck";
 import { PIPED, type Reaped, reap } from "./source/common/process";
 
 // Where preemdeck's source lives. Under the decoupled layout boot.sh clones to
@@ -67,7 +68,8 @@ export const DISABLED_PLUGINS: ReadonlySet<string> = new Set(["ghost"]);
 // re-clone can't revert it) and seedConfig never overwrites it. The defaults live
 // here, not in a tracked file.
 export const CONFIG_FILE = "preemdeck.json";
-export const DEFAULT_CONFIG = `${JSON.stringify({ directive: { strategy: "swarm", discretion: "ask" } }, null, 2)}\n`;
+const DEFAULT_CONFIG_DATA: Config = { directive: { strategy: "swarm", discretion: "ask" } };
+export const DEFAULT_CONFIG = `${JSON.stringify(DEFAULT_CONFIG_DATA, null, 2)}\n`;
 
 export const CHECK = "✓";
 export const CROSS = "✗";

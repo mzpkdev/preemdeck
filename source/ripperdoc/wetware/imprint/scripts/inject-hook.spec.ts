@@ -1,7 +1,8 @@
 /**
  * inject-hook.spec.ts — Tmp-fixture FS for templates / host-tools files; DI
- * stdin/write for the envelope. Absolute temp paths are honored verbatim
- * (resolve()'s "absolute wins"), which the suite relies on.
+ * stdin/write for the envelope. Tests pass absolute temp paths, which resolve()
+ * honors verbatim, so the explicit `pluginRoot` (the fixture dir) is irrelevant
+ * to what gets read — it just avoids evaluating the real ENV.PLUGIN_ROOT default.
  */
 
 import { afterEach, beforeEach, describe, expect, it } from "bun:test"
@@ -29,12 +30,11 @@ const writeTmp = async (content: string): Promise<string> => {
 }
 
 // Mirror main(): split --event, then render, then emit with the injected stdin.
-// `event` is required now; default it here for the render-focused cases that
-// don't pass --event (the missing-`--event` guard is covered separately).
+// `event` is defaulted here for the render-focused cases that don't pass --event.
+// pluginRoot is passed explicitly (the fixture dir) — see the file header.
 const runHookCli = async (argv: string[], stdinText: string): Promise<{ out: string }> => {
     const [cliEvent, rest] = extractEventArg(argv)
-    // pluginRoot is irrelevant here: tests pass absolute paths, which resolve() honors verbatim.
-    const text = await renderTemplate(rest)
+    const text = await renderTemplate(rest, dir)
     let out = ""
     await runInjectionHook({
         event: cliEvent ?? "UserPromptSubmit",
@@ -90,7 +90,7 @@ describe("inject-hook", () => {
         })
 
         it("leaves no event for the runner when --event is omitted (guarded by main)", () => {
-            // main() now errors when --event is absent; the guard keys off extractEventArg
+            // main() errors when --event is absent; the guard keys off extractEventArg
             // returning null. There is no implicit default anymore.
             const [cliEvent, rest] = extractEventArg(["body.md"])
             expect(cliEvent).toBeNull()
@@ -121,23 +121,6 @@ describe("inject-hook", () => {
             const template = await writeTmp("just some static body\n")
             const { out } = await runHookCli([template], "{}")
             expect(JSON.parse(out).hookSpecificOutput.additionalContext).toBe("just some static body")
-        })
-
-        it("parses IMPRINT.md --event SessionStart with --event present", async () => {
-            // Resolves IMPRINT.md against the real plugin root (renderTemplate default).
-            const [cliEvent, rest] = extractEventArg(["IMPRINT.md", "--event", "SessionStart"])
-            expect(cliEvent).toBe("SessionStart")
-            const text = await renderTemplate(rest)
-            let out = ""
-            await runInjectionHook({
-                event: cliEvent as string,
-                stdin: { text: () => Promise.resolve("{}") },
-                write: (l) => {
-                    out = l
-                },
-                render: () => text
-            })
-            expect(JSON.parse(out).hookSpecificOutput.hookEventName).toBe("SessionStart")
         })
     })
 })

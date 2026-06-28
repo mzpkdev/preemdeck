@@ -41,9 +41,19 @@ export const ENV = {
     }
 }
 
-export type Config = {}
+/** A directive object: each slot holds the active mode for its axis ("" = neutral). */
+export type Directive = {
+    strategy?: string
+    discretion?: string
+}
 
-export type Recipe<TDraft> = (draft: TDraft) => TDraft | void | Promise<TDraft | void>
+/** The shape of preemdeck.json — gitignored, user-local state. */
+export type Config = {
+    /** Active behavioral directives; a bare string is the legacy single-value form. */
+    directive?: Directive | string
+}
+
+export type Recipe<TDraft> = (draft: TDraft) => TDraft | Promise<TDraft>
 
 export const config = {
     async read(): Promise<Config> {
@@ -52,7 +62,7 @@ export const config = {
     },
     async mutate(recipe: Recipe<Config>): Promise<void> {
         const draft = await this.read()
-        const next = (await recipe(draft)) ?? draft
+        const next = await recipe(draft)
         await Bun.write(path.join(ENV.PREEMDECK_ROOT, "preemdeck.json"), `${JSON.stringify(next, null, 2)}\n`)
     }
 }

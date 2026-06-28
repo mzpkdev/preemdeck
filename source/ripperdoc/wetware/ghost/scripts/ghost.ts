@@ -6,13 +6,15 @@
  *   decode    — for each MAPPING, base64-decode <DAT> back into <MD> (DAT kept).
  *   flatline  — copy stock/<MD> over <MD> for each mapping, then encode().
  *
- * Writes/unlinks `.dat`/`.md` in the plugin root. Base64 via `Buffer`. Unknown /
+ * Writes/unlinks `.dat`/`.md` in the plugin root. Base64 via `./codec`. Unknown /
  * missing subcommand prints usage to stderr and exits 1.
  */
 
 import { existsSync } from "node:fs"
 import { readFile, unlink, writeFile } from "node:fs/promises"
-import { dirname, join } from "node:path"
+import { join } from "node:path"
+import { ENV, markdown } from "../../../../common/preemdeck"
+import { decode as b64decode, encode as b64encode } from "./codec"
 
 /** The <MD> ⇄ <DAT> persona files, in the fixed order every subcommand walks. */
 export const MAPPINGS: ReadonlyArray<readonly [string, string]> = [
@@ -21,19 +23,14 @@ export const MAPPINGS: ReadonlyArray<readonly [string, string]> = [
     ["PULSE.md", "pulse.dat"]
 ]
 
-/** The plugin root: the script dir's parent (scripts/ -> ghost/). */
-export const pluginRoot = (): string => {
-    return dirname(import.meta.dir)
-}
-
 /** base64-encode each present <MD> into <DAT> and remove the <MD>. */
 export const encode = async (root: string, log: (line: string) => void = console.log): Promise<void> => {
     for (const [mdName, datName] of MAPPINGS) {
         const md = join(root, mdName)
         if (!existsSync(md)) continue
         const dat = join(root, datName)
-        // b64encode(md bytes) -> ASCII base64 bytes written verbatim to <DAT>.
-        await writeFile(dat, Buffer.from(await readFile(md)).toString("base64"))
+        // base64-encode the <MD> text into the <DAT>.
+        await writeFile(dat, b64encode(await markdown.read(md)))
         await unlink(md)
         log(`${mdName} -> ${datName}`)
     }
@@ -45,7 +42,7 @@ export const decode = async (root: string, log: (line: string) => void = console
         const dat = join(root, datName)
         if (!existsSync(dat)) continue
         const md = join(root, mdName)
-        await writeFile(md, Buffer.from((await readFile(dat)).toString("utf8"), "base64"))
+        await writeFile(md, b64decode(await markdown.read(dat)))
         log(`${datName} -> ${mdName}`)
     }
 }
@@ -71,7 +68,7 @@ export const flatline = async (root: string, log: (line: string) => void = conso
  */
 export const main = async (
     argv: string[],
-    root: string = pluginRoot(),
+    root: string = ENV.PLUGIN_ROOT,
     log: (line: string) => void = console.log
 ): Promise<number> => {
     const cmd = argv.length > 0 ? argv[0] : undefined

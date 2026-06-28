@@ -18,12 +18,12 @@
 import { existsSync } from "node:fs"
 import { readdir, readFile, rename, stat, writeFile } from "node:fs/promises"
 import { dirname, join } from "node:path"
+import { ENV } from "../../../../common/preemdeck"
 
 const CONFIG_NAME = "preemdeck.json"
 const DIRECTIVE_KEY = "directive"
 
 const SEARCH_START = import.meta.dir
-const SKILLS_DIR = join(dirname(import.meta.dir), "skills")
 const MODES_FILE = join(import.meta.dir, "modes.json")
 
 /** Walk up from `start` (inclusive) toward the root; first preemdeck.json wins. */
@@ -125,7 +125,7 @@ export const main = async (
     opts: { searchStart?: string; skillsDir?: string; modesFile?: string } = {}
 ): Promise<number> => {
     const searchStart = opts.searchStart ?? SEARCH_START
-    const skillsDir = opts.skillsDir ?? SKILLS_DIR
+    const skillsDir = opts.skillsDir ?? join(ENV.PLUGIN_ROOT, "skills")
     const modesFile = opts.modesFile ?? MODES_FILE
 
     const modes = await availableModes(skillsDir)

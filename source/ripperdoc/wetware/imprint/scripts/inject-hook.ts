@@ -8,19 +8,18 @@
  * silent `{}` no-op; a missing host-tools file substitutes empty. `--event <name>`
  * (first only) is the required host event; stdin wins.
  *
- * Path note: args resolve as `PLUGIN_ROOT / arg` with an "absolute arg wins"
- * rule — Node's `resolve()` honors absolute temp paths verbatim. PLUGIN_ROOT =
- * <script-dir>/.. (scripts/ -> imprint/).
+ * Path note: args resolve as `pluginRoot / arg` with an "absolute arg wins"
+ * rule — Node's `resolve()` honors absolute temp paths verbatim. `pluginRoot`
+ * defaults to ENV.PLUGIN_ROOT (the .../ripperdoc/<rack>/<plugin> of the running
+ * hook); tests pass it explicitly.
  */
 
 import { existsSync } from "node:fs"
-import { readFile, stat } from "node:fs/promises"
-import { dirname, resolve } from "node:path"
+import { stat } from "node:fs/promises"
+import { resolve } from "node:path"
 import argvex from "argvex"
 import { runInjectionHook } from "../../../../common/hook-inject"
-
-const PLUGIN_ROOT = dirname(import.meta.dir)
-// (The host event is required; --event <name> supplies it, stdin's hook_event_name overrides it.)
+import { ENV, markdown } from "../../../../common/preemdeck"
 
 /**
  * Pull `--event <name>` out of argv; return [event_or_null, positionals]. Never
@@ -43,25 +42,25 @@ const isFile = async (path: string): Promise<boolean> => {
 /**
  * Build the injected text from argv (the script's tail). Returns the stripped
  * text, or null for any no-op (no template arg, missing/empty template, empty
- * after substitution+strip). `pluginRoot` defaults to the real plugin root.
+ * after substitution+strip). `pluginRoot` defaults to the running hook's plugin root.
  */
-export const renderTemplate = async (argv: string[], pluginRoot: string = PLUGIN_ROOT): Promise<string | null> => {
+export const renderTemplate = async (argv: string[], pluginRoot: string = ENV.PLUGIN_ROOT): Promise<string | null> => {
     const [templateRel, ...rest] = argv
     if (!templateRel) return null
 
     const promptPath = resolve(pluginRoot, templateRel)
     if (!(await isFile(promptPath))) return null
-    const template = await readFile(promptPath, "utf8")
+    const template = await markdown.read(promptPath)
 
     let hostTools = ""
     if (rest.length > 0) {
         const hostPath = resolve(pluginRoot, rest[0] as string)
         if (await isFile(hostPath)) {
-            hostTools = (await readFile(hostPath, "utf8")).trim()
+            hostTools = (await markdown.read(hostPath)).trim()
         }
     }
 
-    const text = template.replaceAll("{{host_tools}}", hostTools).trim()
+    const text = markdown.interpolate(template, { host_tools: hostTools }).trim()
     return text || null
 }
 

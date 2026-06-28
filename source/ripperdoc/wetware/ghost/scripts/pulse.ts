@@ -7,43 +7,17 @@
  * silent `{}` no-op. Default event UserPromptSubmit; stdin wins.
  */
 
-import { existsSync } from "node:fs"
-import { readFile } from "node:fs/promises"
-import { dirname, join } from "node:path"
 import { runInjectionHook } from "../../../../common/hook-inject"
+import { ENV, markdown } from "../../../../common/preemdeck"
+import { readSource } from "./codec"
 
 const DEFAULT_EVENT = "UserPromptSubmit"
 
-/** The plugin root: the script dir's parent (scripts/ -> ghost/). */
-export const pluginRoot = (): string => {
-    return dirname(import.meta.dir)
-}
-
-/**
- * Read the pulse source: base64 `.dat` if present (decoded), else the plain
- * `.md`, else null.
- */
-export const readSource = async (root: string, datName: string, mdName: string): Promise<string | null> => {
-    const dat = join(root, datName)
-    if (existsSync(dat)) {
-        return Buffer.from((await readFile(dat)).toString("utf8"), "base64").toString("utf8")
-    }
-    const md = join(root, mdName)
-    if (existsSync(md)) {
-        return await readFile(md, "utf8")
-    }
-    return null
-}
-
 if (import.meta.main) {
-    const root = pluginRoot()
-    const content = await readSource(root, "pulse.dat", "PULSE.md")
+    const content = await readSource(ENV.PLUGIN_ROOT, "pulse.dat", "PULSE.md")
     await runInjectionHook({
         event: DEFAULT_EVENT,
-        render: () => {
-            if (!content) return null
-            return content.trim()
-        }
+        render: () => markdown.join(content ?? "") || null
     })
     process.exit(0)
 }

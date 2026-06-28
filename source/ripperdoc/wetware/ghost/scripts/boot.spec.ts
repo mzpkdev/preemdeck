@@ -1,6 +1,6 @@
 /**
- * boot.spec.ts — Tmp-fixture FS for readSource/combinedPersona;
- * DI stdin/write for the envelope.
+ * boot.spec.ts — combinedPersona over a tmp-fixture FS; DI stdin/write for the
+ * envelope. (readSource lives in codec.spec.ts now.)
  */
 
 import { afterEach, beforeEach, describe, expect, it } from "bun:test"
@@ -8,7 +8,7 @@ import { mkdtemp, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { runInjectionHook } from "../../../../common/hook-inject"
-import { combinedPersona, readSource } from "./boot"
+import { combinedPersona } from "./boot"
 
 const context = describe
 
@@ -20,31 +20,7 @@ afterEach(async () => {
     await rm(dir, { recursive: true, force: true })
 })
 
-const b64 = (s: string) => Buffer.from(s, "utf8").toString("base64")
-
 describe("boot", () => {
-    context("reading the persona source", () => {
-        it("returns null when both missing", async () => {
-            expect(await readSource(dir, "engram.dat", "ENGRAM.md")).toBeNull()
-        })
-
-        it("reads the .dat (base64) over the .md", async () => {
-            await writeFile(join(dir, "engram.dat"), b64("hello from dat"))
-            await writeFile(join(dir, "ENGRAM.md"), "hello from md")
-            expect(await readSource(dir, "engram.dat", "ENGRAM.md")).toBe("hello from dat")
-        })
-
-        it("reads the .md when the .dat is missing", async () => {
-            await writeFile(join(dir, "ENGRAM.md"), "engram content")
-            expect(await readSource(dir, "engram.dat", "ENGRAM.md")).toBe("engram content")
-        })
-
-        it("decodes base64 .dat content", async () => {
-            await writeFile(join(dir, "engram.dat"), b64("persona data here"))
-            expect(await readSource(dir, "engram.dat", "ENGRAM.md")).toBe("persona data here")
-        })
-    })
-
     context("combining the persona + emitting the envelope", () => {
         // Helper: run the same render/emit pipeline main() uses, with injected stdin.
         async function emit(stdinText: string): Promise<string> {
