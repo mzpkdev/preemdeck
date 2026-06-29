@@ -29,6 +29,6 @@ to `<file>.bak` first. Restart your CLI afterward to load the plugins.
 ## Re-install / Uninstall
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/mzpkdev/preemdeck/main/boot.sh | bash    # re-run to refresh ~/.preemdeck from your channel + re-install
+curl -fsSL https://raw.githubusercontent.com/mzpkdev/preemdeck/main/boot.sh | bash    # re-bootstrap + re-install; PREEMDECK_CHANNEL picks the stream (default stable)
 ~/.preemdeck/preemdeck-runtime ~/.preemdeck/uninstall.ts [harness] # restore backups, unregister plugins; --dry-run to preview, --purge to print the rm -rf
 ```

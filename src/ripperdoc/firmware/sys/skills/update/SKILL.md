@@ -25,7 +25,8 @@ updated:
 "$HOME/.preemdeck/preemdeck-runtime" "$HOME/.preemdeck/update.ts" <harness>
 ```
 
-Channel follows `PREEMDECK_CHANNEL` (default `stable`); to track `main`, the operator runs with `PREEMDECK_CHANNEL=edge`
-in the environment.
+Channel is sticky: `update` follows the channel this install was set up with (recorded in `preemdeck.json`), defaulting
+to `stable` only on a fresh install. To switch streams, the operator runs once with `PREEMDECK_CHANNEL=edge` (or
+`=stable`) in the environment — install.ts records the new channel, so later `/sys:update` runs stay on it.
 
 When it finishes, relay the result and remind the operator to **restart the CLI** so the refreshed rig loads.

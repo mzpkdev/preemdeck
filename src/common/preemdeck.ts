@@ -47,10 +47,15 @@ export type Directive = {
     discretion?: string
 }
 
+/** The release channel an install tracks: stable (released main) or edge (main HEAD). */
+export type Channel = "stable" | "edge"
+
 /** The shape of preemdeck.json — gitignored, user-local state. */
 export type Config = {
     /** Active behavioral directives; a bare string is the legacy single-value form. */
     directive?: Directive | string
+    /** Channel this install was set up with; install.ts persists it, update.ts forwards it to boot.sh. */
+    channel?: Channel
 }
 
 export type Recipe<TDraft> = (draft: TDraft) => TDraft | Promise<TDraft>

@@ -18,7 +18,7 @@
 import { copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join, relative, resolve, sep } from "node:path";
-import type { Config } from "./src/common/preemdeck";
+import type { Channel, Config } from "./src/common/preemdeck";
 import { PIPED, type Reaped, reap } from "./src/common/process";
 
 // Where preemdeck's source lives. Under the decoupled layout boot.sh clones to
@@ -691,6 +691,35 @@ export function seedConfig(repoRoot: string, dryRun: boolean): void {
 }
 
 /**
+ * Persist the resolved release channel into preemdeck.json (read-modify-write, so the
+ * user's `directive` survives). boot.sh fetched the channel named by PREEMDECK_CHANNEL
+ * (its own default is stable), so install.ts mirrors that env here; update.ts reads it
+ * back and forwards it, keeping `update` on the channel you installed with.
+ *
+ * Unlike seedConfig this writes on EVERY install — a channel SWITCH (edge→stable on a
+ * later run) must overwrite the recorded value, which seed-if-absent never would.
+ */
+export function recordChannel(repoRoot: string, dryRun: boolean): void {
+  const channel: Channel = process.env.PREEMDECK_CHANNEL === "edge" ? "edge" : "stable";
+  if (dryRun) {
+    sub(`${DIM}would record channel ${channel}${RESET}`);
+    return;
+  }
+  const dst = join(repoRoot, CONFIG_FILE);
+  let data: Config = {};
+  if (existsSync(dst)) {
+    try {
+      data = JSON.parse(readFileSync(dst, "utf8")) as Config;
+    } catch {
+      data = {}; // unparseable — seedConfig owns directive recovery; we just (re)set channel
+    }
+  }
+  data.channel = channel;
+  writeFileSync(dst, `${JSON.stringify(data, null, 2)}\n`);
+  sub(`channel ${DIM}${channel}${RESET}`);
+}
+
+/**
  * Install preemdeck's runtime deps (hono, zod, cmdore, …) into node_modules so deployed
  * plugin code can execute from ~/.preemdeck by absolute path. Runs `<bun> install
  * --production` on the SAME Bun executing install.ts (process.execPath — the vendored
@@ -812,6 +841,7 @@ export async function main(): Promise<number> {
     sub(`${DIM}dry run — no changes will be written${RESET}`);
   }
   seedConfig(REPO_ROOT, args.dryRun);
+  recordChannel(REPO_ROOT, args.dryRun);
   console.log();
 
   section("wiring runtime deps");

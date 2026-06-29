@@ -17,7 +17,8 @@ command -v git >/dev/null     || { echo "      ⊘ git not found"; exit 1; }
 
 # Channel -> branch. PREEMDECK_CHANNEL picks the stream (default stable = released
 # main; edge = main HEAD). stable's tip is a tag so install.ts stamps vX.Y.Z; edge
-# stamps the short SHA via git describe --always.
+# stamps the short SHA via git describe --always. install.ts persists the resolved
+# channel into preemdeck.json so `update` (update.ts) can forward it back here.
 CHANNEL="${PREEMDECK_CHANNEL:-stable}"
 case "$CHANNEL" in
   stable) TARGET_BRANCH="stable" ;;

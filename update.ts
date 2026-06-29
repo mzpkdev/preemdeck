@@ -12,9 +12,11 @@
  * This wrapper just makes that one user-facing action ergonomic + reports what moved:
  *   1. verify ~/.preemdeck is a git checkout (else preemdeck wasn't installed via boot.sh),
  *   2. record the current `git describe`,
- *   3. STREAM `curl -fsSL <boot.sh> | bash -s -- <args>` (the documented update flow;
- *      channel is selected by boot.sh itself via PREEMDECK_CHANNEL, default stable),
- *   4. report old → new version + the restart reminder.
+ *   3. read the channel this install tracks from preemdeck.json and forward it as
+ *      PREEMDECK_CHANNEL, so update re-fetches the SAME stream instead of boot.sh's
+ *      stable default (an explicit PREEMDECK_CHANNEL in the environment still wins),
+ *   4. STREAM `curl -fsSL <boot.sh> | bash -s -- <args>` (the documented update flow),
+ *   5. report old → new version + the restart reminder.
  *
  * Why re-fetch boot.sh over the network instead of running the local copy: boot.sh
  * `git reset --hard`s ~/.preemdeck mid-run, and modifying a shell script while bash is
@@ -27,18 +29,19 @@
  * process.ts `reap`; the streaming boot child inherits stdio and is awaited directly.
  */
 
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
-import { CHECK, CROSS, HOSTS } from "./install";
+import { CHECK, CONFIG_FILE, CROSS, HOSTS } from "./install";
 import { PIPED, reap } from "./src/common/process";
 
 // update.ts lives beside install.ts/uninstall.ts (~/.preemdeck when deployed), so this
 // resolves to the same REPO_ROOT — the git checkout boot.sh fetches into.
 export const REPO_ROOT = import.meta.dir;
 
-// The canonical bootstrap entrypoint: always main's boot.sh. boot.sh resolves the
-// channel itself (PREEMDECK_CHANNEL, default stable) and re-installs every detected
-// harness — this mirrors the documented `curl … boot.sh | bash` update command.
+// The canonical bootstrap entrypoint: always main's boot.sh. boot.sh maps the channel
+// (PREEMDECK_CHANNEL, default stable) to a branch and re-installs every detected harness.
+// update forwards the installed channel — read from preemdeck.json (main()) — via that
+// env var, mirroring the documented `curl … boot.sh | bash` command without the stable snap.
 export const BOOT_URL = "https://raw.githubusercontent.com/mzpkdev/preemdeck/main/boot.sh";
 
 export interface UpdateArgs {
@@ -89,6 +92,20 @@ export async function describeVersion(repoRoot: string): Promise<string> {
 }
 
 /**
+ * The channel this install tracks, read from preemdeck.json (install.ts persists it).
+ * "stable"/"edge", or undefined when unset (pre-channel installs) or unreadable — the
+ * caller then leaves PREEMDECK_CHANNEL alone so boot.sh applies its own stable default.
+ */
+export function readChannel(repoRoot: string): string | undefined {
+  try {
+    const data = JSON.parse(readFileSync(join(repoRoot, CONFIG_FILE), "utf8")) as { channel?: unknown };
+    return data.channel === "edge" || data.channel === "stable" ? data.channel : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/**
  * Build the `bash -c` argv that streams the canonical boot.sh, forwarding `forward`.
  *
  * `set -o pipefail` makes a curl failure (offline, 404) fail the pipe instead of
@@ -118,6 +135,11 @@ export async function main(argv: string[] = Bun.argv.slice(2), repoRoot: string 
   console.log("  pulling latest + re-slotting via boot.sh…");
   console.log();
 
+  // Forward the channel this install tracks (preemdeck.json) so boot.sh re-fetches the
+  // SAME stream instead of its stable default. An explicit PREEMDECK_CHANNEL still wins —
+  // that's how you switch channels; with neither set, boot.sh falls back to stable.
+  const channel = process.env.PREEMDECK_CHANNEL || readChannel(repoRoot);
+
   // Stream boot.sh live (inherit stdio) so the operator sees install.ts's banner/phases
   // as they happen. We're already in memory, so boot.sh's reset --hard of ~/.preemdeck
   // can't corrupt this running script (see the file docblock).
@@ -125,6 +147,7 @@ export async function main(argv: string[] = Bun.argv.slice(2), repoRoot: string 
     stdout: "inherit",
     stderr: "inherit",
     stdin: "inherit",
+    ...(channel ? { env: { ...process.env, PREEMDECK_CHANNEL: channel } } : {}),
   });
   await child.exited;
 
