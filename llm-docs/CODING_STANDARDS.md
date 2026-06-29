@@ -1,7 +1,7 @@
 # TypeScript Coding Standards
 
-How we write TypeScript here. Skim freely — every section stands alone. Target: the repo's source (`source/common/`,
-`devscripts/`, `source/ripperdoc/`), which runs on a **pinned Bun** as native ESM.
+How we write TypeScript here. Skim freely — every section stands alone. Target: the repo's source (`src/common/`,
+`devscripts/`, `src/ripperdoc/`), which runs on a **pinned Bun** as native ESM.
 
 ---
 
@@ -64,14 +64,14 @@ ESM, native, no bundler step. A few hard rules:
 
 ```ts
 // 1. Relative imports are extensionless — Bun + bundler resolution add `.ts`.
-import { runCmd } from "../source/common/process";
+import { runCmd } from "../src/common/process";
 
 // 2. Node stdlib ALWAYS uses the node: prefix.
 import { parseArgs } from "node:util";
 import { writeFile, rename } from "node:fs/promises";
 
 // 3. Type-only imports say `import type` (verbatimModuleSyntax requires it).
-import type { Reaped } from "../source/common/process";
+import type { Reaped } from "../src/common/process";
 ```
 
 Group imports by origin, blank-line-separated: **stdlib (`node:`/`bun`) → external deps → local (`./`, `../`)**.

@@ -32,7 +32,7 @@ const fakeChild = (stdout = "", exitCode = 0, stderr = "") =>
     }) as unknown as Bun.Subprocess
 
 // unregister/runCli shell out through install.runCli -> Bun.spawn; spy on Bun.spawn
-// (no mock.module on the shared ./source/common/process.ts — it leaks across files) and
+// (no mock.module on the shared ./src/common/process.ts — it leaks across files) and
 // restore it in afterEach. The default child exits 0.
 let spawnSpy: ReturnType<typeof spyOn<typeof Bun, "spawn">>
 const spawnCalls = (): string[][] => spawnSpy.mock.calls.map((c) => c[0] as string[])
@@ -105,7 +105,7 @@ describe("uninstall", () => {
             writeFileSync(dst, "overlay-content")
             writeFileSync(bak, "user-original")
             const records: OverlayRecord[] = [
-                { dst, src: "source/overwrite/claude/settings.json", backup: bak, action: "overwrite" }
+                { dst, src: "src/overwrite/claude/settings.json", backup: bak, action: "overwrite" }
             ]
             const logSpy = silenceLog()
             try {
@@ -121,7 +121,7 @@ describe("uninstall", () => {
             const dst = join(dir, "fixer.md")
             writeFileSync(dst, "overlay-created")
             const records: OverlayRecord[] = [
-                { dst, src: "source/overwrite/claude/fixer.md", backup: null, action: "create" }
+                { dst, src: "src/overwrite/claude/fixer.md", backup: null, action: "create" }
             ]
             const logSpy = silenceLog()
             try {
@@ -135,7 +135,7 @@ describe("uninstall", () => {
         it("tolerates an already-gone file", () => {
             const dst = join(dir, "gone.md")
             const records: OverlayRecord[] = [
-                { dst, src: "source/overwrite/claude/gone.md", backup: null, action: "create" }
+                { dst, src: "src/overwrite/claude/gone.md", backup: null, action: "create" }
             ]
             const logSpy = silenceLog()
             try {
@@ -149,7 +149,7 @@ describe("uninstall", () => {
             const dst = join(dir, "fixer.md")
             writeFileSync(dst, "overlay-created")
             const records: OverlayRecord[] = [
-                { dst, src: "source/overwrite/claude/fixer.md", backup: null, action: "create" }
+                { dst, src: "src/overwrite/claude/fixer.md", backup: null, action: "create" }
             ]
             const logSpy = silenceLog()
             try {
@@ -166,8 +166,8 @@ describe("uninstall", () => {
             writeFileSync(a, "a")
             writeFileSync(b, "b")
             const records: OverlayRecord[] = [
-                { dst: a, src: "source/overwrite/claude/a.md", backup: null, action: "create" },
-                { dst: b, src: "source/overwrite/claude/b.md", backup: null, action: "create" }
+                { dst: a, src: "src/overwrite/claude/a.md", backup: null, action: "create" },
+                { dst: b, src: "src/overwrite/claude/b.md", backup: null, action: "create" }
             ]
             const lines: string[] = []
             const logSpy = spyOn(console, "log").mockImplementation(((line?: unknown) => {
@@ -307,7 +307,7 @@ describe("uninstall", () => {
                 harnesses: {
                     claude: {
                         overlay: [
-                            { dst, src: "source/overwrite/claude/settings.json", backup: null, action: "create" }
+                            { dst, src: "src/overwrite/claude/settings.json", backup: null, action: "create" }
                         ],
                         marketplaces: [],
                         plugins: []

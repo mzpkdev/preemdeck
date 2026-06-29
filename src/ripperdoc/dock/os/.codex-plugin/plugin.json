@@ -1,0 +1,26 @@
+{
+  "name": "os",
+  "description": "Cross-platform system sound and desktop notifications; dings on turn end",
+  "version": "0.0.0",
+  "author": {
+    "name": "preemdeck"
+  },
+  "keywords": [
+    "dock",
+    "os"
+  ],
+  "hooks": {
+    "Stop": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "$HOME/.preemdeck/preemdeck-runtime \"$HOME/.preemdeck/src/ripperdoc/dock/os/toolbox/os-ding.ts\"",
+            "timeout": 5
+          }
+        ]
+      }
+    ]
+  }
+}

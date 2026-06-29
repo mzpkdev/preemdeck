@@ -1,4 +1,0 @@
-description = "Show the swarm strategy directive — prints skills/swarm/directive.md."
-prompt = """
-Run the bundled reader — `"$HOME/.preemdeck/preemdeck-runtime" "$HOME/.preemdeck/source/ripperdoc/wetware/directive/scripts/show-mode.ts" swarm` — and print its output verbatim. This only displays the directive — it writes nothing. To set a directive, use /directive:default.
-"""

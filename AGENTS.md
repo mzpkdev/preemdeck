@@ -32,7 +32,7 @@ Full-repo format pass: `bun run format`.
 
 preemdeck's source lives in its own dir, `~/.preemdeck` — it does **not** squat `~/.claude` / `~/.codex` / `~/.gemini`.
 The installer registers marketplaces/plugins by absolute path back into `~/.preemdeck` and **copies** the per-harness
-overlay (`source/overwrite/<harness>/` — settings + the `fixer` agent) into the host config dir, backing up any
+overlay (`src/overwrite/<harness>/` — settings + the `fixer` agent) into the host config dir, backing up any
 clobbered file once to `<file>.bak`. So editing this repo does **not** update a running harness: overlay edits need a
 re-install to copy out again, and any edit only takes effect after the host CLI restarts.
 

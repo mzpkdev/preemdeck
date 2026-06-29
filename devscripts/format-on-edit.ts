@@ -3,7 +3,7 @@
  * devscripts/format-on-edit.ts — format the file an agent just edited.
  *
  * SIDE-EFFECT PostToolUse / AfterTool hook (NOT a context injector — it does not
- * use source/common/hook's envelope). Wired into `.claude/settings.json`,
+ * use src/common/hook's envelope). Wired into `.claude/settings.json`,
  * `.codex/config.toml`, and `.gemini/settings.json`. ALWAYS exits 0 — a
  * formatter failure warns on stderr but never blocks the agent's edit.
  *
@@ -30,7 +30,7 @@ import { existsSync } from "node:fs"
 import { stat } from "node:fs/promises"
 import { dirname, relative, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
-import { PIPED, reap } from "../source/common/process"
+import { PIPED, reap } from "../src/common/process"
 
 // Two distinct roots:
 //   CONTAINMENT_ROOT — the file-safety boundary. An edited file must live under

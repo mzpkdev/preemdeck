@@ -7,9 +7,9 @@
     },
     "files": {
         "includes": [
-            "source/common/**/*.ts",
+            "src/common/**/*.ts",
             "devscripts/**/*.ts",
-            "source/ripperdoc/**/*.ts",
+            "src/ripperdoc/**/*.ts",
             "*.json",
             "!**/node_modules",
             "!**/.runtime",

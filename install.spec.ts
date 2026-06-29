@@ -79,11 +79,11 @@ afterEach(() => {
     spawnSpy.mockRestore() // never leak the spy past this file
 })
 
-// Seed a fixture source/ripperdoc/ under repoRoot with BOTH allowlisted primitives and a
+// Seed a fixture src/ripperdoc/ under repoRoot with BOTH allowlisted primitives and a
 // representative spread of excluded files (code, docs, data, nested toolbox/scripts).
 function seedRipperdoc(repoRoot: string): void {
     const w = (rel: string, body: string) => {
-        const p = join(repoRoot, "source", "ripperdoc", rel)
+        const p = join(repoRoot, "src", "ripperdoc", rel)
         mkdirSync(join(p, ".."), { recursive: true })
         writeFileSync(p, body)
     }
@@ -128,7 +128,7 @@ function walkRel(root: string): string[] {
 }
 
 function seedOverlay(repoRoot: string, harness = "claude"): void {
-    const src = join(repoRoot, "source", "overwrite", harness)
+    const src = join(repoRoot, "src", "overwrite", harness)
     mkdirSync(join(src, "agents"), { recursive: true })
     writeFileSync(join(src, "settings.json"), '{"_": "overlay"}')
     writeFileSync(join(src, "agents", "fixer.md"), "# fixer overlay")
@@ -353,12 +353,12 @@ describe("install", () => {
             expect(existsSync(stale)).toBe(true)
 
             // drop the source primitive, rebuild
-            rmSync(join(dir, "source", "ripperdoc", "dock", "idea", "skills"), { recursive: true, force: true })
+            rmSync(join(dir, "src", "ripperdoc", "dock", "idea", "skills"), { recursive: true, force: true })
             buildMirror(dir, false)
             expect(existsSync(stale)).toBe(false)
         })
 
-        it("missing source/ripperdoc/ returns empty", () => {
+        it("missing src/ripperdoc/ returns empty", () => {
             expect(buildMirror(dir, false)).toEqual([])
         })
 
@@ -619,7 +619,7 @@ describe("install", () => {
             writeManifest(repoRoot, "claude", records1, [], [], false)
             expect(readFileSync(join(config, "settings.json.bak"), "utf8")).toBe('{"_": "user-original"}')
 
-            writeFileSync(join(repoRoot, "source", "overwrite", "claude", "settings.json"), '{"_": "overlay-v2"}')
+            writeFileSync(join(repoRoot, "src", "overwrite", "claude", "settings.json"), '{"_": "overlay-v2"}')
             const [, , records2] = copyOverlay("claude", repoRoot, config, false)
 
             expect(readFileSync(join(config, "settings.json"), "utf8")).toBe('{"_": "overlay-v2"}')
@@ -678,7 +678,7 @@ describe("install", () => {
             const overlay = [
                 {
                     dst: "/c/settings.json",
-                    src: "source/overwrite/claude/settings.json",
+                    src: "src/overwrite/claude/settings.json",
                     backup: null,
                     action: "create" as const
                 }

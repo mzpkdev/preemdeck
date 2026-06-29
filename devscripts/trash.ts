@@ -14,7 +14,7 @@
  */
 import { existsSync, readFileSync } from "node:fs"
 import { dirname, join } from "node:path"
-import { PIPED, reap } from "../source/common/process"
+import { PIPED, reap } from "../src/common/process"
 
 // devscripts/ sits at the repo root, so the root is this file's parent directory.
 export const REPO_ROOT = dirname(import.meta.dir)
