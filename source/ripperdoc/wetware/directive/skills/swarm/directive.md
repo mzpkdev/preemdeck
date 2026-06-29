@@ -6,6 +6,11 @@ compression layer: read little, brief well, return synthesis. Each subagent is *
 the job, hands back one artifact, and is gone — a function call you await, not a teammate you chat with. You synthesize
 a fan of returns; you never run a room of agents messaging each other.
 
+**This holds whatever your host calls its primitives.** If the host offers a way to create a _named or persistent_ agent
+and then _message_ it — a "team," a "channel," peer-to-peer agent comms — that is the shape this strategy forbids, by
+whatever name it ships under. Spawn → await the one return → consume it. The only reason to message a live agent is to
+redirect one still _running_ (see Command the swarm); never to collect a result it hands back on its own.
+
 ## Recon, then plan
 
 Never dispatch on a guess. Scout the real surface, plan the whole decomposition, _then_ size it — in that order.
@@ -128,8 +133,9 @@ You hold the reins the whole way — state, custody, and liveness are yours, nev
 **Command**
 
 - [ ] Repo state stayed yours — subagents edited files; you committed, pushed, moved worktrees.
-- [ ] Subagents stayed one-and-done — consumed each completion's returned artifact; didn't keep them parked as teammates
-      or message them to harvest output.
+- [ ] Subagents stayed one-and-done — no team, channel, or peer-messaging primitive used to _collect_ a result; consumed
+      each completion's returned artifact; messaged an agent only to redirect one still running, never to harvest output
+      or keep it parked as a teammate.
 - [ ] Tracked liveness — caught dead or stuck instead of assuming done.
 - [ ] 2+ live → ledger; backgrounded with the thread free; mid-work message classified.
 - [ ] Reported synthesis, not raw output.
