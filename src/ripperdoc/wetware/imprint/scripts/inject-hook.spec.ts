@@ -10,7 +10,7 @@ import { mkdtemp, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { runInjectionHook } from "../../../../common/hook-inject"
-import { extractEventArg, renderTemplate } from "./inject-hook"
+import { extractArgs, renderTemplate } from "./inject-hook"
 
 const context = describe
 
@@ -33,11 +33,11 @@ const writeTmp = async (content: string): Promise<string> => {
 // `event` is defaulted here for the render-focused cases that don't pass --event.
 // pluginRoot is passed explicitly (the fixture dir) — see the file header.
 const runHookCli = async (argv: string[], stdinText: string): Promise<{ out: string }> => {
-    const [cliEvent, rest] = extractEventArg(argv)
-    const text = await renderTemplate(rest, dir)
+    const { event, positionals } = extractArgs(argv)
+    const text = await renderTemplate(positionals, dir)
     let out = ""
     await runInjectionHook({
-        event: cliEvent ?? "UserPromptSubmit",
+        event: event ?? "UserPromptSubmit",
         stdin: { text: () => Promise.resolve(stdinText) },
         write: (l) => {
             out = l
@@ -48,19 +48,35 @@ const runHookCli = async (argv: string[], stdinText: string): Promise<{ out: str
 }
 
 describe("inject-hook", () => {
-    context("extracting the --event arg", () => {
+    context("extracting --event and --every", () => {
         it("pulls --event and returns operands regardless of position", () => {
-            expect(extractEventArg(["IMPRINT.md", "--event", "BeforeAgent", "hosts/h.md"])).toEqual([
-                "BeforeAgent",
-                ["IMPRINT.md", "hosts/h.md"]
-            ])
+            expect(extractArgs(["IMPRINT.md", "--event", "BeforeAgent", "hosts/h.md"])).toEqual({
+                event: "BeforeAgent",
+                every: null,
+                positionals: ["IMPRINT.md", "hosts/h.md"]
+            })
         })
         it("honors only the first --event; later values fall through to operands", () => {
             // argvex is first-wins for a repeated flag; the surplus value "B" lands in operands.
-            expect(extractEventArg(["--event", "A", "--event", "B"])).toEqual(["A", ["B"]])
+            expect(extractArgs(["--event", "A", "--event", "B"])).toEqual({
+                event: "A",
+                every: null,
+                positionals: ["B"]
+            })
         })
         it("yields null for a dangling --event", () => {
-            expect(extractEventArg(["--event"])).toEqual([null, []])
+            expect(extractArgs(["--event"])).toEqual({ event: null, every: null, positionals: [] })
+        })
+        it("parses --every and keeps it out of the operands", () => {
+            expect(extractArgs(["DIGEST.md", "--event", "UserPromptSubmit", "--every", "1"])).toEqual({
+                event: "UserPromptSubmit",
+                every: 1,
+                positionals: ["DIGEST.md"]
+            })
+        })
+        it("treats a non-positive or non-numeric --every as absent (caller defaults)", () => {
+            expect(extractArgs(["t.md", "--event", "X", "--every", "0"]).every).toBeNull()
+            expect(extractArgs(["t.md", "--event", "X", "--every", "nope"]).every).toBeNull()
         })
     })
 
@@ -90,11 +106,11 @@ describe("inject-hook", () => {
         })
 
         it("leaves no event for the runner when --event is omitted (guarded by main)", () => {
-            // main() errors when --event is absent; the guard keys off extractEventArg
-            // returning null. There is no implicit default anymore.
-            const [cliEvent, rest] = extractEventArg(["body.md"])
-            expect(cliEvent).toBeNull()
-            expect(rest).toEqual(["body.md"])
+            // main() errors when --event is absent; the guard keys off extractArgs
+            // returning a null event. There is no implicit default anymore.
+            const { event, positionals } = extractArgs(["body.md"])
+            expect(event).toBeNull()
+            expect(positionals).toEqual(["body.md"])
         })
 
         it("is a {} no-op for a missing template", async () => {

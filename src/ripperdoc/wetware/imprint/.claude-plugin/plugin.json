@@ -21,6 +21,11 @@
             "type": "command",
             "command": "$HOME/.preemdeck/preemdeck-runtime \"$HOME/.preemdeck/src/ripperdoc/wetware/imprint/scripts/inject-hook.ts\" IMPRINT.md hosts/host_claude.md --event UserPromptSubmit",
             "timeout": 5
+          },
+          {
+            "type": "command",
+            "command": "$HOME/.preemdeck/preemdeck-runtime \"$HOME/.preemdeck/src/ripperdoc/wetware/imprint/scripts/inject-hook.ts\" DIGEST.md --event UserPromptSubmit --every 1",
+            "timeout": 5
           }
         ]
       }

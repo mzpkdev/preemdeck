@@ -22,20 +22,33 @@ import { runInjectionHook } from "../../../../common/hook-inject"
 import { throttle } from "../../../../common/hooks"
 import { ENV, markdown } from "../../../../common/preemdeck"
 
-/** Inject on a session's 1st prompt, then every Nth. */
-const EVERY = 5
+/** Default cadence: inject on a session's 1st prompt, then every Nth. Overridable per hook via `--every`. */
+const DEFAULT_EVERY = 5
 
 /**
- * Pull `--event <name>` out of argv; return [event_or_null, positionals]. Never
- * throws. Only the first `--event` is honored; the positionals are every operand
- * regardless of where they sit relative to the flag.
+ * Pull `--event <name>` and optional `--every <n>` out of argv; return them with the
+ * leftover positionals. Never throws. Only the first occurrence of each flag is honored;
+ * surplus values fall through to positionals. `every` is null when absent or not a
+ * positive integer — the caller supplies the default.
  */
-export const extractEventArg = (argv: string[]): [string | null, string[]] => {
+export const extractArgs = (argv: string[]): { event: string | null; every: number | null; positionals: string[] } => {
     try {
-        const args = argvex({ argv, schema: [{ name: "event", arity: 1 }] })
-        return [args.event?.[0] ?? null, args._]
+        const args = argvex({
+            argv,
+            schema: [
+                { name: "event", arity: 1 },
+                { name: "every", arity: 1 }
+            ]
+        })
+        const everyRaw = args.every?.[0]
+        const every = everyRaw === undefined ? Number.NaN : Number.parseInt(everyRaw, 10)
+        return {
+            event: args.event?.[0] ?? null,
+            every: Number.isInteger(every) && every > 0 ? every : null,
+            positionals: args._
+        }
     } catch {
-        return [null, []]
+        return { event: null, every: null, positionals: [] }
     }
 }
 
@@ -69,15 +82,16 @@ export const renderTemplate = async (argv: string[], pluginRoot: string = ENV.PL
 }
 
 if (import.meta.main) {
-    const [cliEvent, argv] = extractEventArg(Bun.argv.slice(2))
-    if (cliEvent === null || cliEvent.length === 0) {
-        process.stderr.write("usage: inject-hook --event <name> <template> [host-tools]\n")
+    const { event, every, positionals } = extractArgs(Bun.argv.slice(2))
+    if (event === null || event.length === 0) {
+        process.stderr.write("usage: inject-hook --event <name> [--every <n>] <template> [host-tools]\n")
         process.exit(2)
     }
-    const text = await renderTemplate(argv)
+    const text = await renderTemplate(positionals)
+    const cadence = every ?? DEFAULT_EVERY
     await runInjectionHook({
-        event: cliEvent,
-        render: (payload) => (text && throttle(payload, EVERY) ? text : null)
+        event,
+        render: (payload) => (text && throttle(payload, cadence) ? text : null)
     })
     process.exit(0)
 }
