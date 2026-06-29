@@ -1,0 +1,5 @@
+{
+  "name": "sys",
+  "version": "0.0.0",
+  "description": "Self-update — pull the latest preemdeck and re-slot every detected harness."
+}

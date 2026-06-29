@@ -5,5 +5,13 @@
     "name": "preemdeck",
     "email": "preemdeck"
   },
-  "plugins": []
+  "plugins": [
+    {
+      "name": "sys",
+      "description": "Self-update — pull the latest preemdeck and re-slot every detected harness.",
+      "source": "./sys",
+      "version": "0.0.0",
+      "category": "firmware"
+    }
+  ]
 }
