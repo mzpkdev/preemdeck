@@ -1,0 +1,29 @@
+{
+  "name": "caveman",
+  "description": "Ultra-compressed output mode. Talk like smart caveman — cut ~75% of tokens, keep full technical accuracy.",
+  "version": "0.0.0",
+  "author": {
+    "name": "preemdeck"
+  },
+  "keywords": [
+    "wetware",
+    "prompt",
+    "behavior",
+    "compression",
+    "caveman"
+  ],
+  "hooks": {
+    "UserPromptSubmit": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "$HOME/.preemdeck/preemdeck-runtime \"$HOME/.preemdeck/src/ripperdoc/wetware/caveman/scripts/inject-hook.ts\" CAVEMAN.md --event UserPromptSubmit --every 1",
+            "timeout": 5
+          }
+        ]
+      }
+    ]
+  }
+}
