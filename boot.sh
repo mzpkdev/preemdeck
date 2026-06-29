@@ -72,7 +72,8 @@ fetch_bun() {
 
   base="https://github.com/oven-sh/bun/releases/download/bun-v$BUN_VERSION"
   tmp="$(mktemp -d)"
-  echo "      ▸ fetching bun v$BUN_VERSION ($slug)"
+  # Silent on success — install.ts's banner owns the on-screen UI. The failure/fallback
+  # branches below still speak (download failed, SHA mismatch, unzip missing).
   if ! curl -fsSL "$base/$slug.zip" -o "$tmp/$slug.zip"; then
     echo "      ⚠ bun: download failed — skipping; .ts source will fall back to host bun"
     rm -rf "$tmp"; return 0
@@ -101,7 +102,6 @@ fetch_bun() {
   mv "$tmp/$slug/bun" "$BUN_BIN"
   chmod +x "$BUN_BIN"
   rm -rf "$tmp"
-  echo "      ✓ bun v$BUN_VERSION ready at $BUN_BIN"
 }
 fetch_bun || true
 
@@ -109,9 +109,8 @@ fetch_bun || true
 # in devscripts/trash.ts (git sparse-checkout). Best-effort; uses the Bun vendored above.
 "$SOURCE_DIRECTORY/preemdeck-runtime" "$SOURCE_DIRECTORY/devscripts/trash.ts" || true
 
-# Install runtime deps (hono, @hono/zod-openapi, cmdore, zod) so plugin code can
-# execute from ~/.preemdeck by absolute path. Best-effort: warn but never abort —
-# node_modules is gitignored, so a fresh clone has none until this runs.
-(cd "$SOURCE_DIRECTORY" && "$SOURCE_DIRECTORY/preemdeck-runtime" install --production) || echo "      ⚠ bun install failed — runtime deps may be missing"
-
+# Runtime deps (hono, zod, cmdore, …) are installed by install.ts itself, as a visible
+# phase (installDeps) — so the bun-install runs under the banner UI, not as silent
+# pre-handoff noise. install.ts keeps zero third-party imports so it can load first, on
+# the vendored Bun above, before any node_modules exist.
 "$SOURCE_DIRECTORY/preemdeck-runtime" "$SOURCE_DIRECTORY/install.ts" "$HARNESS" "$@"

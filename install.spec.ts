@@ -23,6 +23,7 @@ import {
     copyOverlay,
     CROSS,
     DEFAULT_CONFIG,
+    installDeps,
     installFor,
     installPlugin,
     isMirroredPrimitive,
@@ -440,6 +441,33 @@ describe("install", () => {
                 throw Object.assign(new Error("Executable not found in $PATH"), { code: "ENOENT" })
             })
             expect(await runCli(["nonexistent-xyz", "x"], false)).toEqual([false, "nonexistent-xyz not on PATH"])
+        })
+    })
+
+    context("installDeps", () => {
+        it("dry-run returns ok without spawning", async () => {
+            const [ok, err] = await installDeps(dir, true)
+            expect(ok).toBe(true)
+            expect(err).toBe("")
+            expect(spawnCalls()).toEqual([])
+        })
+
+        it("runs `<bun> install --production`, ok on exit 0", async () => {
+            spawnSpy.mockImplementation(() => fakeChild())
+            const [ok, err] = await installDeps(dir, false)
+            expect(ok).toBe(true)
+            expect(err).toBe("")
+            // argv[0] is the running Bun (process.execPath); assert the verb + flag.
+            expect(spawnCalls()[0]?.slice(1)).toEqual(["install", "--production"])
+        })
+
+        it("non-zero exit surfaces stderr, then stdout, then a default", async () => {
+            spawnSpy.mockImplementation(() => fakeChild("", 1, "  lockfile conflict  "))
+            expect(await installDeps(dir, false)).toEqual([false, "lockfile conflict"])
+            spawnSpy.mockImplementation(() => fakeChild("out-only", 1))
+            expect(await installDeps(dir, false)).toEqual([false, "out-only"])
+            spawnSpy.mockImplementation(() => fakeChild("", 1))
+            expect(await installDeps(dir, false)).toEqual([false, "non-zero exit"])
         })
     })
 

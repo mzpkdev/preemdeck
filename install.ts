@@ -2,6 +2,12 @@
 /**
  * install.ts — preemdeck installer (behavior-identical v1).
  *
+ * Wears a ripperdoc install skin (ANSI banner + phased section()/sub() output), gated on a
+ * real stdout TTY + NO_COLOR. It also installs its OWN node_modules as an early phase
+ * (installDeps — relocated from boot.sh so the bun-install runs under the banner, not as
+ * silent pre-handoff noise). To LOAD before those deps exist, install.ts keeps zero
+ * third-party imports: its arg parse is hand-rolled, not argvex.
+ *
  * Registers the marketplace (claude/codex) or installs per-extension (gemini) for
  * ONE harness, copies the per-harness overlay into the host config dir, and writes
  * the install manifest. Shell-outs spawn inline via `Bun.spawn(argv, PIPED)`
@@ -12,7 +18,6 @@
 import { copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join, relative, resolve, sep } from "node:path";
-import argvex, { ArgvexError } from "argvex";
 import type { Config } from "./source/common/preemdeck";
 import { PIPED, type Reaped, reap } from "./source/common/process";
 
@@ -73,6 +78,58 @@ export const DEFAULT_CONFIG = `${JSON.stringify(DEFAULT_CONFIG_DATA, null, 2)}\n
 
 export const CHECK = "✓";
 export const CROSS = "✗";
+
+// ── install UI (ripperdoc skin) ─────────────────────────
+// ANSI palette gated on a real stdout TTY + NO_COLOR, so redirected installs and the test
+// harness (which spies console.log) stay plain. The banner/typewriter ANIMATE only on a
+// TTY; section()/sub() always emit (color auto-stripped) so a piped log still reads.
+const IS_TTY = Boolean(process.stdout.isTTY);
+// NO_COLOR (any value) hard-disables; FORCE_COLOR opts a non-TTY pipe back in. Animation
+// stays TTY-only regardless — a redirected log gets color (if forced) but no typewriter.
+const FORCE_COLOR = ["1", "true", "yes"].includes((process.env.FORCE_COLOR ?? "").toLowerCase());
+const COLOR = !process.env.NO_COLOR && (IS_TTY || FORCE_COLOR);
+const sgr = (code: string): string => (COLOR ? code : "");
+const CYAN = sgr("\x1b[96m");
+const RED = sgr("\x1b[91m");
+const DIM = sgr("\x1b[2m");
+const BOLD = sgr("\x1b[1m");
+const WHITE = sgr("\x1b[97m");
+const RESET = sgr("\x1b[0m");
+
+// PREEMDECK in the ANSI Shadow figlet font — shares the "PREEM" prefix with preemclaud's
+// rig banner; only D-E-C-K diverge. Trailing spaces on the K rows are intentional glyph fill.
+const BANNER = `${CYAN}${BOLD}
+    ██████╗ ██████╗ ███████╗███████╗███╗   ███╗██████╗ ███████╗ ██████╗██╗  ██╗
+    ██╔══██╗██╔══██╗██╔════╝██╔════╝████╗ ████║██╔══██╗██╔════╝██╔════╝██║ ██╔╝
+    ██████╔╝██████╔╝█████╗  █████╗  ██╔████╔██║██║  ██║█████╗  ██║     █████╔╝
+    ██╔═══╝ ██╔══██╗██╔══╝  ██╔══╝  ██║╚██╔╝██║██║  ██║██╔══╝  ██║     ██╔═██╗
+    ██║     ██║  ██║███████╗███████╗██║ ╚═╝ ██║██████╔╝███████╗╚██████╗██║  ██╗
+    ╚═╝     ╚═╝  ╚═╝╚══════╝╚══════╝╚═╝     ╚═╝╚═════╝ ╚══════╝ ╚═════╝╚═╝  ╚═╝
+${RESET}${DIM}                  chrome for claude code · codex · gemini cli${RESET}`;
+
+/** Phase header — `>>> label`. */
+function section(label: string): void {
+  console.log(`    ${DIM}>>>${RESET} ${BOLD}${label}${RESET}`);
+}
+
+/** Indented detail line under a section — `› msg`. */
+function sub(msg: string): void {
+  console.log(`        ${DIM}›${RESET} ${msg}`);
+}
+
+/** Typewriter a line to a TTY; plain print when not interactive (tests, pipes). */
+async function typing(text: string, delay = 12): Promise<void> {
+  if (!IS_TTY) {
+    console.log(`    ${text}`);
+    return;
+  }
+  process.stdout.write("    ");
+  for (const ch of text) {
+    process.stdout.write(ch);
+    await Bun.sleep(delay);
+  }
+  process.stdout.write("\n");
+}
 
 export interface PluginSpec {
   name: string;
@@ -342,7 +399,8 @@ export function buildMirror(repoRoot: string, dryRun: boolean): string[] {
         written.push(join(stage, ...rel.split("/")));
       }
     }
-    console.log(`  (dry-run) would mirror ${written.length} primitive(s) into ${STAGE_ROOT}/`);
+    // Caller (installFor) reports the count under its phase; stay silent to avoid a
+    // duplicate, un-indented line in the dry-run render.
     return written;
   }
 
@@ -504,7 +562,7 @@ export function writeManifest(
   dryRun: boolean,
 ): void {
   if (dryRun) {
-    console.log(`  (dry-run) would record manifest for ${harness}: ${overlay.length} overlay file(s)`);
+    sub(`${DIM}would record manifest: ${overlay.length} overlay file(s)${RESET}`);
     return;
   }
   const manifest = loadManifest(repoRoot);
@@ -530,16 +588,22 @@ export interface CliArgs {
 }
 
 export function parseInstallArgs(argv: string[]): CliArgs {
+  // Hand-rolled (no argvex) ON PURPOSE: install.ts installs its own node_modules (see
+  // installDeps), so it must LOAD with zero third-party imports — it can't depend on a
+  // package it hasn't installed yet. The parse is trivial: one positional + one flag.
   const prog = "install.ts";
-  let parsed: ReturnType<typeof argvex>;
-  try {
-    // strict: unknown options must be rejected (exit 2), as parseArgs did.
-    parsed = argvex({ argv, schema: [{ name: "dry-run", arity: 0 }], strict: true });
-  } catch (err) {
-    process.stderr.write(`${prog}: ${err instanceof ArgvexError ? err.message : String(err)}\n`);
-    process.exit(2);
+  const positionals: string[] = [];
+  let dryRun = false;
+  for (const arg of argv) {
+    if (arg === "--dry-run") {
+      dryRun = true;
+    } else if (arg.startsWith("-")) {
+      process.stderr.write(`${prog}: unrecognized option: ${arg}\n`);
+      process.exit(2);
+    } else {
+      positionals.push(arg);
+    }
   }
-  const positionals = parsed._;
   if (positionals.length === 0) {
     process.stderr.write(`${prog}: the following arguments are required: harness\n`);
     process.exit(2);
@@ -549,33 +613,36 @@ export function parseInstallArgs(argv: string[]): CliArgs {
     process.stderr.write(`${prog}: argument harness: invalid choice: '${harness}' (choose from ${HOSTS.join(", ")})\n`);
     process.exit(2);
   }
-  return { harness, dryRun: parsed["dry-run"] != null };
+  return { harness, dryRun };
 }
 
 export function printSummary(harness: string, results: Record<string, string>): void {
-  console.log();
-  console.log("preemdeck install — done");
-  console.log();
-  const marks = MARKETPLACES.map(([name]) => `${results[name] === "ok" ? CHECK : CROSS} ${name}`);
-  console.log(`  ${harness.padEnd(7)} ${marks.join("  ")}`);
-
   const errors: string[] = [];
   for (const [name] of MARKETPLACES) {
     const status = results[name] ?? "";
     if (status && status !== "ok") {
-      errors.push(`  ${harness} / ${name}: ${status}`);
-    }
-  }
-  if (errors.length > 0) {
-    console.log();
-    console.log("Errors:");
-    for (const line of errors) {
-      console.log(line);
+      errors.push(`${harness} / ${name}: ${status}`);
     }
   }
 
   console.log();
-  console.log("  Restart your CLI to load.");
+  const marks = MARKETPLACES.map(([name]) => {
+    const ok = results[name] === "ok";
+    return `${ok ? CYAN + CHECK : RED + CROSS}${RESET} ${name}`;
+  });
+  console.log(`    ${DIM}rig${RESET}  ${harness.padEnd(7)}${marks.join("   ")}`);
+  console.log();
+
+  if (errors.length > 0) {
+    for (const line of errors) {
+      console.log(`    ${RED}${CROSS}${RESET} ${line}`);
+    }
+    console.log();
+    console.log(`    ${RED}${BOLD}flatlined${RESET} ${DIM}— some racks didn't slot; see above.${RESET}`);
+  } else {
+    console.log(`    ${CYAN}${BOLD}━━━${RESET} ${WHITE}${BOLD}preem, choom. you're chromed.${RESET}`);
+  }
+  console.log(`        ${DIM}restart ${harness} to load the new rig.${RESET}`);
   console.log();
 }
 
@@ -590,41 +657,90 @@ export function printSummary(harness: string, results: Record<string, string>): 
 export function seedConfig(repoRoot: string, dryRun: boolean): void {
   const dst = join(repoRoot, CONFIG_FILE);
   if (existsSync(dst)) {
+    sub(`${CONFIG_FILE} ${DIM}present${RESET}`);
     return;
   }
   if (dryRun) {
-    console.log(`  (dry-run) would write ${CONFIG_FILE} with defaults`);
+    sub(`${DIM}would seed ${CONFIG_FILE} with defaults${RESET}`);
     return;
   }
   writeFileSync(dst, DEFAULT_CONFIG);
-  console.log(`  ${CHECK} wrote ${CONFIG_FILE} (defaults)`);
+  sub(`${CONFIG_FILE} ${DIM}seeded with defaults${RESET}`);
+}
+
+/**
+ * Install preemdeck's runtime deps (hono, zod, cmdore, …) into node_modules so deployed
+ * plugin code can execute from ~/.preemdeck by absolute path. Runs `<bun> install
+ * --production` on the SAME Bun executing install.ts (process.execPath — the vendored
+ * runtime under preemdeck-runtime), in repoRoot.
+ *
+ * Relocated from boot.sh so it renders as an install phase under the banner. Best-effort by
+ * contract: a failure is REPORTED but never aborts the install (node_modules is gitignored —
+ * a fresh clone has none until this runs; a stale clone keeps its last good set). Skips the
+ * spawn on a dry run.
+ */
+export async function installDeps(repoRoot: string, dryRun: boolean): Promise<[boolean, string]> {
+  if (dryRun) {
+    return [true, ""];
+  }
+  let result: Reaped;
+  try {
+    result = await reap(Bun.spawn([process.execPath, "install", "--production"], { ...PIPED, cwd: repoRoot }), 300_000);
+  } catch (err) {
+    return [false, err instanceof Error ? err.message : String(err)];
+  }
+  if (result.timedOut) {
+    return [false, "timed out after 300s"];
+  }
+  if (result.exitCode === 0) {
+    return [true, ""];
+  }
+  return [false, result.stderr.trim() || result.stdout.trim() || "non-zero exit"];
 }
 
 export async function installFor(harness: string, dryRun: boolean): Promise<number> {
+  section("preflight");
   if (!(await onPath(harness))) {
     process.stderr.write(`${harness} not on PATH. Install it and re-run.\n`);
+    console.log(`    ${RED}${BOLD}ABORT${RESET}  ${harness} ${DIM}not on PATH — install it and re-run.${RESET}`);
     return 1;
   }
-
-  console.log(`preemdeck install — target: ${harness}`);
+  sub(`${harness.padEnd(7)} ${DIM}jacked in${RESET}`);
   if (dryRun) {
-    console.log("  (dry-run — no changes will be made)");
+    sub(`${DIM}dry run — no changes will be written${RESET}`);
+  }
+  seedConfig(REPO_ROOT, dryRun);
+  console.log();
+
+  section("wiring runtime deps");
+  const [depsOk, depsErr] = await installDeps(REPO_ROOT, dryRun);
+  if (depsOk) {
+    sub(dryRun ? `${DIM}would install runtime deps${RESET}` : `runtime deps ${DIM}ready${RESET}`);
+  } else {
+    sub(`${RED}${CROSS}${RESET} ${DIM}${depsErr.slice(0, 60)}${RESET}`);
+    sub(`${DIM}plugins may miss deps — re-run boot.sh to retry${RESET}`);
   }
   console.log();
 
-  seedConfig(REPO_ROOT, dryRun);
-
+  section("grafting the overlay");
   const [ok, err, overlay] = copyOverlay(harness, REPO_ROOT, configDir(harness), dryRun);
   if (!ok) {
     process.stderr.write(`  ${CROSS} overlay: ${err}\n`);
+    console.log(`    ${RED}${BOLD}ABORT${RESET}  overlay: ${err}`);
     return 1;
   }
+  sub(`${overlay.length} file(s) ${DIM}→ ${configDir(harness)}${RESET}`);
+  console.log();
 
   // Build the primitives-only mirror BEFORE registration: hosts register from
   // .stage/<rack>, and the SHA stamp is the cache key that forces a re-copy.
+  section("minting the mirror");
   const mirrored = buildMirror(REPO_ROOT, dryRun);
   await stampMirror(REPO_ROOT, mirrored, dryRun);
+  sub(`${mirrored.length} primitive(s) ${DIM}→ ${STAGE_ROOT}/${RESET}`);
+  console.log();
 
+  section("slotting chrome");
   const results: Record<string, string> = {};
   let anySuccess = false;
   const registeredMarketplaces: string[] = [];
@@ -643,17 +759,22 @@ export async function installFor(harness: string, dryRun: boolean): Promise<numb
         // so local marketplace edits stay invisible until the clone is refreshed.
         await refreshMarketplace(harness, name, dryRun);
       }
+      const slotted: string[] = [];
       for (const spec of readPluginSpecs(path)) {
         const [pOk, pErr] = await installPlugin(harness, spec, name, dryRun);
         const lowered = pErr.toLowerCase();
         if (pOk || lowered.includes("already") || lowered.includes("exists")) {
           installedPlugins.push({ host: harness, rack: name, name: spec.name });
+          slotted.push(spec.name);
         } else {
           results[name] = `${spec.name}: ${pErr}`.slice(0, 60);
         }
       }
+      const mark = results[name] === "ok" ? `${CYAN}${CHECK}${RESET}` : `${RED}${CROSS}${RESET}`;
+      sub(`${mark} ${name.padEnd(9)}${DIM}${slotted.join(" · ") || "—"}${RESET}`);
     } else {
       results[name] = mErr.slice(0, 60);
+      sub(`${RED}${CROSS}${RESET} ${name.padEnd(9)}${RED}${mErr}${RESET}`);
     }
   }
 
@@ -664,6 +785,12 @@ export async function installFor(harness: string, dryRun: boolean): Promise<numb
 
 export async function main(): Promise<number> {
   const args = parseInstallArgs(Bun.argv.slice(2));
+  console.log(BANNER);
+  if (IS_TTY) {
+    await Bun.sleep(300);
+  }
+  await typing("jacking in…", 20);
+  console.log();
   return installFor(args.harness, args.dryRun);
 }
 
