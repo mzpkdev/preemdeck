@@ -10,7 +10,9 @@
 /biome.json
 /tsconfig.json
 /llm-docs
-/devscripts
+# NOT /devscripts — it holds trash.ts (this prune's OWN tool, run from
+# ~/.preemdeck by boot.sh) + format-on-edit.ts; the *.spec.ts pattern below
+# still drops the dev tests there. Listing it would prune the prune. See boot.sh.
 /AGENTS.md
 /CLAUDE.md
 *.test.ts
