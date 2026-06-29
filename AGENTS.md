@@ -39,7 +39,9 @@ re-install to copy out again, and any edit only takes effect after the host CLI 
 **Apply on explicit request only. When the user asks to update their local copy / apply the changes, re-run `boot.sh`
 yourself — you know the command, don't bounce it back. But only when asked: never apply unprompted after an edit.**
 Re-running `boot.sh` fetches your channel (`stable` by default, or `edge` = `main`, selected via `PREEMDECK_CHANNEL`)
-into `~/.preemdeck` (`fetch` + `reset --hard`) and re-installs the named harness.
+into `~/.preemdeck` (`fetch` + `reset --hard`) and re-installs every **detected** harness — each host with a config dir
+(`~/.claude` / `~/.codex` / `~/.gemini`) — or just the one you name as an explicit override (`boot.sh codex`). With no
+host detected it states so and exits nonzero.
 
 Canonical flow — run on request:
 

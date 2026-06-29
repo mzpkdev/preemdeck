@@ -170,6 +170,26 @@ export function configDir(harness: string): string {
 }
 
 /**
+ * Auto-detect which supported hosts are installed, by the presence of their config dir
+ * under $HOME (~/.claude, ~/.codex, ~/.gemini). This is the selection signal when no
+ * harness is named on the CLI: install targets exactly the detected set, in HOSTS order.
+ *
+ * `resolve` is injectable for tests — configDir() joins os.homedir(), which Bun snapshots
+ * at process start (a runtime $HOME mutation is NOT observable), so a fake home can only
+ * be threaded in here, not via env. A name whose path is absent OR is a non-directory
+ * (a stray file) does not count as installed.
+ */
+export function detectHarnesses(resolve: (harness: string) => string = configDir): string[] {
+  return HOSTS.filter((harness) => {
+    try {
+      return statSync(resolve(harness)).isDirectory();
+    } catch {
+      return false;
+    }
+  });
+}
+
+/**
  * Read plugin specs from the rack's Claude marketplace.json (canonical source).
  *
  * Claude's schema has the simplest `source: "./path"` strings — Codex/Gemini installs
@@ -583,14 +603,17 @@ async function onPath(bin: string): Promise<boolean> {
 }
 
 export interface CliArgs {
-  harness: string;
+  // Explicit harness targets parsed from argv. EMPTY selects auto-detect — main() then
+  // installs to every host detected via detectHarnesses().
+  harnesses: string[];
   dryRun: boolean;
 }
 
 export function parseInstallArgs(argv: string[]): CliArgs {
   // Hand-rolled (no argvex) ON PURPOSE: install.ts installs its own node_modules (see
   // installDeps), so it must LOAD with zero third-party imports — it can't depend on a
-  // package it hasn't installed yet. The parse is trivial: one positional + one flag.
+  // package it hasn't installed yet. The parse is trivial: 0..N positionals + one flag.
+  // Zero positionals is NOT an error — it selects auto-detect (main reads detectHarnesses()).
   const prog = "install.ts";
   const positionals: string[] = [];
   let dryRun = false;
@@ -604,16 +627,15 @@ export function parseInstallArgs(argv: string[]): CliArgs {
       positionals.push(arg);
     }
   }
-  if (positionals.length === 0) {
-    process.stderr.write(`${prog}: the following arguments are required: harness\n`);
-    process.exit(2);
+  for (const harness of positionals) {
+    if (!HOSTS.includes(harness)) {
+      process.stderr.write(
+        `${prog}: argument harness: invalid choice: '${harness}' (choose from ${HOSTS.join(", ")})\n`,
+      );
+      process.exit(2);
+    }
   }
-  const harness = positionals[0] as string;
-  if (!HOSTS.includes(harness)) {
-    process.stderr.write(`${prog}: argument harness: invalid choice: '${harness}' (choose from ${HOSTS.join(", ")})\n`);
-    process.exit(2);
-  }
-  return { harness, dryRun };
+  return { harnesses: positionals, dryRun };
 }
 
 export function printSummary(harness: string, results: Record<string, string>): void {
@@ -699,27 +721,13 @@ export async function installDeps(repoRoot: string, dryRun: boolean): Promise<[b
 }
 
 export async function installFor(harness: string, dryRun: boolean): Promise<number> {
-  section("preflight");
+  section(`rig · ${harness}`);
   if (!(await onPath(harness))) {
     process.stderr.write(`${harness} not on PATH. Install it and re-run.\n`);
     console.log(`    ${RED}${BOLD}ABORT${RESET}  ${harness} ${DIM}not on PATH — install it and re-run.${RESET}`);
     return 1;
   }
   sub(`${harness.padEnd(7)} ${DIM}jacked in${RESET}`);
-  if (dryRun) {
-    sub(`${DIM}dry run — no changes will be written${RESET}`);
-  }
-  seedConfig(REPO_ROOT, dryRun);
-  console.log();
-
-  section("wiring runtime deps");
-  const [depsOk, depsErr] = await installDeps(REPO_ROOT, dryRun);
-  if (depsOk) {
-    sub(dryRun ? `${DIM}would install runtime deps${RESET}` : `runtime deps ${DIM}ready${RESET}`);
-  } else {
-    sub(`${RED}${CROSS}${RESET} ${DIM}${depsErr.slice(0, 60)}${RESET}`);
-    sub(`${DIM}plugins may miss deps — re-run boot.sh to retry${RESET}`);
-  }
   console.log();
 
   section("grafting the overlay");
@@ -730,14 +738,6 @@ export async function installFor(harness: string, dryRun: boolean): Promise<numb
     return 1;
   }
   sub(`${overlay.length} file(s) ${DIM}→ ${configDir(harness)}${RESET}`);
-  console.log();
-
-  // Build the primitives-only mirror BEFORE registration: hosts register from
-  // .stage/<rack>, and the SHA stamp is the cache key that forces a re-copy.
-  section("minting the mirror");
-  const mirrored = buildMirror(REPO_ROOT, dryRun);
-  await stampMirror(REPO_ROOT, mirrored, dryRun);
-  sub(`${mirrored.length} primitive(s) ${DIM}→ ${STAGE_ROOT}/${RESET}`);
   console.log();
 
   section("slotting chrome");
@@ -791,7 +791,56 @@ export async function main(): Promise<number> {
   }
   await typing("jacking in…", 20);
   console.log();
-  return installFor(args.harness, args.dryRun);
+
+  // Named harness(es) override; with none, install to every host detected by config dir.
+  const targets = args.harnesses.length > 0 ? args.harnesses : detectHarnesses();
+  if (targets.length === 0) {
+    process.stderr.write(
+      "No supported harness detected — looked for ~/.claude, ~/.codex, ~/.gemini. Install one and re-run.\n",
+    );
+    console.log(
+      `    ${RED}${BOLD}ABORT${RESET}  no harness detected ${DIM}— looked for ~/.claude · ~/.codex · ~/.gemini${RESET}`,
+    );
+    console.log();
+    return 1;
+  }
+
+  // Harness-independent groundwork — runs ONCE no matter how many hosts we target.
+  section("preflight");
+  sub(`targets  ${DIM}${targets.join(" · ")}${RESET}`);
+  if (args.dryRun) {
+    sub(`${DIM}dry run — no changes will be written${RESET}`);
+  }
+  seedConfig(REPO_ROOT, args.dryRun);
+  console.log();
+
+  section("wiring runtime deps");
+  const [depsOk, depsErr] = await installDeps(REPO_ROOT, args.dryRun);
+  if (depsOk) {
+    sub(args.dryRun ? `${DIM}would install runtime deps${RESET}` : `runtime deps ${DIM}ready${RESET}`);
+  } else {
+    sub(`${RED}${CROSS}${RESET} ${DIM}${depsErr.slice(0, 60)}${RESET}`);
+    sub(`${DIM}plugins may miss deps — re-run boot.sh to retry${RESET}`);
+  }
+  console.log();
+
+  // Build the primitives-only mirror BEFORE registration: hosts register from
+  // .stage/<rack>, and the SHA stamp is the cache key that forces a re-copy.
+  section("minting the mirror");
+  const mirrored = buildMirror(REPO_ROOT, args.dryRun);
+  await stampMirror(REPO_ROOT, mirrored, args.dryRun);
+  sub(`${mirrored.length} primitive(s) ${DIM}→ ${STAGE_ROOT}/${RESET}`);
+  console.log();
+
+  // One host failing (not on PATH, marketplace error) is isolated — others still install,
+  // and the run reports nonzero so boot.sh's `set -e` surfaces it.
+  let rc = 0;
+  for (const harness of targets) {
+    if ((await installFor(harness, args.dryRun)) !== 0) {
+      rc = 1;
+    }
+  }
+  return rc;
 }
 
 if (import.meta.main) {

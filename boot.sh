@@ -6,17 +6,11 @@ REPOSITORY="https://github.com/mzpkdev/preemdeck"
 # preemdeck's .ts source on THIS exact Bun, fetched to ~/.preemdeck/.runtime/bin/bun.
 # Bump deliberately — porting code is validated against this version only.
 BUN_VERSION="1.3.14"
-if [ $# -ge 1 ]; then
-  HARNESS="$1"; shift
-elif [ -e /dev/tty ] && [ -r /dev/tty ]; then
-  printf "      ▸ harness (claude): "
-  read -r HARNESS < /dev/tty
-  HARNESS="${HARNESS:-claude}"
-else
-  HARNESS="claude"
-fi
-# preemdeck's source lives in its OWN dir, never the harness config dir.
-# HARNESS selects which host to install FOR; it no longer decides the clone location.
+# Harness selection lives in install.ts now. Any positional args here are forwarded as
+# explicit targets; with NONE, install.ts auto-detects installed hosts by their config
+# dir (~/.claude, ~/.codex, ~/.gemini) and installs to each — no prompt, no default. If it
+# detects none, it states so and exits nonzero (propagated below via set -e).
+# preemdeck's source lives in its OWN dir, never a harness config dir.
 SOURCE_DIRECTORY="$HOME/.preemdeck"
 
 command -v git >/dev/null     || { echo "      ⊘ git not found"; exit 1; }
@@ -113,4 +107,4 @@ fetch_bun || true
 # phase (installDeps) — so the bun-install runs under the banner UI, not as silent
 # pre-handoff noise. install.ts keeps zero third-party imports so it can load first, on
 # the vendored Bun above, before any node_modules exist.
-"$SOURCE_DIRECTORY/preemdeck-runtime" "$SOURCE_DIRECTORY/install.ts" "$HARNESS" "$@"
+"$SOURCE_DIRECTORY/preemdeck-runtime" "$SOURCE_DIRECTORY/install.ts" "$@"

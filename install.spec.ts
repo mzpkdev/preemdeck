@@ -23,6 +23,7 @@ import {
     copyOverlay,
     CROSS,
     DEFAULT_CONFIG,
+    detectHarnesses,
     installDeps,
     installFor,
     installPlugin,
@@ -176,6 +177,36 @@ describe("install", () => {
 
         it("CONFIG_DIRNAMES constant", () => {
             expect(CONFIG_DIRNAMES).toEqual({ claude: ".claude", codex: ".codex", gemini: ".gemini" })
+        })
+    })
+
+    context("detectHarnesses", () => {
+        // configDir() resolves against os.homedir() (snapshotted at process start,
+        // un-fakeable mid-process — see the configDir note above), so inject a resolver
+        // pointing at the tmp fixture instead of mutating $HOME.
+        const resolveIn =
+            (root: string) =>
+            (h: string): string =>
+                join(root, CONFIG_DIRNAMES[h] as string)
+
+        it("returns hosts whose config dir exists, in HOSTS order", () => {
+            mkdirSync(join(dir, ".claude"), { recursive: true })
+            mkdirSync(join(dir, ".gemini"), { recursive: true })
+            expect(detectHarnesses(resolveIn(dir))).toEqual(["claude", "gemini"])
+        })
+
+        it("detects all three when present", () => {
+            for (const d of [".claude", ".codex", ".gemini"]) mkdirSync(join(dir, d), { recursive: true })
+            expect(detectHarnesses(resolveIn(dir))).toEqual(["claude", "codex", "gemini"])
+        })
+
+        it("returns empty when none are present", () => {
+            expect(detectHarnesses(resolveIn(dir))).toEqual([])
+        })
+
+        it("ignores a non-directory of the same name", () => {
+            writeFileSync(join(dir, ".codex"), "i am a file, not a dir")
+            expect(detectHarnesses(resolveIn(dir))).toEqual([])
         })
     })
 
@@ -776,14 +807,17 @@ describe("install", () => {
         }
 
         it("parses harness + --dry-run", () => {
-            expect(parseInstallArgs(["claude", "--dry-run"])).toEqual({ harness: "claude", dryRun: true })
-            expect(parseInstallArgs(["gemini"])).toEqual({ harness: "gemini", dryRun: false })
+            expect(parseInstallArgs(["claude", "--dry-run"])).toEqual({ harnesses: ["claude"], dryRun: true })
+            expect(parseInstallArgs(["gemini"])).toEqual({ harnesses: ["gemini"], dryRun: false })
         })
 
-        it("missing harness -> exit 2", () => {
-            const { code, stderr } = captureExit(() => parseInstallArgs([]))
-            expect(code).toBe(2)
-            expect(stderr).toContain("required: harness")
+        it("no positionals -> empty harnesses (auto-detect), no exit", () => {
+            expect(parseInstallArgs([])).toEqual({ harnesses: [], dryRun: false })
+            expect(parseInstallArgs(["--dry-run"])).toEqual({ harnesses: [], dryRun: true })
+        })
+
+        it("accepts multiple explicit harnesses, in argv order", () => {
+            expect(parseInstallArgs(["gemini", "claude"])).toEqual({ harnesses: ["gemini", "claude"], dryRun: false })
         })
 
         it("invalid harness choice -> exit 2", () => {

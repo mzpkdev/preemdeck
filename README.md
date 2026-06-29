@@ -15,8 +15,9 @@ curl -fsSL https://raw.githubusercontent.com/mzpkdev/preemdeck/main/boot.sh | PR
 ```
 
 The bootstrap clones the selected channel (stable by default; edge = `main`) to `~/.preemdeck` (its own directory — your
-`~/.claude` / `~/.codex` / `~/.gemini` config is left in place) and runs `install.ts <harness>`. The default harness is
-`claude`; pass another to target it — `… | bash -s codex`.
+`~/.claude` / `~/.codex` / `~/.gemini` config is left in place) and runs `install.ts`. With no arguments it
+**auto-detects** which of `~/.claude` / `~/.codex` / `~/.gemini` exist and installs to each — no prompt; if none are
+found it says so and exits. Pass an explicit harness to override detection and target just one — `… | bash -s codex`.
 
 Releases are cut by the **"Release (promote to stable)"** GitHub Action (Actions tab → Run workflow → a version like
 `v0.1.0`), which tags the release and advances `stable`.
