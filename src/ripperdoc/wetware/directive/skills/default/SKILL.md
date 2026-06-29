@@ -1,15 +1,16 @@
 ---
 description:
-  Set a directive — writes the given value (ask|swarm|auto) into its derived slot in preemdeck.json, deterministically.
-  Trigger ONLY when the user types /directive:default. NEVER auto-invoke; never edit preemdeck.json by hand.
+  Set a directive — writes the given value (ask|swarm|team|auto) into its derived slot in preemdeck.json,
+  deterministically. Trigger ONLY when the user types /directive:default. NEVER auto-invoke; never edit preemdeck.json
+  by hand.
 user-invocable: true
 disable-model-invocation: true
 ---
 
 # Set a directive
 
-The user invokes `/directive:default <value>` with a value (`ask`|`swarm`|`auto`). Run the bundled writer with that
-value — nothing else:
+The user invokes `/directive:default <value>` with a value (`ask`|`swarm`|`team`|`auto`). Run the bundled writer with
+that value — nothing else:
 
 ```bash
 "$HOME/.preemdeck/preemdeck-runtime" "$HOME/.preemdeck/src/ripperdoc/wetware/directive/scripts/set-mode.ts" <value>

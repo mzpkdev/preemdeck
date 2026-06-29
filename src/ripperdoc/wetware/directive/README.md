@@ -8,17 +8,18 @@ skills/swarm/
   SKILL.md       # invoke /swarm → prints skills/swarm/directive.md (shows, never writes)
   directive.md   # the prose the hook injects
   agents/openai.yaml
-scripts/modes.json  # central value→slot manifest (swarm→strategy, ask/auto→discretion)
+scripts/modes.json  # central value→slot manifest (swarm/team→strategy, ask/auto→discretion)
 skills/default/
   SKILL.md       # invoke /directive:default <value> → runs set-mode.ts <value> (the sole writer)
   agents/openai.yaml
 ```
 
-- **Set a directive** — `/directive:default <value>` (`ask`|`swarm`|`auto`) runs `set-mode.ts <value>`, the only thing
-  that writes `preemdeck.json`. The value alone decides the slot: `set-mode.ts` looks it up in `scripts/modes.json` (the
-  central value→slot manifest) to derive it. (On Gemini, `commands/default.toml` does the same.)
-- **Show a directive** — `/swarm`, `/ask`, `/auto` each run `show-mode.ts <mode>`, printing that mode's `directive.md`
-  verbatim. They write nothing. (On Gemini, the equivalent `commands/<mode>.toml` does the same.)
+- **Set a directive** — `/directive:default <value>` (`ask`|`swarm`|`team`|`auto`) runs `set-mode.ts <value>`, the only
+  thing that writes `preemdeck.json`. The value alone decides the slot: `set-mode.ts` looks it up in
+  `scripts/modes.json` (the central value→slot manifest) to derive it. (On Gemini, `commands/default.toml` does the
+  same.)
+- **Show a directive** — `/swarm`, `/team`, `/ask`, `/auto` each run `show-mode.ts <mode>`, printing that mode's
+  `directive.md` verbatim. They write nothing. (On Gemini, the equivalent `commands/<mode>.toml` does the same.)
 - **Hook (apply it)** — every prompt, `inject-mode.ts` reads the `directive` object from the root `preemdeck.json` and
   injects each active slot's `directive.md` body, concatenated in slot order. Wired on all three hosts
   (`UserPromptSubmit` on Claude/Codex, `BeforeAgent` on Gemini).
@@ -27,7 +28,7 @@ Two slots ship, on independent axes:
 
 | slot         | axis                   | values (empty = neutral)                      |
 | ------------ | ---------------------- | --------------------------------------------- |
-| `strategy`   | how the work gets done | `swarm` — empty leaves it hands-on            |
+| `strategy`   | how the work gets done | `swarm` / `team` — empty leaves it hands-on   |
 | `discretion` | who makes the call     | `ask` / `auto` — empty asks only when blocked |
 
 ```json
@@ -71,7 +72,7 @@ An unset slot, an empty value, or a value with no matching `directive.md` is a s
 | `.codex-plugin/plugin.json`  | Codex manifest + `UserPromptSubmit` hook                         |
 | `gemini-extension.json`      | Gemini manifest + `BeforeAgent` hook                             |
 
-Modes shipped: `swarm` (strategy), `ask` / `auto` (discretion).
+Modes shipped: `swarm` / `team` (strategy), `ask` / `auto` (discretion).
 
 ---
 
