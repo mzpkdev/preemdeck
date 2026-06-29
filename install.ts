@@ -65,7 +65,7 @@ export const MANIFEST_FILE = ".install-manifest.json";
 export const MANIFEST_SCHEMA = 1;
 
 // hardcoded skip — never install these, regardless of marketplace.json
-export const DISABLED_PLUGINS: ReadonlySet<string> = new Set(["ghost"]);
+export const DISABLED_PLUGINS: ReadonlySet<string> = new Set(["ghost", "imprint"]);
 
 // User-local config. preemdeck.json is gitignored per-install state (the directive
 // object set-mode.ts writes); install.ts WRITES it from the built-in DEFAULT_CONFIG
