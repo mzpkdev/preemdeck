@@ -21,12 +21,6 @@
       "source": "./directive",
       "policy": "allow",
       "category": "wetware"
-    },
-    {
-      "name": "caveman",
-      "source": "./caveman",
-      "policy": "allow",
-      "category": "wetware"
     }
   ]
 }

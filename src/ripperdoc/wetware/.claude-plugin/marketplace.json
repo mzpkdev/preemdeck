@@ -33,13 +33,6 @@
       "source": "./directive",
       "version": "0.0.0",
       "category": "wetware"
-    },
-    {
-      "name": "caveman",
-      "description": "Ultra-compressed output mode. Talk like smart caveman — cut ~75% of tokens, keep full technical accuracy.",
-      "source": "./caveman",
-      "version": "0.0.0",
-      "category": "wetware"
     }
   ]
 }
