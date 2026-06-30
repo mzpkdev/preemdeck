@@ -17,6 +17,7 @@
  */
 
 import { defineCommand, execute } from "cmdore"
+import { isNotifyEnabled } from "../../../../common/preemdeck"
 import { inIdea } from "./core"
 import { openFile } from "./open-file"
 import { openInline } from "./open-inline"
@@ -71,6 +72,9 @@ const command = defineCommand({
         // Best-effort: a pre-tool hook must never error or block the host, so any
         // failure inside the dispatch is swallowed and run() returns normally.
         try {
+            if (!(await isNotifyEnabled("plan"))) {
+                return // user disabled plan previews via preemdeck.json notify.plan
+            }
             if (!inIdea()) {
                 return // not inside a JetBrains IDE: nothing to open, and no error
             }

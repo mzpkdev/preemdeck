@@ -14,6 +14,7 @@
  */
 
 import { defineCommand, execute } from "cmdore"
+import { isNotifyEnabled } from "../../../../common/preemdeck"
 import { inIdea } from "./core/index"
 import { notify } from "./notify"
 import { cleanGist, htmlEscape, readHookInput, title } from "./turn-notify"
@@ -47,6 +48,9 @@ export const firstQuestion = (toolInput: HookData): string | null => {
  * a JetBrains IDE.
  */
 const emit = async (host: string): Promise<void> => {
+    if (!(await isNotifyEnabled("ask"))) {
+        return // user disabled question alerts via preemdeck.json notify.ask
+    }
     if (!inIdea()) {
         return // not inside a JetBrains IDE: nothing to pop, and no error
     }

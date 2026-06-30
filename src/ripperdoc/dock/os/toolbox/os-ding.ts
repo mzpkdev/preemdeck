@@ -14,6 +14,7 @@
  */
 
 import { defineCommand, effect, execute } from "cmdore"
+import { isNotifyEnabled } from "../../../../common/preemdeck"
 import { PIPED, type Reaped, reap } from "../../../../common/process"
 
 // macOS: a built-in system sound that reads as a clean "ding".
@@ -109,6 +110,9 @@ const command = defineCommand({
         // Best-effort: a ding failing must never fail the Stop hook that drives
         // this, so swallow everything and let the process exit 0.
         try {
+            if (!(await isNotifyEnabled("sound"))) {
+                return // user silenced the ding via preemdeck.json notify.sound
+            }
             const mechanism = await ding()
             if (verbose) {
                 process.stderr.write(`ding: ${mechanism}\n`)

@@ -1,6 +1,7 @@
 #!/usr/bin/env bun
 import * as path from "node:path"
 import { defineCommand, execute } from "cmdore"
+import { isNotifyEnabled } from "../../../../common/preemdeck"
 import { PIPED, type Reaped, reap } from "../../../../common/process"
 import { inIdea } from "./core/index"
 import { notify } from "./notify"
@@ -184,6 +185,9 @@ const command = defineCommand({
         // Best-effort + SILENT by contract: a turn-end hook must never error or
         // block the host, so swallow every internal failure and return normally.
         try {
+            if (!(await isNotifyEnabled("turn"))) {
+                return // user disabled turn-end alerts via preemdeck.json notify.turn
+            }
             await emit(typeof host === "string" && host ? host : "Agent", DEFAULT_DEPS)
         } catch {
             // swallow: a missing IDE, foreign stdin, git failure, or notify error

@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it } from "bun:test"
 import * as fs from "node:fs/promises"
 import * as os from "node:os"
 import * as path from "node:path"
-import { config, ENV, markdown } from "./preemdeck"
+import { config, ENV, markdown, notifyEnabled } from "./preemdeck"
 
 const context = describe
 
@@ -49,6 +49,40 @@ describe("markdown.read", () => {
         const file = path.join(root, "doc.md")
         await fs.writeFile(file, "# hello\n", "utf8")
         expect(await markdown.read(file)).toBe("# hello\n")
+    })
+})
+
+describe("notifyEnabled", () => {
+    it("is enabled when notify is absent (default-on)", () => {
+        expect(notifyEnabled({}, "turn")).toBe(true)
+    })
+
+    it("is enabled when notify is true", () => {
+        expect(notifyEnabled({ notify: true }, "permission")).toBe(true)
+    })
+
+    it("is disabled for every key when notify is false", () => {
+        expect(notifyEnabled({ notify: false }, "turn")).toBe(false)
+        expect(notifyEnabled({ notify: false }, "sound")).toBe(false)
+    })
+
+    it("is enabled for a key omitted from a partial object (only subtracts)", () => {
+        expect(notifyEnabled({ notify: { sound: false } }, "turn")).toBe(true)
+    })
+
+    it("is disabled only for the key explicitly set false", () => {
+        expect(notifyEnabled({ notify: { sound: false } }, "sound")).toBe(false)
+    })
+
+    it("is enabled for a key explicitly set true", () => {
+        expect(notifyEnabled({ notify: { ask: true } }, "ask")).toBe(true)
+    })
+
+    it.each([
+        ["null", null],
+        ["an array", []]
+    ] as [string, unknown][])("fails open (enabled) when notify is %s", (_label, value) => {
+        expect(notifyEnabled({ notify: value as never }, "plan")).toBe(true)
     })
 })
 

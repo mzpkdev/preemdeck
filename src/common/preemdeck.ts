@@ -50,12 +50,24 @@ export type Directive = {
 /** The release channel an install tracks: stable (released main) or edge (main HEAD). */
 export type Channel = "stable" | "edge"
 
+/** A dock notification kind: the audio ding, or one of the four moments a visual alert fires. */
+export type NotifyKey = "sound" | "turn" | "permission" | "ask" | "plan"
+
+/**
+ * Dock notification config. `true` or absent = everything on; `false` = everything
+ * off; an object toggles each kind independently. Every key defaults to `true` when
+ * omitted, so a partial object only ever subtracts.
+ */
+export type Notify = boolean | Partial<Record<NotifyKey, boolean>>
+
 /** The shape of preemdeck.json — gitignored, user-local state. */
 export type Config = {
     /** Active behavioral directives; a bare string is the legacy single-value form. */
     directive?: Directive | string
     /** Channel this install was set up with; install.ts persists it, update.ts forwards it to boot.sh. */
     channel?: Channel
+    /** Dock notifications: enable/disable the ding and the per-moment desktop / IDE alerts. */
+    notify?: Notify
 }
 
 export type Recipe<TDraft> = (draft: TDraft) => TDraft | Promise<TDraft>
@@ -69,6 +81,32 @@ export const config = {
         const draft = await this.read()
         const next = await recipe(draft)
         await Bun.write(path.join(ENV.PREEMDECK_ROOT, "preemdeck.json"), `${JSON.stringify(next, null, 2)}\n`)
+    }
+}
+
+/**
+ * Whether a dock notification `key` is enabled, with default-on semantics: an
+ * absent `notify`, `notify: true`, a non-object value, or an omitted key all read
+ * as enabled; only an explicit `false` — the whole `notify`, or that one key —
+ * turns it off.
+ */
+export const notifyEnabled = (cfg: Config, key: NotifyKey): boolean => {
+    const n = cfg.notify
+    if (n === false) return false
+    if (n === null || typeof n !== "object" || Array.isArray(n)) return true
+    return n[key] !== false
+}
+
+/**
+ * Read preemdeck.json and resolve {@link notifyEnabled} for `key`. Fail-open: any
+ * read or parse error resolves `true`, so a missing or malformed config never
+ * silently swallows a notification.
+ */
+export const isNotifyEnabled = async (key: NotifyKey): Promise<boolean> => {
+    try {
+        return notifyEnabled(await config.read(), key)
+    } catch {
+        return true
     }
 }
 

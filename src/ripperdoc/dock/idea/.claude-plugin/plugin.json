@@ -46,6 +46,18 @@
           }
         ]
       }
+    ],
+    "Notification": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "$HOME/.preemdeck/preemdeck-runtime \"$HOME/.preemdeck/src/ripperdoc/dock/idea/toolbox/permission-notify.ts\" Claude",
+            "timeout": 5
+          }
+        ]
+      }
     ]
   }
 }
