@@ -46,8 +46,8 @@ So before relying on these, confirm you're in a JetBrains terminal with `in-idea
 
 The tools live in the plugin's `toolbox/` dir and are run through the **preemdeck-runtime shim** by **absolute path**.
 The shim (`$HOME/.preemdeck/preemdeck-runtime`) runs the bundled Bun runtime against the `.ts` tool. The tools live at
-the absolute source path `$HOME/.preemdeck/src/ripperdoc/dock/idea/toolbox` so it works from any working directory —
-the run is **cwd-independent** (you do _not_ need to `cd` into the toolbox):
+the absolute source path `$HOME/.preemdeck/src/ripperdoc/dock/idea/toolbox` so it works from any working directory — the
+run is **cwd-independent** (you do _not_ need to `cd` into the toolbox):
 
 ```bash
 "$HOME/.preemdeck/preemdeck-runtime" "$HOME/.preemdeck/src/ripperdoc/dock/idea/toolbox/<tool>.ts" [args…]
