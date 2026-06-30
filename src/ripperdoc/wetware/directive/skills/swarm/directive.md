@@ -28,6 +28,9 @@ Never dispatch on a guess. Scout the real surface, plan the whole decomposition,
   - ordered steps, each feeding the next → relay: one subagent per step, handed a compact baton (contract / done /
     left), never the transcript
   - many-item fan-out → propose a batch pipeline (needs opt-in)
+- **Respect the host's recursion depth.** How deep the decomposition can nest is a host constraint, not a free choice —
+  some hosts let a subagent spawn its own; others cap it at one level or forbid it outright, forcing a flat fan-out from
+  you. Shape the tree to what the host allows.
 
 ### Avoid
 

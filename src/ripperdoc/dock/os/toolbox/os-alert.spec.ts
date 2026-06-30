@@ -15,9 +15,15 @@ import { alertTitle, isIdleNotification, notificationMessage } from "./os-alert"
 const context = describe
 
 describe("notificationMessage", () => {
-    it("returns the host's message text", () => {
+    it("returns the host's message text (Claude `message`)", () => {
         expect(notificationMessage({ message: "Claude needs your permission to use Bash" })).toBe(
             "Claude needs your permission to use Bash"
+        )
+    })
+
+    it("reads the same `message` field on Gemini (ToolPermission notification)", () => {
+        expect(notificationMessage({ message: "Gemini needs your approval to run a command" })).toBe(
+            "Gemini needs your approval to run a command"
         )
     })
 
@@ -93,6 +99,18 @@ describe("os-alert CLI", () => {
         it("reads a Notification payload, exits 0, and writes nothing under --dry-run", async () => {
             const payload = JSON.stringify({ cwd: "/work/acme", message: "Claude needs your permission to use Bash" })
             const { code, stdout, stderr } = await run(["--dry-run", "Claude"], payload)
+            expect(code).toBe(0)
+            expect(stdout).toBe("")
+            expect(stderr).toBe("")
+        })
+
+        it("reads a Gemini ToolPermission Notification payload and exits 0 under --dry-run", async () => {
+            const payload = JSON.stringify({
+                cwd: "/work/acme",
+                notification_type: "ToolPermission",
+                message: "Gemini needs your approval to run a command"
+            })
+            const { code, stdout, stderr } = await run(["--dry-run", "Gemini"], payload)
             expect(code).toBe(0)
             expect(stdout).toBe("")
             expect(stderr).toBe("")

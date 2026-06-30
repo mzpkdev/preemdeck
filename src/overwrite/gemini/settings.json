@@ -1,33 +1,38 @@
 {
-  "thinkingBudget": 32768,
-  "coreTools": [
-    "ReadFileTool",
-    "WriteFileTool",
-    "ReplaceTool",
-    "GrepTool",
-    "GlobTool",
-    "ShellTool",
-    "WebFetchTool",
-    "GoogleSearchTool"
-  ],
-  "excludeTools": [
-    "ShellTool(rm -rf /)",
-    "ShellTool(rm -rf ~)",
-    "ShellTool(rm -rf .)",
-    "ShellTool(sudo)",
-    "ShellTool(git push --force)",
-    "ShellTool(git reset --hard)",
-    "ShellTool(git clean -fd)",
-    "ShellTool(git branch -D)",
-    "ShellTool(chmod -R 777)",
-    "ShellTool(chmod 777)",
-    "ShellTool(curl | bash)",
-    "ShellTool(curl | sh)",
-    "ShellTool(wget | bash)",
-    "ShellTool(wget | sh)"
-  ],
-  "autoAccept": true,
-  "contextFileName": "AGENTS.md",
+  "general": {
+    "defaultApprovalMode": "auto_edit"
+  },
+  "context": {
+    "fileName": "AGENTS.md"
+  },
+  "tools": {
+    "core": [
+      "read_file",
+      "write_file",
+      "replace",
+      "grep_search",
+      "glob",
+      "run_shell_command",
+      "web_fetch",
+      "google_web_search"
+    ],
+    "exclude": [
+      "run_shell_command(rm -rf /)",
+      "run_shell_command(rm -rf ~)",
+      "run_shell_command(rm -rf .)",
+      "run_shell_command(sudo)",
+      "run_shell_command(git push --force)",
+      "run_shell_command(git reset --hard)",
+      "run_shell_command(git clean -fd)",
+      "run_shell_command(git branch -D)",
+      "run_shell_command(chmod -R 777)",
+      "run_shell_command(chmod 777)",
+      "run_shell_command(curl | bash)",
+      "run_shell_command(curl | sh)",
+      "run_shell_command(wget | bash)",
+      "run_shell_command(wget | sh)"
+    ]
+  },
   "experimental": {
     "autoMemory": false
   }

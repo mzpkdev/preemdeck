@@ -4,6 +4,9 @@ Use `spawn_agent`. Required: `agent: "fixer"` and `instruction` (the full self-c
 `fork_turns: false` starts fresh; `fork_turns: true` (the default) inherits session history but rejects `agent_type` /
 `model` / `reasoning_effort` overrides.
 
+Codex defaults to `[agents] max_depth = 1` (root at depth 0, one child level). Keep the swarm shallow — fan out from the
+root; a spawned agent can't spawn another unless that cap is raised.
+
 ### Batch fan-out
 
 `spawn_agents_on_csv` spawns one worker per CSV row, each paired with a `report_agent_job_result` call. Supports

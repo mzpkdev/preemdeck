@@ -1,40 +1,89 @@
-import { readFileSync } from "node:fs"
+import { createHash } from "node:crypto"
+import { mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs"
+import { join } from "node:path"
+import { ENV } from "./preemdeck"
 
-type Row = { type?: string; isMeta?: boolean; isSidechain?: boolean; message?: { content?: unknown } }
+/**
+ * Host-agnostic per-session turn counter backing {@link throttle}.
+ *
+ * The old throttle parsed Claude's `.jsonl` transcript to count user prompts —
+ * Codex/Gemini use a different schema, so it failed open and injected on every
+ * turn there. Instead we keep a tiny integer counter per session under
+ * `~/.preemdeck/.state/<key>` and inject on a cadence boundary. The hook stdin
+ * `session_id` (present on all three hosts, see how-to-create-hooks/HOOK_CONTRACT.md)
+ * is the session key; env vars and finally `ppid:cwd` are fallbacks so a missing
+ * id degrades to a stable per-process-tree counter rather than crashing.
+ */
 
-const read = (path: string): string => {
+/** `~/.preemdeck/.state` — resolved per call so an ENV.PREEMDECK_ROOT override (tests) is honored. */
+const stateDir = (): string => join(ENV.PREEMDECK_ROOT, ".state")
+
+/**
+ * A stable, filesystem-safe filename for `key`. The raw key is host-supplied
+ * (a `session_id`, or `ppid:cwd`) and could contain path separators, so it's
+ * hashed — the digest can't traverse out of the state dir and collides only on
+ * a genuine SHA-256 clash.
+ */
+const keyFile = (key: string): string => join(stateDir(), createHash("sha256").update(key).digest("hex").slice(0, 32))
+
+/**
+ * Derive the session key from the hook payload, then env, then a process-tree
+ * fallback. `session_id` rides every host's hook stdin; `*_SESSION_ID` env vars
+ * cover a few hosts; `ppid:cwd` is the last resort so concurrent unrelated
+ * sessions still get distinct counters and nothing ever throws.
+ */
+export const sessionKey = (payload: Record<string, unknown>): string => {
+    const fromPayload = payload.session_id
+    if (typeof fromPayload === "string" && fromPayload.length > 0) return fromPayload
+    const env = process.env
+    const fromEnv = env.CLAUDE_SESSION_ID || env.GEMINI_SESSION_ID || env.CODEX_SESSION_ID
+    if (fromEnv) return fromEnv
+    return `pid:${process.ppid}:${process.cwd()}`
+}
+
+/** Read the current count for `file`; 0 when absent or unparseable. */
+const readCount = (file: string): number => {
     try {
-        return readFileSync(path, "utf8")
+        const n = Number.parseInt(readFileSync(file, "utf8"), 10)
+        return Number.isInteger(n) && n >= 0 ? n : 0
     } catch {
-        return ""
+        return 0
     }
 }
 
-const parse = (line: string): Row | null => {
+/**
+ * Persist `count` to `file` as atomically as a hook can manage: write a
+ * pid-tagged temp sibling, then rename it over the target (rename is atomic on a
+ * POSIX filesystem). Concurrent hook invocations may still interleave their
+ * read-modify-write — that's tolerated, worst case is one extra or skipped inject,
+ * never a crash. The temp tag keeps two racing writers off the same temp path.
+ */
+const writeCount = (file: string, count: number): void => {
     try {
-        return JSON.parse(line)
+        mkdirSync(stateDir(), { recursive: true })
+        const tmp = `${file}.${process.pid}.tmp`
+        writeFileSync(tmp, String(count))
+        renameSync(tmp, file)
     } catch {
-        return null
+        // A read-only or racing filesystem must not break the hook; skip persistence.
     }
 }
 
-const promptText = (row: Row | null): string | null => {
-    if (row?.type !== "user" || row.isMeta || row.isSidechain) return null
-    const content = row.message?.content
-    return typeof content === "string" ? content : null
-}
-
-// TODO: Claude-only — Codex/Gemini transcripts use a different schema, so throttle
-// there fails open (injects every turn) until per-host readers are added.
+/**
+ * Whether this turn is a cadence boundary for its session: true on the 1st turn
+ * and every `every`th after (`(count - 1) % every === 0`). Increments the
+ * session's counter as a side effect. `every` is clamped to >= 1, so `every === 1`
+ * fires every turn. Never throws — any IO failure falls back to firing (the safe
+ * default, matching the old fail-open behavior).
+ */
 export const throttle = (payload: Record<string, unknown>, every: number): boolean => {
-    const transcriptPath = typeof payload.transcript_path === "string" ? payload.transcript_path : ""
-    const prompt = typeof payload.prompt === "string" ? payload.prompt : ""
-    const prompts = read(transcriptPath)
-        .split("\n")
-        .map((line) => promptText(parse(line)))
-        .filter((text): text is string => text !== null)
-    const last = prompts.at(-1)
-    const written = last !== undefined && (!prompt || last.trim() === prompt.trim())
-    const index = written ? prompts.length : prompts.length + 1
-    return (index - 1) % Math.max(1, every) === 0
+    const step = Math.max(1, every)
+    try {
+        const file = keyFile(sessionKey(payload))
+        const count = readCount(file) + 1
+        writeCount(file, count)
+        return (count - 1) % step === 0
+    } catch {
+        return true
+    }
 }

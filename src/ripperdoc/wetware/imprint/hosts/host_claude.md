@@ -31,8 +31,9 @@ agents (routines).
 
 ### Multi-agent comms
 
-`TeamCreate` + `SendMessage` + `TeamDelete` for peer-to-peer comms between agents. No batch fan-out tool — spawn
-parallel `Agent` calls.
+One implicit team per session — no setup call. Spawn a named teammate by passing `name:` to the `Agent` tool;
+`SendMessage` redirects a running teammate by name. No batch fan-out tool — spawn parallel `Agent` calls. Subagents may
+nest deeply, so swarm recursion is fine.
 
 ### Worktrees
 

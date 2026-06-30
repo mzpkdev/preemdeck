@@ -7,8 +7,8 @@ sandbox_mode           = "workspace-write"
 model_reasoning_effort = "high"
 
 [features]
-plugin_hooks = true
-memories     = false
+hooks    = true
+memories = false
 
 [agents]
 max_threads = 6

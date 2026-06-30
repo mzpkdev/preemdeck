@@ -299,13 +299,16 @@ export async function installPlugin(
 }
 
 /**
- * Install (or refresh) a Gemini extension from its local source. `install --path`
- * creates it on first run but no-ops once present — so on "already installed" fall
- * back to `extensions update <name>` to re-sync from the local source. Takes effect
- * next CLI start.
+ * Install (or refresh) a Gemini extension from its local source. The source is a
+ * POSITIONAL — `extensions install <path>` (there is no `--path` flag on 0.49). `--consent`
+ * skips the security confirmation prompt (required for a non-interactive install) and
+ * `--skip-settings` skips the on-install configuration step. The install creates the
+ * extension on first run but no-ops once present — so on "already installed" fall back to
+ * `extensions update <name>` to re-sync from the local source. Takes effect next CLI start.
  */
 async function installGeminiExtension(spec: PluginSpec, dryRun: boolean): Promise<[boolean, string]> {
-  const [ok, err] = await runCli(["gemini", "extensions", "install", "--path", spec.sourcePath], dryRun);
+  const cmd = ["gemini", "extensions", "install", spec.sourcePath, "--consent", "--skip-settings"];
+  const [ok, err] = await runCli(cmd, dryRun);
   if (ok) {
     return [ok, err];
   }

@@ -118,12 +118,6 @@ describe("inject-mode", () => {
         afterEach(() => {
             if (restore) Object.defineProperty(ENV, "PREEMDECK_ROOT", restore)
         })
-        const writeTranscript = async (prompts: string[]): Promise<string> => {
-            const file = join(dir, "transcript.jsonl")
-            const lines = prompts.map((p) => JSON.stringify({ type: "user", message: { content: p } }))
-            await writeFile(file, lines.join("\n"))
-            return file
-        }
         async function emit(opts: { stdin?: string; event?: string; every?: number } = {}): Promise<string> {
             const cliEvent = opts.event ?? "UserPromptSubmit"
             const every = opts.every ?? DEFAULT_EVERY
@@ -210,25 +204,24 @@ describe("inject-mode", () => {
         it("injects on the 1st prompt of a session (throttle cadence)", async () => {
             await writeCfg('{"directive":{"strategy":"swarm"}}')
             await writeSkill(skillsDir, "swarm", "swarm body")
-            const tp = await writeTranscript(["p1"])
-            const out = await emit({ stdin: JSON.stringify({ transcript_path: tp, prompt: "p1" }), every: 5 })
+            const out = await emit({ stdin: JSON.stringify({ session_id: "s" }), every: 5 })
             expect(JSON.parse(out).hookSpecificOutput.additionalContext).toBe("swarm body")
         })
 
         it("is a no-op on an off-cadence prompt (2nd with every=5)", async () => {
             await writeCfg('{"directive":{"strategy":"swarm"}}')
             await writeSkill(skillsDir, "swarm", "swarm body")
-            const tp = await writeTranscript(["p1", "p2"])
-            const out = await emit({ stdin: JSON.stringify({ transcript_path: tp, prompt: "p2" }), every: 5 })
+            await emit({ stdin: JSON.stringify({ session_id: "s" }), every: 5 }) // 1st turn
+            const out = await emit({ stdin: JSON.stringify({ session_id: "s" }), every: 5 }) // 2nd turn
             expect(out).toBe("{}")
         })
 
         it("injects again on the cadence boundary (6th with every=5)", async () => {
             await writeCfg('{"directive":{"strategy":"swarm"}}')
             await writeSkill(skillsDir, "swarm", "swarm body")
-            const tp = await writeTranscript(["p1", "p2", "p3", "p4", "p5", "p6"])
-            const out = await emit({ stdin: JSON.stringify({ transcript_path: tp, prompt: "p6" }), every: 5 })
-            expect(JSON.parse(out).hookSpecificOutput.additionalContext).toBe("swarm body")
+            let out = ""
+            for (let i = 0; i < 6; i++) out = await emit({ stdin: JSON.stringify({ session_id: "s" }), every: 5 })
+            expect(JSON.parse(out).hookSpecificOutput.additionalContext).toBe("swarm body") // 6th fires
         })
     })
 })

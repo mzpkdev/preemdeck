@@ -1,65 +1,95 @@
 import { afterEach, beforeEach, describe, expect, it } from "bun:test"
-import { mkdtemp, rm, writeFile } from "node:fs/promises"
+import { mkdtemp, readdir, rm } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
-import { throttle } from "./hooks"
+import { sessionKey, throttle } from "./hooks"
+import { ENV } from "./preemdeck"
+
+const context = describe
 
 let dir = ""
-let counter = 0
+let restore: PropertyDescriptor | undefined
 
 beforeEach(async () => {
     dir = await mkdtemp(join(tmpdir(), "preemdeck-hooks-"))
+    // throttle persists counters under ENV.PREEMDECK_ROOT/.state — redirect it at the tmp dir.
+    restore = Object.getOwnPropertyDescriptor(ENV, "PREEMDECK_ROOT")
+    Object.defineProperty(ENV, "PREEMDECK_ROOT", { configurable: true, get: () => dir })
 })
 afterEach(async () => {
+    if (restore) Object.defineProperty(ENV, "PREEMDECK_ROOT", restore)
     await rm(dir, { recursive: true, force: true })
 })
 
-const userRow = (content: unknown, extra: object = {}) =>
-    JSON.stringify({ type: "user", message: { role: "user", content }, ...extra })
-const toolResultRow = () =>
-    JSON.stringify({ type: "user", message: { role: "user", content: [{ type: "tool_result", content: "x" }] } })
-const writeTranscript = async (...rows: string[]): Promise<string> => {
-    const p = join(dir, `t${counter++}.jsonl`)
-    await writeFile(p, `${rows.join("\n")}\n`)
-    return p
-}
-
-describe("throttle (every-Nth user prompt, from the transcript)", () => {
-    it("fires on prompts 1, N+1, 2N+1 as the transcript grows", async () => {
+describe("throttle (host-agnostic per-session turn counter)", () => {
+    it("fires on turns 1, N+1, 2N+1 as the same session's counter grows", () => {
         const hits: boolean[] = []
-        const prompts: string[] = []
-        for (let i = 1; i <= 7; i++) {
-            prompts.push(`p${i}`)
-            const tp = await writeTranscript(...prompts.map((p) => userRow(p)))
-            hits.push(throttle({ transcript_path: tp, prompt: `p${i}` }, 3)) // current already written
-        }
+        for (let i = 0; i < 7; i++) hits.push(throttle({ session_id: "s" }, 3))
         expect(hits).toEqual([true, false, false, true, false, false, true])
     })
 
-    it("counts the current prompt even when it isn't flushed to the transcript yet", async () => {
-        const empty = await writeTranscript() // first prompt, not yet written
-        expect(throttle({ transcript_path: empty, prompt: "p1" }, 5)).toBe(true) // index 1
-        const five = await writeTranscript(...["p1", "p2", "p3", "p4", "p5"].map((p) => userRow(p)))
-        expect(throttle({ transcript_path: five, prompt: "p6" }, 5)).toBe(true) // unwritten 6th → index 6
+    it("injects on the 1st turn and every 5th with the default cadence", () => {
+        const hits: boolean[] = []
+        for (let i = 0; i < 11; i++) hits.push(throttle({ session_id: "s" }, 5))
+        // turn 1, 6, 11 fire; the rest are no-ops.
+        expect(hits).toEqual([true, false, false, false, false, true, false, false, false, false, true])
     })
 
-    it("counts real prompts only — tool results and subagent rows don't inflate the index", async () => {
-        const tp = await writeTranscript(
-            userRow("p1"),
-            toolResultRow(),
-            userRow("sub", { isSidechain: true }),
-            toolResultRow()
-        )
-        expect(throttle({ transcript_path: tp, prompt: "p2" }, 5)).toBe(false) // one real prompt → index 2
+    it("isolates the counter by session key — two sessions don't share a cadence", () => {
+        expect(throttle({ session_id: "a" }, 5)).toBe(true) // a: turn 1
+        expect(throttle({ session_id: "a" }, 5)).toBe(false) // a: turn 2
+        expect(throttle({ session_id: "b" }, 5)).toBe(true) // b: turn 1, independent
+        expect(throttle({ session_id: "a" }, 5)).toBe(false) // a: turn 3
+        expect(throttle({ session_id: "b" }, 5)).toBe(false) // b: turn 2
     })
 
-    it("fires every turn when N is 1", async () => {
-        const tp = await writeTranscript(userRow("p1"), userRow("p2"))
-        expect(throttle({ transcript_path: tp, prompt: "p2" }, 1)).toBe(true)
+    it("fires every turn when every is 1", () => {
+        expect(throttle({ session_id: "s" }, 1)).toBe(true)
+        expect(throttle({ session_id: "s" }, 1)).toBe(true)
+        expect(throttle({ session_id: "s" }, 1)).toBe(true)
     })
 
-    it("fails open (fires) when the transcript is missing or absent from the payload", () => {
-        expect(throttle({ transcript_path: "/nonexistent/t.jsonl", prompt: "p" }, 5)).toBe(true)
-        expect(throttle({}, 5)).toBe(true)
+    it("clamps a non-positive cadence to fire-every-turn rather than dividing by zero", () => {
+        expect(throttle({ session_id: "s" }, 0)).toBe(true)
+        expect(throttle({ session_id: "s" }, 0)).toBe(true)
+    })
+
+    it("persists exactly one counter file per session key", async () => {
+        throttle({ session_id: "one" }, 5)
+        throttle({ session_id: "one" }, 5)
+        throttle({ session_id: "two" }, 5)
+        const files = await readdir(join(dir, ".state"))
+        expect(files).toHaveLength(2)
+    })
+
+    context("when no session_id rides the payload", () => {
+        it("still increments a stable fallback counter rather than crashing", () => {
+            // Same (empty) payload each call → same ppid:cwd fallback key → one growing counter.
+            const hits = [throttle({}, 3), throttle({}, 3), throttle({}, 3), throttle({}, 3)]
+            expect(hits).toEqual([true, false, false, true])
+        })
+
+        it("prefers a *_SESSION_ID env var over the ppid:cwd fallback", () => {
+            const saved = process.env.CLAUDE_SESSION_ID
+            process.env.CLAUDE_SESSION_ID = "env-session"
+            try {
+                expect(sessionKey({})).toBe("env-session")
+                expect(throttle({}, 5)).toBe(true) // turn 1 for env-session
+                expect(throttle({}, 5)).toBe(false) // turn 2, same env key
+            } finally {
+                if (saved === undefined) delete process.env.CLAUDE_SESSION_ID
+                else process.env.CLAUDE_SESSION_ID = saved
+            }
+        })
+    })
+
+    context("deriving the session key", () => {
+        it("uses the payload session_id when present", () => {
+            expect(sessionKey({ session_id: "abc123" })).toBe("abc123")
+        })
+        it("ignores a non-string or empty session_id and falls back", () => {
+            expect(sessionKey({ session_id: 42 })).toContain("pid:")
+            expect(sessionKey({ session_id: "" })).toContain("pid:")
+        })
     })
 })

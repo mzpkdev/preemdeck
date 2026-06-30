@@ -550,16 +550,18 @@ describe("install", () => {
             expect(spawnCalls()).toEqual([["codex", "plugin", "add", "format@chrome"]])
         })
 
-        it("gemini uses extensions install --path", async () => {
+        it("gemini installs from a positional source with --consent --skip-settings", async () => {
             await installPlugin("gemini", spec, "chrome", false)
-            expect(spawnCalls()).toEqual([["gemini", "extensions", "install", "--path", "/some/rack/format"]])
+            expect(spawnCalls()).toEqual([
+                ["gemini", "extensions", "install", "/some/rack/format", "--consent", "--skip-settings"]
+            ])
         })
 
         it("gemini falls back to `extensions update` when already installed", async () => {
             spawnSpy.mockImplementation(() => fakeChild("", 1, "extension already installed"))
             await installPlugin("gemini", spec, "chrome", false)
             expect(spawnCalls()).toEqual([
-                ["gemini", "extensions", "install", "--path", "/some/rack/format"],
+                ["gemini", "extensions", "install", "/some/rack/format", "--consent", "--skip-settings"],
                 ["gemini", "extensions", "update", "format"]
             ])
         })
