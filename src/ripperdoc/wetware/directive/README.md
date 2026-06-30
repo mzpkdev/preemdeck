@@ -35,15 +35,15 @@ Two slots ship, on independent axes:
 ```json
 {
   "directive": {
-    "strategy": "",
-    "discretion": ""
+    "strategy": "swarm",
+    "discretion": "ask"
   }
 }
 ```
 
-An empty value is **neutral** — that slot injects nothing. Both empty (the shipped default) means the hook is inert
-until you set a mode. The slots compose: `strategy=swarm` + `discretion=auto` = fan out fixers and drive to done without
-checking in.
+An empty value is **neutral** — that slot injects nothing. `install.ts` seeds the default above (`strategy: swarm` +
+`discretion: ask`), so directives are active out of the box; clear a slot to `""` to silence it. The slots compose:
+`strategy=swarm` + `discretion=auto` = fan out fixers and drive to done without checking in.
 
 The mode skills are **user-invocable and never model-invoked** (`disable-model-invocation`, mirrored on Codex via
 `agents/openai.yaml`) — a directive is set by you, never auto-selected. `set-mode.ts` is the only writer of
