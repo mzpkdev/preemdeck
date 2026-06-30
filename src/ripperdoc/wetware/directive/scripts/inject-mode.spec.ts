@@ -9,7 +9,15 @@ import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { runInjectionHook } from "../../../../common/hook-inject"
 import { ENV } from "../../../../common/preemdeck"
-import { extractEvent, loadModeText, renderBodies, selectVariants } from "./inject-mode"
+import {
+    DEFAULT_EVERY,
+    extractEvent,
+    extractEvery,
+    loadModeText,
+    renderBodies,
+    renderGate,
+    selectVariants
+} from "./inject-mode"
 
 const context = describe
 
@@ -83,6 +91,21 @@ describe("inject-mode", () => {
         })
     })
 
+    context("extracting the every flag", () => {
+        it("returns the value after the first --every", () => {
+            expect(extractEvery(["--every", "5", "x"])).toBe(5)
+        })
+        it("accepts the inline --every=<n> form", () => {
+            expect(extractEvery(["--every=3"])).toBe(3)
+        })
+        it("is null when absent, dangling, or non-positive (caller falls back to DEFAULT_EVERY)", () => {
+            expect(extractEvery(["x"])).toBeNull()
+            expect(extractEvery(["--every"])).toBeNull()
+            expect(extractEvery(["--every", "0"])).toBeNull()
+            expect(extractEvery(["--every", "abc"])).toBeNull()
+        })
+    })
+
     context("running the main pipeline (renderBodies + envelope)", () => {
         // renderBodies reads preemdeck.json from ENV.PREEMDECK_ROOT; point it at the fixture dir.
         let skillsDir = ""
@@ -95,8 +118,15 @@ describe("inject-mode", () => {
         afterEach(() => {
             if (restore) Object.defineProperty(ENV, "PREEMDECK_ROOT", restore)
         })
-        async function emit(opts: { stdin?: string; event?: string } = {}): Promise<string> {
+        const writeTranscript = async (prompts: string[]): Promise<string> => {
+            const file = join(dir, "transcript.jsonl")
+            const lines = prompts.map((p) => JSON.stringify({ type: "user", message: { content: p } }))
+            await writeFile(file, lines.join("\n"))
+            return file
+        }
+        async function emit(opts: { stdin?: string; event?: string; every?: number } = {}): Promise<string> {
             const cliEvent = opts.event ?? "UserPromptSubmit"
+            const every = opts.every ?? DEFAULT_EVERY
             let out = ""
             const bodies = await renderBodies(skillsDir)
             await runInjectionHook({
@@ -105,7 +135,7 @@ describe("inject-mode", () => {
                 write: (l) => {
                     out = l
                 },
-                render: () => bodies
+                render: renderGate(bodies, every)
             })
             return out
         }
@@ -175,6 +205,30 @@ describe("inject-mode", () => {
             await writeSkill(skillsDir, "swarm", "swarm body")
             const out = await emit({ stdin: '{"hook_event_name":"FromStdin"}', event: "BeforeAgent" })
             expect(JSON.parse(out).hookSpecificOutput.hookEventName).toBe("FromStdin")
+        })
+
+        it("injects on the 1st prompt of a session (throttle cadence)", async () => {
+            await writeCfg('{"directive":{"strategy":"swarm"}}')
+            await writeSkill(skillsDir, "swarm", "swarm body")
+            const tp = await writeTranscript(["p1"])
+            const out = await emit({ stdin: JSON.stringify({ transcript_path: tp, prompt: "p1" }), every: 5 })
+            expect(JSON.parse(out).hookSpecificOutput.additionalContext).toBe("swarm body")
+        })
+
+        it("is a no-op on an off-cadence prompt (2nd with every=5)", async () => {
+            await writeCfg('{"directive":{"strategy":"swarm"}}')
+            await writeSkill(skillsDir, "swarm", "swarm body")
+            const tp = await writeTranscript(["p1", "p2"])
+            const out = await emit({ stdin: JSON.stringify({ transcript_path: tp, prompt: "p2" }), every: 5 })
+            expect(out).toBe("{}")
+        })
+
+        it("injects again on the cadence boundary (6th with every=5)", async () => {
+            await writeCfg('{"directive":{"strategy":"swarm"}}')
+            await writeSkill(skillsDir, "swarm", "swarm body")
+            const tp = await writeTranscript(["p1", "p2", "p3", "p4", "p5", "p6"])
+            const out = await emit({ stdin: JSON.stringify({ transcript_path: tp, prompt: "p6" }), every: 5 })
+            expect(JSON.parse(out).hookSpecificOutput.additionalContext).toBe("swarm body")
         })
     })
 })

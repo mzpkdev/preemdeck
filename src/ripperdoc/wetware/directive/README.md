@@ -20,9 +20,10 @@ skills/default/
   same.)
 - **Show a directive** — `/swarm`, `/team`, `/ask`, `/auto` each run `show-mode.ts <mode>`, printing that mode's
   `directive.md` verbatim. They write nothing. (On Gemini, the equivalent `commands/<mode>.toml` does the same.)
-- **Hook (apply it)** — every prompt, `inject-mode.ts` reads the `directive` object from the root `preemdeck.json` and
-  injects each active slot's `directive.md` body, concatenated in slot order. Wired on all three hosts
-  (`UserPromptSubmit` on Claude/Codex, `BeforeAgent` on Gemini).
+- **Hook (apply it)** — on a session's 1st prompt and then every 5th (throttled, `--every` overridable; no digest
+  companion), `inject-mode.ts` reads the `directive` object from the root `preemdeck.json` and injects each active
+  slot's `directive.md` body, concatenated in slot order. Wired on all three hosts (`UserPromptSubmit` on Claude/Codex,
+  `BeforeAgent` on Gemini).
 
 Two slots ship, on independent axes:
 
