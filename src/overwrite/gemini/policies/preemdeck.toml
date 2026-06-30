@@ -1,0 +1,41 @@
+# preemdeck dangerous-command guardrails.
+#
+# Migrated from the deprecated `tools.exclude` block in settings.json — gemini
+# 0.49 warns that `tools.exclude` "is deprecated and will be removed in 1.0.
+# Migrate to Policy Engine" (https://geminicli.com/docs/core/policy-engine/).
+#
+# The overlay copies this file to ~/.gemini/policies/preemdeck.toml, which the
+# CLI auto-loads at the User tier (base 4). `deny` rules block the command
+# outright; for global rules the tool is also hidden from the model. These
+# rules mirror the previous excludes one-for-one.
+
+# Destructive / privileged shell commands.
+[[rule]]
+toolName = "run_shell_command"
+commandPrefix = [
+  "rm -rf /",
+  "rm -rf ~",
+  "rm -rf .",
+  "sudo",
+  "chmod -R 777",
+  "chmod 777",
+]
+decision = "deny"
+priority = 100
+denyMessage = "Blocked by preemdeck guardrail: destructive or privileged command."
+
+# Destructive git commands (force push, hard reset, clean, branch delete).
+[[rule]]
+toolName = "run_shell_command"
+commandRegex = "git (push --force|reset --hard|clean -fd|branch -D)"
+decision = "deny"
+priority = 100
+denyMessage = "Blocked by preemdeck guardrail: destructive git command."
+
+# Pipe-to-shell installers (curl|bash, curl|sh, wget|bash, wget|sh).
+[[rule]]
+toolName = "run_shell_command"
+commandRegex = "(curl|wget).*\\|\\s*(bash|sh)\\b"
+decision = "deny"
+priority = 100
+denyMessage = "Blocked by preemdeck guardrail: piping a download straight into a shell."

@@ -15,22 +15,6 @@
       "run_shell_command",
       "web_fetch",
       "google_web_search"
-    ],
-    "exclude": [
-      "run_shell_command(rm -rf /)",
-      "run_shell_command(rm -rf ~)",
-      "run_shell_command(rm -rf .)",
-      "run_shell_command(sudo)",
-      "run_shell_command(git push --force)",
-      "run_shell_command(git reset --hard)",
-      "run_shell_command(git clean -fd)",
-      "run_shell_command(git branch -D)",
-      "run_shell_command(chmod -R 777)",
-      "run_shell_command(chmod 777)",
-      "run_shell_command(curl | bash)",
-      "run_shell_command(curl | sh)",
-      "run_shell_command(wget | bash)",
-      "run_shell_command(wget | sh)"
     ]
   },
   "experimental": {
