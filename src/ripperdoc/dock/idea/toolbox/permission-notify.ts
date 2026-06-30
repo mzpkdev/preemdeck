@@ -1,15 +1,16 @@
 #!/usr/bin/env bun
 /**
- * permission-notify.ts — pop a balloon the moment the host blocks for the user:
- * a tool-permission / access prompt, or an idle wait. Neither the Stop hook nor
- * ask-notify covers this — a permission gate is host-driven (not a turn end, not a
- * model-issued AskUserQuestion), so it rides its own event:
+ * permission-notify.ts — pop a balloon the moment the host blocks for the user on
+ * a tool-permission / access prompt. Neither the Stop hook nor ask-notify covers
+ * this — a permission gate is host-driven (not a turn end, not a model-issued
+ * AskUserQuestion), so it rides its own event:
  *
  *     Claude  Notification  matcher ""  message   (the host's notification text)
  *
- * The `Notification` event fires when Claude needs permission to use a tool, or
- * when the prompt has sat idle — both are "look at the terminal" moments. The
- * balloon body is the host's own `message`, so it reads correctly either way.
+ * The `Notification` event ALSO fires the idle "waiting for your input" ping after
+ * ~60s of no input; that isn't an action item, so isIdleNotification filters it
+ * out and only permission/access prompts pop. The balloon body is the host's own
+ * `message`.
  *
  * Best-effort + SILENT by contract: a missing IDE, absent/foreign stdin, or any
  * notify error yields a no-op (run() catches internally and returns normally) so
@@ -43,6 +44,16 @@ export const notificationMessage = (data: HookData): string | null => {
 }
 
 /**
+ * Whether the payload is the idle "Claude is waiting for your input" ping the
+ * Notification event fires after ~60s of no input — NOT a permission/access
+ * prompt. Filtered so the balloon only pops when there's something to act on.
+ */
+export const isIdleNotification = (data: HookData): boolean => {
+    const message = data.message
+    return typeof message === "string" && /waiting for your input/i.test(message)
+}
+
+/**
  * Derive the balloon body (the host's message, or a generic fallback) and the
  * `<project>·<host>` title, then pop it broadcast to every window. No-op outside
  * a JetBrains IDE.
@@ -55,6 +66,9 @@ const emit = async (host: string): Promise<void> => {
         return // not inside a JetBrains IDE: nothing to pop, and no error
     }
     const data = await readHookInput()
+    if (isIdleNotification(data)) {
+        return // the idle "waiting for your input" ping, not a permission/access prompt
+    }
     const cwd = (data.cwd as string | undefined) || process.env.PWD
     const body = notificationMessage(data) ?? `${host} needs your attention`
     const titleText = title(host, cwd, null)
@@ -63,7 +77,7 @@ const emit = async (host: string): Promise<void> => {
 
 const command = defineCommand({
     name: "permission-notify",
-    description: "Pop a balloon when the host blocks for permission/access or goes idle (Notification).",
+    description: "Pop a balloon when the host blocks for permission/access (Notification; idle pings filtered).",
     arguments: [{ name: "host", description: "invoking host label (heads the title / fallback body)" }],
     run: async ({ host }) => {
         // Best-effort + SILENT by contract: a notification hook must never error or

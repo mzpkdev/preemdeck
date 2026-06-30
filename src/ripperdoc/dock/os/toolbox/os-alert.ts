@@ -1,16 +1,16 @@
 #!/usr/bin/env -S preemdeck-runtime
 /**
- * os-alert.ts — raise a desktop banner the moment the host blocks for the user: a
- * tool-permission / access prompt, or an idle wait. Wired on the Notification
- * event — a permission gate is host-driven (not a turn end), so the Stop-hook ding
- * never covers it.
+ * os-alert.ts — raise a desktop banner the moment the host blocks for the user on
+ * a tool-permission / access prompt. Wired on the Notification event — a
+ * permission gate is host-driven (not a turn end), so the Stop-hook ding never
+ * covers it.
  *
  *     Claude  Notification  matcher ""  message   (the host's notification text)
  *
  * Reads the host's `message` from the hook payload on stdin and pops it as an
- * OS-wide banner via os-notify. The `Notification` event fires when Claude needs
- * permission to use a tool, or when the prompt has sat idle — the body is the
- * host's own message, so it reads correctly either way.
+ * OS-wide banner via os-notify. The `Notification` event ALSO fires the idle
+ * "waiting for your input" ping after ~60s of no input; that isn't an action item,
+ * so isIdleNotification filters it out and only permission/access prompts pop.
  *
  * Best-effort + SILENT by contract: a missing notifier, absent/foreign stdin, or
  * any error yields a no-op (run() catches internally and exits 0) so the host
@@ -54,6 +54,16 @@ export const notificationMessage = (data: HookData): string | null => {
     return typeof message === "string" && message.trim() ? message.trim() : null
 }
 
+/**
+ * Whether the payload is the idle "Claude is waiting for your input" ping the
+ * Notification event fires after ~60s of no input — NOT a permission/access
+ * prompt. Filtered so the banner only pops when there's something to act on.
+ */
+export const isIdleNotification = (data: HookData): boolean => {
+    const message = data.message
+    return typeof message === "string" && /waiting for your input/i.test(message)
+}
+
 /** "<project> · <host>" when a cwd is known, else the bare host label. */
 export const alertTitle = (host: string, cwd: string | null | undefined): string => {
     const project = cwd ? path.basename(cwd) : ""
@@ -66,6 +76,9 @@ const emit = async (host: string): Promise<void> => {
         return // user disabled permission alerts via preemdeck.json notify.permission
     }
     const data = await readHookInput()
+    if (isIdleNotification(data)) {
+        return // the idle "waiting for your input" ping, not a permission/access prompt
+    }
     const cwd = (data.cwd as string | undefined) || process.env.PWD
     const body = notificationMessage(data) ?? `${host} needs your attention`
     await notify(body, alertTitle(host, cwd))
@@ -73,7 +86,8 @@ const emit = async (host: string): Promise<void> => {
 
 const command = defineCommand({
     name: "os-alert",
-    description: "Raise a desktop banner when the host blocks for permission/access or goes idle (Notification).",
+    description:
+        "Raise a desktop banner when the host blocks for permission/access (Notification; idle pings filtered).",
     arguments: [{ name: "host", description: "invoking host label (heads the title / fallback body)" }],
     run: async ({ host }) => {
         // Best-effort + SILENT by contract: a notification hook must never error or

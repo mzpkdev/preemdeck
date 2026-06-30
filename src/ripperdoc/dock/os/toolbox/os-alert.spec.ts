@@ -10,7 +10,7 @@
 
 import { describe, expect, it } from "bun:test"
 import * as path from "node:path"
-import { alertTitle, notificationMessage } from "./os-alert"
+import { alertTitle, isIdleNotification, notificationMessage } from "./os-alert"
 
 const context = describe
 
@@ -32,6 +32,24 @@ describe("notificationMessage", () => {
         ["a blank message string", { message: "   " }]
     ] as [string, Record<string, unknown>][])("returns null given %s", (_label, input) => {
         expect(notificationMessage(input)).toBeNull()
+    })
+})
+
+describe("isIdleNotification", () => {
+    it("is true for the idle 'waiting for your input' ping (case-insensitive)", () => {
+        expect(isIdleNotification({ message: "Claude is waiting for your input" })).toBe(true)
+        expect(isIdleNotification({ message: "WAITING FOR YOUR INPUT" })).toBe(true)
+    })
+
+    it("is false for a permission/access prompt", () => {
+        expect(isIdleNotification({ message: "Claude needs your permission to use Bash" })).toBe(false)
+    })
+
+    it.each([
+        ["no message field", {}],
+        ["a non-string message", { message: 42 }]
+    ] as [string, Record<string, unknown>][])("is false given %s", (_label, input) => {
+        expect(isIdleNotification(input)).toBe(false)
     })
 })
 
