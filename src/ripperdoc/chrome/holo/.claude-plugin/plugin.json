@@ -1,0 +1,9 @@
+{
+  "name": "holo",
+  "description": "Serve a rendered MDX plan as a live page over HTTP — a browser view of an agent's plan.",
+  "version": "0.0.0",
+  "author": {
+    "name": "preemdeck"
+  },
+  "keywords": ["chrome", "holo", "plan", "mdx", "http"]
+}

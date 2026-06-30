@@ -5,5 +5,13 @@
     "name": "preemdeck",
     "email": "preemdeck"
   },
-  "plugins": []
+  "plugins": [
+    {
+      "name": "holo",
+      "description": "Serve a rendered MDX plan as a live page over HTTP — a browser view of an agent's plan.",
+      "source": "./holo",
+      "version": "0.0.0",
+      "category": "chrome"
+    }
+  ]
 }

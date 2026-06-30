@@ -1,0 +1,169 @@
+/* style.css — holo's markdown stylesheet, matched to IntelliJ "New UI" Darcula's
+   markdown preview. Palette sampled directly from the IDE (bg #1e1f22, text
+   #bcbec3 — one color for headings, body, and code — panels #303235, dividers
+   and scrollbar thumb #4f5153). No framework, no per-element classes; element
+   selectors under .holo. Dark-only by design. */
+
+:root {
+  --holo-bg: #1e1f22;
+  --holo-fg: #bcbec3;
+  --holo-muted: #7a7e85;
+  --holo-link: #287bde;
+  --holo-code-bg: #303235;
+  --holo-border: #4f5153;
+  --holo-selection: #214283;
+  --holo-scrollbar: #4f5153;
+  --holo-scrollbar-hover: #5a5c5e;
+}
+
+body {
+  margin: 0;
+  background: var(--holo-bg);
+  color: var(--holo-fg);
+}
+
+::selection {
+  background: var(--holo-selection);
+}
+
+.holo {
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+  font-size: 13px;
+  line-height: 1.6;
+  word-wrap: break-word;
+}
+
+.holo h1,
+.holo h2,
+.holo h3,
+.holo h4 {
+  margin: 1.5em 0 0.6em;
+  font-weight: 600;
+  line-height: 1.25;
+}
+
+.holo h1 {
+  font-size: 2em;
+}
+
+.holo h2 {
+  font-size: 1.5em;
+}
+
+.holo h3 {
+  font-size: 1.25em;
+}
+
+.holo p {
+  margin: 0 0 1em;
+}
+
+.holo a {
+  color: var(--holo-link);
+  text-decoration: none;
+}
+
+.holo a:hover {
+  text-decoration: underline;
+}
+
+.holo ul,
+.holo ol {
+  margin: 0 0 1em;
+  padding-left: 2em;
+}
+
+.holo li {
+  margin: 0.25em 0;
+}
+
+.holo code {
+  padding: 0.15em 0.4em;
+  font-family: ui-monospace, SFMono-Regular, "SF Mono", "JetBrains Mono", Menlo, monospace;
+  font-size: 0.9em;
+  background: var(--holo-code-bg);
+  border-radius: 5px;
+}
+
+.holo pre {
+  margin: 0 0 1em;
+  padding: 1em;
+  overflow: auto;
+  background: var(--holo-code-bg);
+  border-radius: 8px;
+}
+
+.holo pre code {
+  padding: 0;
+  font-size: 0.875em;
+  background: none;
+}
+
+.holo blockquote {
+  margin: 0 0 1em;
+  padding: 0 1em;
+  color: var(--holo-muted);
+  border-left: 0.25em solid var(--holo-border);
+}
+
+.holo table {
+  display: block;
+  width: max-content;
+  max-width: 100%;
+  margin: 0 0 1em;
+  overflow: auto;
+  border-collapse: collapse;
+}
+
+.holo th,
+.holo td {
+  padding: 0.5em 0.9em;
+  border: 1px solid var(--holo-border);
+}
+
+.holo th {
+  font-weight: 600;
+  background: var(--holo-code-bg);
+}
+
+.holo hr {
+  margin: 1.5em 0;
+  border: 0;
+  border-top: 1px solid var(--holo-border);
+}
+
+.holo img {
+  max-width: 100%;
+}
+
+/* Scrollbars — IntelliJ New UI: slim solid #4f5153 pill thumb (inset via a
+   transparent border + padding-box clip), transparent track, no arrows. */
+::-webkit-scrollbar {
+  width: 12px;
+  height: 12px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--holo-scrollbar);
+  background-clip: padding-box;
+  border: 3px solid transparent;
+  border-radius: 8px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--holo-scrollbar-hover);
+  background-clip: padding-box;
+}
+
+::-webkit-scrollbar-corner {
+  background: transparent;
+}
+
+html {
+  scrollbar-width: thin;
+  scrollbar-color: var(--holo-scrollbar) transparent;
+}
