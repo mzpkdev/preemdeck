@@ -2,5 +2,5 @@
   "name": "directive",
   "version": "0.0.0",
   "description": "Swappable behavioral directive. A /directive command picks which directive a per-prompt hook injects as context.",
-  "hooks": "./hooks/hooks.json"
+  "hooks": "./.codex-plugin/hooks/hooks.json"
 }

@@ -12,5 +12,5 @@
     "auto-open",
     "acp"
   ],
-  "hooks": "./hooks/hooks.json"
+  "hooks": "./.codex-plugin/hooks/hooks.json"
 }

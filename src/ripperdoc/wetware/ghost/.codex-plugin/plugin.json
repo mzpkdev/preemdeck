@@ -13,6 +13,6 @@
     "identity",
     "ghost"
   ],
-  "hooks": "./hooks/hooks.json",
+  "hooks": "./.codex-plugin/hooks/hooks.json",
   "skills": "../skills/"
 }
