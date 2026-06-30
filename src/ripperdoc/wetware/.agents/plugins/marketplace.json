@@ -7,19 +7,16 @@
     {
       "name": "imprint",
       "source": "./imprint",
-      "policy": "allow",
       "category": "wetware"
     },
     {
       "name": "ghost",
       "source": "./ghost",
-      "policy": "allow",
       "category": "wetware"
     },
     {
       "name": "directive",
       "source": "./directive",
-      "policy": "allow",
       "category": "wetware"
     }
   ]
