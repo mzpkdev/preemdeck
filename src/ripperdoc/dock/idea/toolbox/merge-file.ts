@@ -3,7 +3,7 @@ import * as fs from "node:fs/promises"
 import * as path from "node:path"
 import { defineCommand, effect, execute } from "cmdore"
 import { assertIdea } from "./assert-idea"
-import { launch, reapLater } from "./core"
+import { focusProjectWindow, launch, reapLater } from "./core"
 import { mkstemp, resolveStrict } from "./tmp"
 
 /**
@@ -26,7 +26,8 @@ export const mergeFile = async (
     target: string,
     suggestion: string,
     base: string | null = null,
-    wait = false
+    wait = false,
+    cwd: string = process.cwd()
 ): Promise<string | null> => {
     const targetAbs = await resolveStrict(target)
     const suggestionAbs = await resolveStrict(suggestion)
@@ -43,6 +44,9 @@ export const mergeFile = async (
         baseAbs === null
             ? ["merge", targetAbs, suggestionAbs, output]
             : ["merge", targetAbs, suggestionAbs, baseAbs, output]
+    // The CLI `merge` frame can't be window-targeted by flag, so focus the
+    // terminal's window first (best-effort) and let the launcher attach there.
+    await effect(() => focusProjectWindow(cwd))
     const child = (await effect(() => launch(argv))) as Awaited<ReturnType<typeof launch>> | undefined
 
     if (!wait || child === undefined) {

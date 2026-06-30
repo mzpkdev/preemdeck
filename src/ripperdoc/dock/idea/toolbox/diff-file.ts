@@ -2,7 +2,7 @@
 import * as fs from "node:fs/promises"
 import { defineCommand, effect, execute } from "cmdore"
 import { assertIdea } from "./assert-idea"
-import { launch } from "./core"
+import { focusProjectWindow, launch } from "./core"
 import { resolveStrict } from "./tmp"
 
 /**
@@ -19,10 +19,18 @@ import { resolveStrict } from "./tmp"
  * await diffFile("src/app.ts", "src/app.next.ts") // show the diff, fire-and-forget
  * const left = await diffFile("src/app.ts", "src/app.next.ts", true) // block until closed, then read the LEFT pane
  */
-export const diffFile = async (target: string, suggestion: string, wait = false): Promise<string | null> => {
+export const diffFile = async (
+    target: string,
+    suggestion: string,
+    wait = false,
+    cwd: string = process.cwd()
+): Promise<string | null> => {
     const targetAbs = await resolveStrict(target)
     const suggestionAbs = await resolveStrict(suggestion)
     const args = ["diff", targetAbs, suggestionAbs]
+    // The CLI `diff` frame can't be window-targeted by flag, so focus the
+    // terminal's window first (best-effort) and let the launcher attach there.
+    await effect(() => focusProjectWindow(cwd))
     // 2-way always watches `target` (LEFT). launch() owns the native --wait.
     await effect(() => launch(args, { wait }))
     return wait ? await fs.readFile(targetAbs, { encoding: "utf8" }) : null

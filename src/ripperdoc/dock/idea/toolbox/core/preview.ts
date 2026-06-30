@@ -277,6 +277,99 @@ export const setPreview = async (path: string, cwd = "", deps: RunGroovyDeps = {
 }
 
 /**
+ * Groovy that opens `path` in the cwd-matched project's window and positions the
+ * caret. `path`/`cwd` are already-escaped Groovy literals; `line`/`column` are
+ * 0-based integer indices embedded directly. Mirrors `groovySetLayout`'s targeting
+ * (the SSOT `groovyProjectByCwd`) but skips the preview flip — the targeted open
+ * that replaces the untargeted CLI launcher on the fire-and-forget path. The caret
+ * move is guarded on a live text editor, so a non-text target just no-ops it.
+ */
+const groovyOpenInProject = (path: string, cwd: string, line: number, column: number): string => {
+    return `import com.intellij.openapi.application.ApplicationManager
+import com.intellij.openapi.editor.LogicalPosition
+import com.intellij.openapi.editor.ScrollType
+import com.intellij.openapi.fileEditor.FileEditorManager
+import com.intellij.openapi.project.ProjectManager
+import com.intellij.openapi.vfs.LocalFileSystem
+
+ApplicationManager.getApplication().invokeLater {
+    def vFile = LocalFileSystem.getInstance().findFileByPath("${path}")
+    if (vFile == null) return
+    def projects = ProjectManager.getInstance().getOpenProjects()
+    if (projects.length == 0) return
+    def cwd = "${cwd}"
+${groovyProjectByCwd({ indent: "    " })}
+    def manager = FileEditorManager.getInstance(project)
+    manager.openFile(vFile, true)
+    def editor = manager.getSelectedTextEditor()
+    if (editor != null) {
+        editor.getCaretModel().moveToLogicalPosition(new LogicalPosition(${line}, ${column}))
+        editor.getScrollingModel().scrollToCaret(ScrollType.CENTER)
+    }
+}
+`
+}
+
+/**
+ * Best-effort: open `path` in the running IDE's window whose project basePath best
+ * matches `cwd` (the terminal's window), caret at `line`/`column` (1-based, default
+ * 1,1). The targeted counterpart to the CLI launcher's untargeted open — used on
+ * the fire-and-forget path so a file lands in ONE window, not every open one.
+ *
+ * NEVER throws (shares `runGroovy`'s swallow contract): a missing live IDE or spawn
+ * error degrades to a stderr note, leaving the caller's flow intact.
+ */
+export const openInProject = async (
+    path: string,
+    cwd = "",
+    options: { line?: number; column?: number } = {},
+    deps: RunGroovyDeps = {}
+): Promise<void> => {
+    const line = Math.max(0, Math.trunc(options.line ?? 1) - 1)
+    const column = Math.max(0, Math.trunc(options.column ?? 1) - 1)
+    const groovy = groovyOpenInProject(escapeGroovy(path), escapeGroovy(cwd), line, column)
+    await runGroovy(groovy, "open: could not open file in project", deps)
+}
+
+/**
+ * Groovy that raises + focuses the cwd-matched project's window. `cwd` is an
+ * already-escaped literal. Reuses the SSOT `groovyProjectByCwd` targeting.
+ */
+const groovyFocusProjectWindow = (cwd: string): string => {
+    return `import com.intellij.openapi.application.ApplicationManager
+import com.intellij.openapi.project.ProjectManager
+import com.intellij.openapi.wm.WindowManager
+
+ApplicationManager.getApplication().invokeLater {
+    def projects = ProjectManager.getInstance().getOpenProjects()
+    if (projects.length == 0) return
+    def cwd = "${cwd}"
+${groovyProjectByCwd({ indent: "    " })}
+    def frame = WindowManager.getInstance().getFrame(project)
+    if (frame != null) {
+        frame.toFront()
+        frame.requestFocus()
+    }
+}
+`
+}
+
+/**
+ * Best-effort: raise + focus the window of the project whose basePath best matches
+ * `cwd` (the terminal's window). Run BEFORE a CLI `idea diff` / `idea merge` launch
+ * so the launcher's diff/merge frame attaches to the terminal's window instead of
+ * whatever window is active.
+ *
+ * Targeting limit: unlike a file open (openInProject), the diff/merge frames are
+ * created by the CLI launcher, which exposes no window argument — focusing first is
+ * the only lever, so this is best-effort, not a guarantee. NEVER throws (shares
+ * runGroovy's swallow contract).
+ */
+export const focusProjectWindow = async (cwd = "", deps: RunGroovyDeps = {}): Promise<void> => {
+    await runGroovy(groovyFocusProjectWindow(escapeGroovy(cwd)), "focus: could not focus project window", deps)
+}
+
+/**
  * Open `url` in the running IDE's embedded JCEF web-preview tab (best-effort).
  *
  * Renders the URL Groovy with `url` and a tab `title` injected (both escaped as

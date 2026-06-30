@@ -153,7 +153,7 @@ describe("openFile orchestration", () => {
         expect(out?.startsWith("import")).toBe(true)
     })
 
-    it("returns null on the fire-and-forget path but still flips preview", async () => {
+    it("opens via the targeted preview only — never the untargeted launcher — on fire-and-forget + preview", async () => {
         const trace: string[] = []
         const out = await openFile(`${import.meta.dir}/open-file.spec.ts`, {
             wait: false,
@@ -166,10 +166,40 @@ describe("openFile orchestration", () => {
                 setPreview: async () => {
                     trace.push("preview")
                     return undefined
+                },
+                openInProject: async () => {
+                    trace.push("openInProject")
+                    return undefined
                 }
             }
         })
-        expect(trace).toEqual(["launch", "preview"])
+        // setPreview both opens AND previews in the cwd-matched window; the
+        // untargeted launcher (and the plain openInProject) must NOT fire.
+        expect(trace).toEqual(["preview"])
+        expect(out).toBeNull()
+    })
+
+    it("opens via targeted openInProject — never the untargeted launcher — on fire-and-forget without preview", async () => {
+        const trace: string[] = []
+        const out = await openFile(`${import.meta.dir}/open-file.spec.ts`, {
+            wait: false,
+            preview: false,
+            deps: {
+                launch: async () => {
+                    trace.push("launch")
+                    return FAKE_CHILD
+                },
+                setPreview: async () => {
+                    trace.push("preview")
+                    return undefined
+                },
+                openInProject: async () => {
+                    trace.push("openInProject")
+                    return undefined
+                }
+            }
+        })
+        expect(trace).toEqual(["openInProject"])
         expect(out).toBeNull()
     })
 })

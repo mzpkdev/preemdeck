@@ -1,7 +1,7 @@
 import { describe, expect, it } from "bun:test"
 import { IdeaError, NotImplementedError } from "./errors"
 import type { RunGroovyDeps } from "./groovy"
-import { previewUrl, setPreview, webpreviewOpenBody } from "./preview"
+import { focusProjectWindow, openInProject, previewUrl, setPreview, webpreviewOpenBody } from "./preview"
 
 const context = describe
 
@@ -205,6 +205,75 @@ const captureDeps = (
         }
     }
 }
+
+describe("openInProject", () => {
+    it("runs ideScript blocking and reaps the temp exactly once", async () => {
+        const cap = captureDeps()
+        await openInProject("/Users/me/app.ts", CWD, {}, cap.deps)
+        expect(cap.calls.length).toBe(1)
+        expect(cap.calls[0]?.wait).toBe(true)
+        expect(cap.calls[0]?.args[0]).toBe("ideScript")
+        expect(cap.reaped).toEqual([[cap.calls[0]?.args[1] ?? ""]])
+    })
+
+    it("opens via FileEditorManager in the cwd-matched window (not the launcher)", async () => {
+        const cap = captureDeps()
+        await openInProject("/Users/me/app.ts", "/Users/me/proj/pkg", {}, cap.deps)
+        const g = cap.scripts[0] ?? ""
+        expect(g).toContain('def vFile = LocalFileSystem.getInstance().findFileByPath("/Users/me/app.ts")')
+        expect(g).toContain("def manager = FileEditorManager.getInstance(project)")
+        expect(g).toContain("manager.openFile(vFile, true)")
+        expect(g).toContain('def cwd = "/Users/me/proj/pkg"')
+        expect(g).toContain('cwd == bp || cwd.startsWith(bp + "/")')
+    })
+
+    it("positions the caret at the 0-based line/column (1-based input)", async () => {
+        const cap = captureDeps()
+        await openInProject("/Users/me/app.ts", CWD, { line: 42, column: 7 }, cap.deps)
+        expect(cap.scripts[0] ?? "").toContain("new LogicalPosition(41, 6)")
+    })
+
+    it("defaults to line 1, column 1 and clamps non-positive input to (0, 0)", async () => {
+        const cap = captureDeps()
+        await openInProject("/Users/me/app.ts", CWD, { line: 0, column: -5 }, cap.deps)
+        expect(cap.scripts[0] ?? "").toContain("new LogicalPosition(0, 0)")
+    })
+
+    it("escapes the path and cwd so a crafted value cannot break out of the string", async () => {
+        const cap = captureDeps()
+        await openInProject('/tmp/we"ird\\name.ts', '/a"b\\c', {}, cap.deps)
+        const g = cap.scripts[0] ?? ""
+        expect(g).toContain('findFileByPath("/tmp/we\\"ird\\\\name.ts")')
+        expect(g).toContain('def cwd = "/a\\"b\\\\c"')
+    })
+})
+
+describe("focusProjectWindow", () => {
+    it("runs ideScript blocking and reaps the temp exactly once", async () => {
+        const cap = captureDeps()
+        await focusProjectWindow(CWD, cap.deps)
+        expect(cap.calls.length).toBe(1)
+        expect(cap.calls[0]?.wait).toBe(true)
+        expect(cap.calls[0]?.args[0]).toBe("ideScript")
+        expect(cap.reaped).toEqual([[cap.calls[0]?.args[1] ?? ""]])
+    })
+
+    it("raises + focuses the cwd-matched project window", async () => {
+        const cap = captureDeps()
+        await focusProjectWindow("/Users/me/proj/pkg", cap.deps)
+        const g = cap.scripts[0] ?? ""
+        expect(g).toContain('def cwd = "/Users/me/proj/pkg"')
+        expect(g).toContain("def frame = WindowManager.getInstance().getFrame(project)")
+        expect(g).toContain("frame.toFront()")
+        expect(g).toContain("frame.requestFocus()")
+    })
+
+    it("escapes the cwd literal so a crafted path cannot break out of the string", async () => {
+        const cap = captureDeps()
+        await focusProjectWindow('/a"b\\c', cap.deps)
+        expect(cap.scripts[0] ?? "").toContain('def cwd = "/a\\"b\\\\c"')
+    })
+})
 
 describe("setPreview", () => {
     context("dispatching the rendered preview", () => {

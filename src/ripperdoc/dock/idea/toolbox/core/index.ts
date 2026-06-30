@@ -80,6 +80,6 @@ export { escapeGroovy, groovyProjectByCwd, runGroovy, runGroovyOn } from "./groo
  */
 export { launch } from "./launch"
 /** Preview helpers (layer on the bridge) for forcing a rendered preview / URL tab. */
-export { previewUrl, setPreview, webpreviewOpenBody } from "./preview"
+export { focusProjectWindow, openInProject, previewUrl, setPreview, webpreviewOpenBody } from "./preview"
 /** Deferred temp cleanup for the toolbox's fire-and-forget (no-wait) modes. */
 export { reapLater } from "./reap"
