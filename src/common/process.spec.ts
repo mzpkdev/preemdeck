@@ -18,6 +18,21 @@ describe("reap", () => {
             // Killed by signal -> exitCode is null (or non-zero); definitely not a clean 0.
             expect(result.exitCode).not.toBe(0)
         }, 10_000)
+
+        // The actual bug behind the 18-minute /sys:update hang: the child IGNORES
+        // SIGTERM and keeps stdout open, so the old reap (SIGTERM + await drain)
+        // blocked forever. reap must SIGKILL and race past the stalled drain.
+        it("kills a SIGTERM-ignoring child and still returns promptly", async () => {
+            const started = performance.now()
+            const result = await reap(
+                Bun.spawn(["bash", "-c", "trap '' TERM; while true; do sleep 1; done"], PIPED),
+                200
+            )
+            const elapsed = performance.now() - started
+
+            expect(result.timedOut).toBe(true)
+            expect(elapsed).toBeLessThan(2000)
+        }, 10_000)
     })
 
     context("draining a child that finishes on its own", () => {

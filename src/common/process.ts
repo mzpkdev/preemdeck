@@ -7,9 +7,9 @@
  * options (cwd, env, stdin, …) in the caller's hands while the drain/timeout/kill
  * logic lives here once.
  *
- * The timeout doesn't just resolve early — it sends `killSignal` AND awaits the
- * child's exit, so a killed process is reaped, never leaked (see process.spec.ts:
- * `sleep 5` under a 200ms timeout is killed and returns promptly). Never throws on
+ * On timeout it SIGKILLs the child and returns promptly by RACING the kill against
+ * the drain — a child that ignores SIGTERM, or a descendant holding the pipe open,
+ * can no longer wedge the call (see process.spec.ts). Never throws on
  * a non-zero exit (check `.exitCode`); a bad `Bun.spawn` argv throws at the call
  * site, before `reap` ever sees the child.
  */
@@ -34,30 +34,53 @@ export type Reaped = {
  *
  * Pair with `Bun.spawn(argv, PIPED)` (or `{ ...PIPED, cwd, env, … }`). stdout and
  * stderr are read to text; then `child.exited` is awaited so the result reflects a
- * fully-finished process. On timeout the child is sent `killSignal` (SIGTERM by
- * default) and STILL awaited below, so it's reaped rather than leaked — the caller
- * just sees `timedOut: true`. Omit/0 `timeoutMs` = no timeout. Never throws on a
+ * fully-finished process. On timeout the child is sent `killSignal` (SIGKILL by
+ * default) and the call returns at once — it does NOT block on the drain, which a
+ * SIGTERM-ignoring child or a pipe-holding descendant could hold open forever; the
+ * caller just sees `timedOut: true`. Omit/0 `timeoutMs` = no timeout. Never throws on a
  * non-zero exit; the caller decides what an exit code or a timeout means.
  */
 export const reap = async (
     child: Bun.Subprocess,
     timeoutMs = 0,
-    killSignal: NodeJS.Signals | number = "SIGTERM"
+    killSignal: NodeJS.Signals | number = "SIGKILL"
 ): Promise<Reaped> => {
-    let timedOut = false
-    const timer =
-        timeoutMs > 0
-            ? setTimeout(() => {
-                  timedOut = true
-                  child.kill(killSignal)
-              }, timeoutMs)
-            : undefined
-    try {
+    // drain awaits stdout/stderr to CLOSE, which happens only once every write-end
+    // is gone — the child AND any descendant that inherited the pipe. A child that
+    // ignores SIGTERM (or a grandchild holding the pipe) keeps it open forever, so
+    // the timeout must win by RACING the kill, never by awaiting the drain.
+    const drained: Promise<Reaped> = (async () => {
         const [stdout, stderr] = await Promise.all([drain(child.stdout), drain(child.stderr)])
         await child.exited
-        return { exitCode: child.exitCode, stdout, stderr, timedOut }
+        return { exitCode: child.exitCode, stdout, stderr, timedOut: false }
+    })()
+
+    if (timeoutMs <= 0) {
+        return drained
+    }
+
+    let timer: ReturnType<typeof setTimeout> | undefined
+    const expired = new Promise<Reaped>((resolve) => {
+        timer = setTimeout(() => {
+            // SIGKILL can't be caught or ignored, so the child dies even if it traps
+            // SIGTERM; resolve at once rather than wait on a drain a surviving
+            // descendant could hold open.
+            try {
+                child.kill(killSignal)
+            } catch {
+                // already exited
+            }
+            resolve({ exitCode: child.exitCode, stdout: "", stderr: "", timedOut: true })
+        }, timeoutMs)
+    })
+
+    try {
+        return await Promise.race([drained, expired])
     } finally {
         clearTimeout(timer)
+        // If the timeout won, `drained` is abandoned — swallow any late rejection
+        // (e.g. the stream erroring after the kill) so it can't surface unhandled.
+        void drained.catch(() => {})
     }
 }
 
