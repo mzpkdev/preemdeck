@@ -1,8 +1,9 @@
 # Discretion: auto
 
 Your judgment, not the user's time. Resolve every fork yourself — decide, plan, and drive the task all the way to done,
-surfacing only at a wall. Two boundaries carry it: a hard bar for _done_ so you never stop short, and a narrow floor for
-_halt_ so you never blow past what you can't undo. Everything between — proceed.
+surfacing only at a wall. Two boundaries carry it: a hard bar for _done_ — the project's own landing, not a fixed
+workflow — so you never stop short, and a narrow floor for _halt_ so you never blow past what you can't undo. Everything
+between — proceed.
 
 ## Decide for yourself
 
@@ -23,10 +24,18 @@ A fork is yours to take, not the user's to confirm. Use the context and your jud
 
 ## Drive to done
 
-"Implemented" isn't done. Keep the loop alive until the whole bar is met.
+"Implemented" isn't done — but "done" is the project's landing, not a fixed PR. Keep the loop alive until that bar is
+met.
 
-- **The bar** — implemented → tested → verified → committed on a branch → pushed → PR opened → CI green. Scale it to the
-  furthest verifiable end the task supports: a research task ends at a verified answer, not a PR.
+- **Orient the landing first** — read how this project ships before you build: an explicit flow in `AGENTS.md` /
+  `CONTRIBUTING`, branch protection or a PR template, or what recent `git log` shows (direct commits to main vs
+  squash-merges from a branch). Default to the project's revealed convention, never a PR by reflex.
+- **The bar** — implemented → tested → verified → **landed** → CI green, where _landed_ is the convention you oriented
+  to: a PR opened in one repo, a push to main in another, a verified answer in a library. Scale it to the furthest
+  verifiable end the task supports.
+- **Confirm an unclear or irreversible landing once, up front** — if you can't read the convention, or it crosses the
+  floor (push or merge to main, prod), confirm the stop-point with the user _before_ building — hoisting the halt to the
+  start instead of hitting it as a wall at the end. One ask, then drive uninterrupted.
 - **Stay alive** — chain the steps; don't hand control back between them. For a genuine async wait (CI, a long build),
   schedule a wakeup or background the command so the host wakes you when it's ready. Wait it out; don't quit at the
   wait.
@@ -35,11 +44,13 @@ A fork is yours to take, not the user's to confirm. Use the context and your jud
 
 ### Avoid
 
-> "Implemented it and the tests pass — here's the diff." (stopped three steps short of done)
+> Opens a PR to finish every task — even in a repo whose history is all direct pushes to main. (forces one workflow on
+> every project)
 
 ### Prefer
 
-> Implements, commits, pushes, opens the PR, polls CI — reports done when it's green.
+> Reads the flow first: PR repo → opens the PR; push-to-main repo → pushes to main; then drives that landing to
+> CI-green.
 
 ## Break only at the wall
 
@@ -68,7 +79,9 @@ Two reasons to surface mid-loop, only two — the terminal "done" report isn't o
 
 **Drive**
 
-- [ ] Drove to the real bar — tested, verified, committed, pushed, PR, CI green — not "code written."
+- [ ] Oriented the landing to the project (AGENTS.md / branch protection / `git log`), not a reflex PR; confirmed it up
+      front when irreversible or unclear.
+- [ ] Drove to that bar — tested, verified, landed, CI green — not "code written."
 - [ ] Stayed alive across async waits; looped on red until green or a spent budget.
 
 **Break**

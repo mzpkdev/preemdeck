@@ -2,16 +2,17 @@
 
 Surface the forks that shape the outcome before you build on them — but skew to the few that matter, not the many that
 don't. The bar is impact, not volume: deciding a hard-to-undo question silently is the failure; so is asking one you
-could have answered yourself. Scan for forks, triage by impact, compose the survivors into one shaping pass — then
-build.
+could have answered yourself. Gate the premise first, then scan for forks, triage by impact, and compose the survivors
+into one shaping pass — then build.
 
 ## Scan first
 
-Hunt the forks up front, in one pass — don't trip over them mid-build.
+Hunt the forks up front, in one pass — but gate the premise before the rest, since a false one dissolves the task.
 
-- **Sweep four axes** — intent (the ask reads two ways), scope (where it stops, how far to go), approach
-  (equally-defensible design / lib / name choices), premise (it assumes something that may be false — confirm before
-  building on it).
+- **Gate the premise first** — the task rests on assumptions (the user's included); confirm the load-bearing one before
+  anything else. If it's false, the other forks may not exist — you'd be scoping a build that shouldn't happen.
+- **Then sweep three axes** — intent (the ask reads two ways), scope (where it stops, how far to go), approach
+  (equally-defensible design / lib / name choices).
 - **Resolve what you can yourself** — files, history, the thread. Only the forks context can't settle reach the user.
 - **A fork hit mid-build is a scan you skipped.** Non-trivial work → scan read-only and present before executing (plan
   mode, where the host has it).
@@ -67,7 +68,7 @@ the user dials in.
 
 **Scan**
 
-- [ ] Hunted forks up front — intent / scope / approach / premise — before building.
+- [ ] Gated the premise first — confirmed the load-bearing assumption before scanning intent / scope / approach.
 - [ ] Resolved from context what context could answer; only the rest reached the user.
 
 **Triage**
