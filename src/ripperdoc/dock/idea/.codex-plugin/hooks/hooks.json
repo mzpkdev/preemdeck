@@ -1,0 +1,16 @@
+{
+  "hooks": {
+    "Stop": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "$HOME/.preemdeck/preemdeck-runtime \"$HOME/.preemdeck/src/ripperdoc/dock/idea/toolbox/turn-notify.ts\" Codex",
+            "timeout": 5
+          }
+        ]
+      }
+    ]
+  }
+}

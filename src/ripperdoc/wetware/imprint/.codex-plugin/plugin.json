@@ -12,18 +12,5 @@
     "behavior",
     "imprint"
   ],
-  "hooks": {
-    "UserPromptSubmit": [
-      {
-        "matcher": "",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "$HOME/.preemdeck/preemdeck-runtime \"$HOME/.preemdeck/src/ripperdoc/wetware/imprint/scripts/inject-hook.ts\" IMPRINT.md hosts/host_codex.md --event UserPromptSubmit",
-            "timeout": 5
-          }
-        ]
-      }
-    ]
-  }
+  "hooks": "./hooks/hooks.json"
 }
