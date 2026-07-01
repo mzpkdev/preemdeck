@@ -29,9 +29,11 @@ import {
   thematicBreakPlugin,
   toolbarPlugin,
   UndoRedo,
+  useMdastNodeUpdater,
   usePublisher,
 } from "@mdxeditor/editor";
 import "@mdxeditor/editor/style.css";
+import * as Popover from "@radix-ui/react-popover";
 import { HighlightStyle, syntaxHighlighting } from "@codemirror/language";
 import { EditorView } from "@codemirror/view";
 import { tags as t } from "@lezer/highlight";
@@ -137,64 +139,203 @@ const buildCodeMirrorExtensions = (dark) => {
 /** The directive name — the greppable token in the plan file. */
 const LLM_NOTE = "llm-note";
 
-/** Readonly pill shown in place of the directive: a subtle badge, note text on hover. */
-const LlmNoteEditor = ({ mdastNode }) => {
-  const { note = "", anchor = "" } = mdastNode.attributes ?? {};
+/** Truncate a snippet for popover headers / labels. */
+const truncate = (text, max = 42) => (text.length > max ? `${text.slice(0, max)}…` : text);
+
+// Shared popover chrome — holo palette vars, so it matches whatever --css is active.
+const CARD_STYLE = {
+  display: "flex",
+  flexDirection: "column",
+  gap: "8px",
+  width: "280px",
+  padding: "10px",
+  font: "13px -apple-system, system-ui, sans-serif",
+  color: "var(--fg)",
+  background: "var(--bg)",
+  border: "1px solid var(--border)",
+  borderRadius: "8px",
+  boxShadow: "0 8px 24px rgba(0, 0, 0, 0.35)",
+  zIndex: 60,
+};
+const INPUT_STYLE = {
+  flex: 1,
+  minWidth: 0,
+  padding: "6px 8px",
+  font: "inherit",
+  color: "var(--fg)",
+  background: "var(--code-bg)",
+  border: "1px solid var(--border)",
+  borderRadius: "6px",
+  outline: "none",
+};
+const SEND_STYLE = {
+  display: "flex",
+  alignItems: "center",
+  justifyContent: "center",
+  width: "28px",
+  height: "28px",
+  flex: "none",
+  cursor: "pointer",
+  color: "var(--bg)",
+  background: "var(--link)",
+  border: "1px solid var(--link)",
+  borderRadius: "6px",
+};
+const SEND_ICON = (
+  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M5 12h14M13 6l6 6-6 6" />
+  </svg>
+);
+
+/**
+ * Single-line note input + icon send, shared by create (NoteAnnotator) and edit
+ * (LlmNoteEditor). Autofocuses; Enter submits, Escape cancels. Keydowns stop
+ * propagating so they don't leak through the Radix portal into MDXEditor (which
+ * would drop a newline / stray chars into the plan). Quotes are neutralized so a
+ * stray one can't break the directive's attribute syntax.
+ */
+const NoteForm = ({ initial = "", onSubmit, onCancel }) => {
+  const [body, setBody] = useState(initial);
+  const inputRef = useRef(null);
+  useEffect(() => {
+    const id = setTimeout(() => inputRef.current?.focus(), 0);
+    return () => clearTimeout(id);
+  }, []);
+  const send = () => {
+    const note = body.trim().replace(/"/g, "'");
+    if (note) {
+      onSubmit(note);
+    }
+  };
   return (
-    <span
-      className="llm-note-pill"
-      title={anchor ? `note re: "${anchor}"` : "note"}
-      style={{
-        font: "600 10px ui-monospace, monospace",
-        color: "var(--link, #4493f8)",
-        border: "1px solid var(--border, currentColor)",
-        borderRadius: "4px",
-        padding: "0 4px",
-        margin: "0 2px",
-        userSelect: "none",
-        whiteSpace: "nowrap",
-      }}
-    >
-      ✎ {note || "note"}
-    </span>
+    <div style={{ display: "flex", gap: "6px", alignItems: "center" }}>
+      <input
+        ref={inputRef}
+        type="text"
+        value={body}
+        onChange={(event) => setBody(event.target.value)}
+        onKeyDown={(event) => {
+          event.stopPropagation();
+          if (event.key === "Enter") {
+            event.preventDefault();
+            send();
+          } else if (event.key === "Escape") {
+            onCancel?.();
+          }
+        }}
+        placeholder="Note for the LLM…"
+        style={INPUT_STYLE}
+      />
+      <button type="button" onClick={send} title="Save note" aria-label="Save note" style={SEND_STYLE}>
+        {SEND_ICON}
+      </button>
+    </div>
   );
 };
 
-/** Registers `llm-note` so directivesPlugin preserves it on round-trip and renders the pill. */
+/**
+ * Renders an `llm-note` directive as a highlighter background over the wrapped text —
+ * the content stays visible, just marked. Hover shows the note (native title); click
+ * opens a popover to edit the note body (written back to the `note` attribute via
+ * useMdastNodeUpdater; the wrapped text is untouched). Text is display-only.
+ */
+const LlmNoteEditor = ({ mdastNode }) => {
+  const { note = "" } = mdastNode.attributes ?? {};
+  const text = (mdastNode.children ?? []).map((child) => child.value ?? "").join("");
+  const updateMdastNode = useMdastNodeUpdater();
+  const [open, setOpen] = useState(false);
+  const save = (next) => {
+    updateMdastNode({ attributes: { note: next } });
+    setOpen(false);
+  };
+  return (
+    <Popover.Root open={open} onOpenChange={setOpen}>
+      <Popover.Trigger asChild>
+        <span
+          className="llm-note-mark"
+          title={note || "note"}
+          style={{
+            background: "var(--note-highlight, rgba(255, 213, 0, 0.32))",
+            borderRadius: "2px",
+            padding: "0 2px",
+            cursor: "pointer",
+          }}
+        >
+          {text}
+        </span>
+      </Popover.Trigger>
+      <Popover.Portal>
+        <Popover.Content side="bottom" align="start" sideOffset={6} onOpenAutoFocus={(event) => event.preventDefault()} style={CARD_STYLE}>
+          <div style={{ color: "var(--muted)", fontSize: "11px" }}>Edit note</div>
+          <NoteForm initial={note} onSubmit={save} onCancel={() => setOpen(false)} />
+        </Popover.Content>
+      </Popover.Portal>
+    </Popover.Root>
+  );
+};
+
+/** Registers `llm-note` so directivesPlugin preserves it on round-trip and renders the highlight. */
 const llmNoteDescriptor = {
   name: LLM_NOTE,
   testNode: (node) => node.name === LLM_NOTE,
-  attributes: ["note", "anchor"],
-  hasChildren: false,
+  attributes: ["note"],
+  hasChildren: true,
   Editor: LlmNoteEditor,
 };
 
 /**
- * Toolbar button: anchor the note to the CURRENT SELECTION as a quoted snippet
- * (not a fragile character offset — the agent relocates it by content search, so it
- * survives reflow), prompt for the body, and insert an `llm-note` text directive.
- * Quotes in the values are neutralized so a stray one can't break directive syntax.
+ * Right-click-with-selection → new-note popover. A contextmenu inside the editable
+ * content with a live text selection suppresses the native menu and opens a Radix
+ * popover at the cursor. The selection becomes the note's `anchor` (a quoted snippet
+ * the agent relocates by search, not a fragile offset); NoteForm captures the body
+ * and inserts an `llm-note` text directive — the round-trip-safe carrier.
+ *
+ * Radix Popover (already present via MDXEditor) rather than shadcn+Tailwind: the same
+ * primitive shadcn wraps, styled with holo's palette vars so it matches every --css.
  */
-const AddNoteButton = () => {
+const NoteAnnotator = () => {
   const insert = usePublisher(insertDirective$);
-  const onMouseDown = (event) => {
-    // preventDefault keeps the editor selection alive across the click + prompt.
-    event.preventDefault();
-    const anchor = (window.getSelection()?.toString() ?? "").trim().replace(/"/g, "'");
-    const note = window.prompt("Note for the LLM:")?.trim();
-    if (!note) {
-      return;
-    }
-    const attributes = { note: note.replace(/"/g, "'") };
-    if (anchor) {
-      attributes.anchor = anchor;
-    }
-    insert({ type: "textDirective", name: LLM_NOTE, attributes });
+  const [target, setTarget] = useState(null); // { x, y, anchor } | null
+
+  useEffect(() => {
+    const onContextMenu = (event) => {
+      if (!event.target.closest?.(".mdxeditor-root-contenteditable")) {
+        return; // outside the editable: leave the native menu alone
+      }
+      const anchor = (window.getSelection()?.toString() ?? "").trim();
+      if (!anchor) {
+        return; // no selection: no annotation, native menu stands
+      }
+      event.preventDefault();
+      setTarget({ x: event.clientX, y: event.clientY, anchor });
+    };
+    document.addEventListener("contextmenu", onContextMenu);
+    return () => document.removeEventListener("contextmenu", onContextMenu);
+  }, []);
+
+  const close = () => setTarget(null);
+  const add = (note) => {
+    // Wrap the selected text as the directive's children so the content stays in the
+    // document (rendered as a highlight) instead of being replaced by the marker.
+    insert({
+      type: "textDirective",
+      name: LLM_NOTE,
+      children: [{ type: "text", value: target.anchor }],
+      attributes: { note },
+    });
+    close();
   };
+
   return (
-    <button type="button" onMouseDown={onMouseDown} title="Annotate for the LLM" style={{ font: "inherit", cursor: "pointer" }}>
-      ✎ Note
-    </button>
+    <Popover.Root open={target !== null} onOpenChange={(open) => !open && close()}>
+      <Popover.Anchor style={{ position: "fixed", left: target?.x ?? 0, top: target?.y ?? 0, width: 0, height: 0 }} />
+      <Popover.Portal>
+        <Popover.Content side="bottom" align="start" sideOffset={6} onOpenAutoFocus={(event) => event.preventDefault()} style={CARD_STYLE}>
+          <div style={{ color: "var(--muted)", fontSize: "11px" }}>Note on “{truncate(target?.anchor ?? "")}”</div>
+          {target ? <NoteForm initial="" onSubmit={add} onCancel={close} /> : null}
+        </Popover.Content>
+      </Popover.Portal>
+    </Popover.Root>
   );
 };
 
@@ -277,8 +418,7 @@ function Holo() {
               <InsertTable />
               <InsertThematicBreak />
               <InsertCodeBlock />
-              <Separator />
-              <AddNoteButton />
+              <NoteAnnotator />
             </>
           ),
         }),
