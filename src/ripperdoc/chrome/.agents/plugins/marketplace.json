@@ -3,5 +3,11 @@
   "interface": {
     "displayName": "preemdeck • chrome"
   },
-  "plugins": []
+  "plugins": [
+    {
+      "name": "holo",
+      "source": "./holo",
+      "category": "chrome"
+    }
+  ]
 }

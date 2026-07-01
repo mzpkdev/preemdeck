@@ -41,7 +41,6 @@ export const STAGE_ROOT = ".stage";
 export const MARKETPLACES: Array<[string, string]> = [
   ["chrome", join(REPO_ROOT, STAGE_ROOT, "chrome")],
   ["dock", join(REPO_ROOT, STAGE_ROOT, "dock")],
-  ["drivers", join(REPO_ROOT, STAGE_ROOT, "drivers")],
   ["wetware", join(REPO_ROOT, STAGE_ROOT, "wetware")],
   ["firmware", join(REPO_ROOT, STAGE_ROOT, "firmware")],
 ];
