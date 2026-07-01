@@ -69,10 +69,16 @@ const command = defineCommand({
             name: "wait",
             arity: 0,
             description: "block until the tab closes, then print the LEFT pane back"
-        }
+        },
+        { name: "verbose", arity: 0, description: "report diagnostic detail on stderr" }
     ],
-    run: async ({ target, suggestion, suffix, wait }) => {
+    run: async ({ target, suggestion, suffix, wait, verbose }) => {
         assertIdea()
+        if (verbose) {
+            process.stderr.write(
+                `diff-inline: target=${target.length} bytes, suggestion=${suggestion.length} bytes, suffix=${suffix ?? ".txt"}, wait=${!!wait}\n`
+            )
+        }
         const contents = await diffInline(target, suggestion, { suffix, wait })
         if (contents !== null) {
             process.stdout.write(contents)

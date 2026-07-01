@@ -54,6 +54,22 @@ describe("open-file CLI", () => {
             expect(code).toBe(0)
             expect(stdout).toBe(ORIGINAL)
         })
+
+        it("reports the open on stderr under --verbose --dry-run", async () => {
+            const target = path.join(directory, "some-file.ts")
+            await fs.writeFile(target, ORIGINAL)
+            const { code, stderr } = await run([target, "--verbose", "--dry-run"])
+            expect(code).toBe(0)
+            expect(stderr).toContain("open-file:")
+        })
+
+        it("stays silent on stderr without --verbose", async () => {
+            const target = path.join(directory, "some-file.ts")
+            await fs.writeFile(target, ORIGINAL)
+            const { code, stderr } = await run([target, "--dry-run"])
+            expect(code).toBe(0)
+            expect(stderr).toBe("")
+        })
     })
 
     context("without a live IDE", () => {

@@ -42,9 +42,14 @@ const command = defineCommand({
     name: "read-logs",
     description: "Read the last N lines of the running JetBrains IDE's log.",
     arguments: [{ name: "n", description: "number of lines to read (default 50)", coerce: integer }],
-    run: async ({ n }) => {
+    options: [{ name: "verbose", arity: 0, description: "report diagnostic detail on stderr" }],
+    run: async ({ n, verbose }) => {
         assertIdea()
-        const lines = await readLogs(n ?? 50)
+        const lineCount = n ?? 50
+        if (verbose) {
+            process.stderr.write(`read-logs: ${await resolveLogDir()}, lines=${lineCount}\n`)
+        }
+        const lines = await readLogs(lineCount)
         console.log(lines.join("\n"))
     }
 })

@@ -62,10 +62,16 @@ const command = defineCommand({
             name: "preview",
             arity: 0,
             description: "flip the editor to the rendered preview after opening"
-        }
+        },
+        { name: "verbose", arity: 0, description: "report diagnostic detail on stderr" }
     ],
-    run: async ({ inline, suffix, wait, preview }) => {
+    run: async ({ inline, suffix, wait, preview, verbose }) => {
         assertIdea()
+        if (verbose) {
+            process.stderr.write(
+                `open-inline: ${inline.length} bytes, suffix=${suffix ?? ".txt"}, wait=${wait}, preview=${preview}\n`
+            )
+        }
         const contents = await openInline(inline, { suffix: suffix ?? ".txt", wait, preview })
         if (contents !== null) {
             process.stdout.write(contents)

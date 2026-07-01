@@ -66,7 +66,7 @@ import com.intellij.openapi.vfs.LocalFileSystem
 import com.intellij.ide.DataManager
 
 ApplicationManager.getApplication().invokeLater {
-    def vFile = LocalFileSystem.getInstance().findFileByPath("${path}")
+    def vFile = LocalFileSystem.getInstance().refreshAndFindFileByPath("${path}")
     if (vFile == null) return
     def projects = ProjectManager.getInstance().getOpenProjects()
     if (projects.length == 0) return
@@ -293,7 +293,7 @@ import com.intellij.openapi.project.ProjectManager
 import com.intellij.openapi.vfs.LocalFileSystem
 
 ApplicationManager.getApplication().invokeLater {
-    def vFile = LocalFileSystem.getInstance().findFileByPath("${path}")
+    def vFile = LocalFileSystem.getInstance().refreshAndFindFileByPath("${path}")
     if (vFile == null) return
     def projects = ProjectManager.getInstance().getOpenProjects()
     if (projects.length == 0) return

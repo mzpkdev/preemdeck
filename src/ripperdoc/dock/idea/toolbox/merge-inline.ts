@@ -78,10 +78,16 @@ const command = defineCommand({
             name: "wait",
             arity: 0,
             description: "block until Apply and print the merged output back"
-        }
+        },
+        { name: "verbose", arity: 0, description: "report diagnostic detail on stderr" }
     ],
-    run: async ({ target, suggestion, base, suffix, wait }) => {
+    run: async ({ target, suggestion, base, suffix, wait, verbose }) => {
         assertIdea()
+        if (verbose) {
+            process.stderr.write(
+                `merge-inline: target=${target.length} bytes, suggestion=${suggestion.length} bytes, base=${base?.length ?? "none"} bytes, suffix=${suffix ?? ".txt"}, wait=${!!wait}\n`
+            )
+        }
         const result = await mergeInline(target, suggestion, base ?? null, { suffix: suffix ?? ".txt", wait })
         if (result !== null) {
             process.stdout.write(result)

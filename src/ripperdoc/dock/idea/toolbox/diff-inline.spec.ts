@@ -45,6 +45,18 @@ describe("diff-inline CLI", () => {
             expect(code).toBe(0)
             expect(stdout).toBe("old")
         })
+
+        it("reports diagnostic detail on stderr under --verbose --dry-run", async () => {
+            const { code, stderr } = await run(["--verbose", "--dry-run", "alpha", "beta"])
+            expect(code).toBe(0)
+            expect(stderr).toContain("diff-inline:")
+        })
+
+        it("stays silent on stderr without --verbose", async () => {
+            const { code, stderr } = await run(["--dry-run", "alpha", "beta"])
+            expect(code).toBe(0)
+            expect(stderr).toBe("")
+        })
     })
 
     context("temp lifecycle", () => {

@@ -32,9 +32,15 @@ const command = defineCommand({
     name: "open-url",
     description: "Open an http/https URL in the running JetBrains IDE's web preview.",
     arguments: [{ name: "url", description: "http/https URL to open", required: true }],
-    options: [{ name: "title", arity: 1, hint: "title", description: "title for the preview tab" }],
-    run: async ({ url, title }) => {
+    options: [
+        { name: "title", arity: 1, hint: "title", description: "title for the preview tab" },
+        { name: "verbose", arity: 0, description: "report diagnostic detail on stderr" }
+    ],
+    run: async ({ url, title, verbose }) => {
         assertIdea()
+        if (verbose) {
+            process.stderr.write(`open-url: ${url} (title=${title})\n`)
+        }
         // The IDE's JCEF preview only speaks http(s); reject anything else up front.
         // Parse the scheme the forgiving way `new URL` does NOT — never throw, and
         // treat invalid/host-less input as "" so it falls through the gate below.

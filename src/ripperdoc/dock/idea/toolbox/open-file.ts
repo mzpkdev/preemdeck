@@ -88,10 +88,16 @@ const command = defineCommand({
             arity: 0,
             description: "block until the tab closes, then print the file back"
         },
-        { name: "preview", arity: 0, description: "flip the editor to the rendered preview" }
+        { name: "preview", arity: 0, description: "flip the editor to the rendered preview" },
+        { name: "verbose", arity: 0, description: "report diagnostic detail on stderr" }
     ],
-    run: async ({ path: file, line, column, wait, preview }) => {
+    run: async ({ path: file, line, column, wait, preview, verbose }) => {
         assertIdea()
+        if (verbose) {
+            process.stderr.write(
+                `open-file: ${path.resolve(file)} (line=${line}, column=${column}, wait=${wait}, preview=${preview})\n`
+            )
+        }
         const contents = await openFile(file, { line, column, wait, preview })
         if (contents !== null) {
             process.stdout.write(contents)

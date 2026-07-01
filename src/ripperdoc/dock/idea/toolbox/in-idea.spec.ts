@@ -35,6 +35,20 @@ describe("in-idea CLI", () => {
             expect(code).toBe(0)
             expect(stdout).toBe("")
         })
+
+        it("accepts --verbose without crashing", async () => {
+            // resolveExecPath may fail when the force-env is set but no real IDE
+            // ancestry exists; the verbose path swallows that, so the tool still
+            // exits 0. In a real IDE terminal, stderr would contain "in-idea:".
+            const { code } = await run(["--verbose"])
+            expect(code).toBe(0)
+        })
+
+        it("stays silent on stderr without --verbose", async () => {
+            const { code, stderr } = await run([])
+            expect(code).toBe(0)
+            expect(stderr).toBe("")
+        })
     })
 
     context("without a live IDE", () => {

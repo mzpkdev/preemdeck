@@ -77,10 +77,16 @@ const command = defineCommand({
             name: "wait",
             arity: 0,
             description: "join the native merge and print the merged output back"
-        }
+        },
+        { name: "verbose", arity: 0, description: "report diagnostic detail on stderr" }
     ],
-    run: async ({ target, suggestion, base, wait }) => {
+    run: async ({ target, suggestion, base, wait, verbose }) => {
         assertIdea()
+        if (verbose) {
+            process.stderr.write(
+                `merge-file: target=${target}, suggestion=${suggestion}, base=${base ?? "none"}, wait=${!!wait}\n`
+            )
+        }
         const result = await mergeFile(target, suggestion, base ?? null, wait)
         if (result !== null) {
             process.stdout.write(result)

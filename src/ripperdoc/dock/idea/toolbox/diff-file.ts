@@ -48,10 +48,14 @@ const command = defineCommand({
             name: "wait",
             arity: 0,
             description: "block until the tab closes, then print the LEFT pane back"
-        }
+        },
+        { name: "verbose", arity: 0, description: "report diagnostic detail on stderr" }
     ],
-    run: async ({ target, suggestion, wait }) => {
+    run: async ({ target, suggestion, wait, verbose }) => {
         assertIdea()
+        if (verbose) {
+            process.stderr.write(`diff-file: target=${target}, suggestion=${suggestion}, wait=${!!wait}\n`)
+        }
         const contents = await diffFile(target, suggestion, wait)
         if (contents !== null) {
             process.stdout.write(contents)

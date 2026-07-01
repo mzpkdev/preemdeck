@@ -309,10 +309,16 @@ const command = defineCommand({
             arity: 0,
             description:
                 "broadcast to every open project window of every running JetBrains product, not just the launching window"
-        }
+        },
+        { name: "verbose", arity: 0, description: "report diagnostic detail on stderr" }
     ],
-    run: async ({ message, title, type, action, all }) => {
+    run: async ({ message, title, type, action, all, verbose }) => {
         assertIdea()
+        if (verbose) {
+            process.stderr.write(
+                `notify: type=${type}, title=${title}, all=${!!all}, actions=${(action as Action[]).length}\n`
+            )
+        }
         await notify(message, { title, typeToken: type, actions: action, all })
     }
 })

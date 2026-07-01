@@ -57,6 +57,20 @@ describe("merge-file CLI", () => {
             expect(code).toBe(0)
             expect(stdout).toBe("")
         })
+
+        it("reports diagnostic detail on stderr under --verbose --dry-run", async () => {
+            const { target, suggestion } = await makeInputs()
+            const { code, stderr } = await run(["--verbose", "--dry-run", target, suggestion])
+            expect(code).toBe(0)
+            expect(stderr).toContain("merge-file:")
+        })
+
+        it("stays silent on stderr without --verbose", async () => {
+            const { target, suggestion } = await makeInputs()
+            const { code, stderr } = await run(["--dry-run", target, suggestion])
+            expect(code).toBe(0)
+            expect(stderr).toBe("")
+        })
     })
 
     context("temp lifecycle", () => {

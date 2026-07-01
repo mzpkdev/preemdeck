@@ -71,6 +71,18 @@ describe("notify CLI", () => {
             expect(stdout).toBe("")
             expect(stderr).toBe("")
         })
+
+        it("reports diagnostic detail on stderr under --verbose --dry-run", async () => {
+            const { code, stderr } = await run(["--dry-run", "--verbose", "a message"])
+            expect(code).toBe(0)
+            expect(stderr).toContain("notify:")
+        })
+
+        it("stays silent on stderr without --verbose", async () => {
+            const { code, stderr } = await run(["--dry-run", "a message"])
+            expect(code).toBe(0)
+            expect(stderr).toBe("")
+        })
     })
 
     context("without a live IDE", () => {

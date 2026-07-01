@@ -57,6 +57,26 @@ describe("diff-file CLI", () => {
             expect(stdout).toBe(TARGET)
         })
 
+        it("reports diagnostic detail on stderr under --verbose --dry-run", async () => {
+            const target = path.join(directory, "target.ts")
+            const suggestion = path.join(directory, "suggestion.ts")
+            await fs.writeFile(target, TARGET)
+            await fs.writeFile(suggestion, SUGGESTION)
+            const { code, stderr } = await run(["--verbose", "--dry-run", target, suggestion])
+            expect(code).toBe(0)
+            expect(stderr).toContain("diff-file:")
+        })
+
+        it("stays silent on stderr without --verbose", async () => {
+            const target = path.join(directory, "target.ts")
+            const suggestion = path.join(directory, "suggestion.ts")
+            await fs.writeFile(target, TARGET)
+            await fs.writeFile(suggestion, SUGGESTION)
+            const { code, stderr } = await run(["--dry-run", target, suggestion])
+            expect(code).toBe(0)
+            expect(stderr).toBe("")
+        })
+
         it("exits 1 when an input path does not exist", async () => {
             const target = path.join(directory, "target.ts")
             await fs.writeFile(target, TARGET)

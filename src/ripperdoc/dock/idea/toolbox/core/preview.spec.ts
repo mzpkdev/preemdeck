@@ -15,7 +15,7 @@ import com.intellij.openapi.vfs.LocalFileSystem
 import com.intellij.ide.DataManager
 
 ApplicationManager.getApplication().invokeLater {
-    def vFile = LocalFileSystem.getInstance().findFileByPath("/Users/me/notes.md")
+    def vFile = LocalFileSystem.getInstance().refreshAndFindFileByPath("/Users/me/notes.md")
     if (vFile == null) return
     def projects = ProjectManager.getInstance().getOpenProjects()
     if (projects.length == 0) return
@@ -80,7 +80,7 @@ import com.intellij.openapi.vfs.LocalFileSystem
 import com.intellij.ide.DataManager
 
 ApplicationManager.getApplication().invokeLater {
-    def vFile = LocalFileSystem.getInstance().findFileByPath("/tmp/we\\"ird\\\\name.md")
+    def vFile = LocalFileSystem.getInstance().refreshAndFindFileByPath("/tmp/we\\"ird\\\\name.md")
     if (vFile == null) return
     def projects = ProjectManager.getInstance().getOpenProjects()
     if (projects.length == 0) return
@@ -220,7 +220,7 @@ describe("openInProject", () => {
         const cap = captureDeps()
         await openInProject("/Users/me/app.ts", "/Users/me/proj/pkg", {}, cap.deps)
         const g = cap.scripts[0] ?? ""
-        expect(g).toContain('def vFile = LocalFileSystem.getInstance().findFileByPath("/Users/me/app.ts")')
+        expect(g).toContain('def vFile = LocalFileSystem.getInstance().refreshAndFindFileByPath("/Users/me/app.ts")')
         expect(g).toContain("def manager = FileEditorManager.getInstance(project)")
         expect(g).toContain("manager.openFile(vFile, true)")
         expect(g).toContain('def cwd = "/Users/me/proj/pkg"')
@@ -243,7 +243,7 @@ describe("openInProject", () => {
         const cap = captureDeps()
         await openInProject('/tmp/we"ird\\name.ts', '/a"b\\c', {}, cap.deps)
         const g = cap.scripts[0] ?? ""
-        expect(g).toContain('findFileByPath("/tmp/we\\"ird\\\\name.ts")')
+        expect(g).toContain('refreshAndFindFileByPath("/tmp/we\\"ird\\\\name.ts")')
         expect(g).toContain('def cwd = "/a\\"b\\\\c"')
     })
 })

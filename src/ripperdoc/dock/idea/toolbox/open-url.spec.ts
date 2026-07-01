@@ -49,6 +49,18 @@ describe("open-url CLI", () => {
             expect(stdout).toBe("")
             expect(stderr).toContain("url must be a non-empty http/https URL")
         })
+
+        it("reports diagnostic detail on stderr under --verbose --dry-run", async () => {
+            const { code, stderr } = await run(["--verbose", "--dry-run", "https://example.com"])
+            expect(code).toBe(0)
+            expect(stderr).toContain("open-url:")
+        })
+
+        it("stays silent on stderr without --verbose", async () => {
+            const { code, stderr } = await run(["--dry-run", "https://example.com"])
+            expect(code).toBe(0)
+            expect(stderr).toBe("")
+        })
     })
 
     context("without a live IDE", () => {

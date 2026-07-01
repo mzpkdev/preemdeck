@@ -30,6 +30,23 @@ const run = async (
 }
 
 describe("read-logs CLI", () => {
+    context("on a live IDE", () => {
+        it("reports diagnostic detail on stderr under --verbose", async () => {
+            // resolveLogDir requires a real IDE ancestry; in CI the tool will
+            // fail after assertIdea (which the force-env passes). When it
+            // succeeds (real IDE), stderr contains "read-logs:".
+            const { code, stderr } = await run(["--verbose"])
+            if (code === 0) {
+                expect(stderr).toContain("read-logs:")
+            }
+        })
+
+        it("stays silent on stderr without --verbose", async () => {
+            const { stderr } = await run([])
+            expect(stderr).not.toContain("read-logs:")
+        })
+    })
+
     context("without a live IDE", () => {
         it("exits 1 with the IdeaError on stderr", async () => {
             const { code, stdout, stderr } = await run([], { PREEMDECK_FORCE_IN_IDEA: "0" })

@@ -59,6 +59,18 @@ describe("open-inline CLI", () => {
             expect(code).toBe(0)
             expect(stderr).toBe("")
         })
+
+        it("reports diagnostic detail on stderr under --verbose --dry-run", async () => {
+            const { code, stderr } = await run(["some text", "--verbose", "--dry-run"])
+            expect(code).toBe(0)
+            expect(stderr).toContain("open-inline:")
+        })
+
+        it("stays silent on stderr without --verbose", async () => {
+            const { code, stderr } = await run(["some text", "--dry-run"])
+            expect(code).toBe(0)
+            expect(stderr).toBe("")
+        })
     })
 
     context("temp lifecycle", () => {
