@@ -10,9 +10,11 @@ import {
   CreateLink,
   codeBlockPlugin,
   codeMirrorPlugin,
+  directivesPlugin,
   frontmatterPlugin,
   headingsPlugin,
   InsertCodeBlock,
+  insertDirective$,
   InsertTable,
   InsertThematicBreak,
   linkDialogPlugin,
@@ -27,6 +29,7 @@ import {
   thematicBreakPlugin,
   toolbarPlugin,
   UndoRedo,
+  usePublisher,
 } from "@mdxeditor/editor";
 import "@mdxeditor/editor/style.css";
 import { HighlightStyle, syntaxHighlighting } from "@codemirror/language";
@@ -123,6 +126,78 @@ const buildCodeMirrorExtensions = (dark) => {
   return [theme, codeMirrorTokens];
 };
 
+// --- LLM annotations -------------------------------------------------------
+// Notes for the agent ride IN the plan file as an `llm-note` remark directive.
+// HTML comments don't survive MDXEditor's round-trip (its parser silently drops
+// them); a directive node clones its mdast and re-emits it verbatim, so
+// `:llm-note{…}` persists through import→edit→export. The agent reads them when it
+// resumes at the plan gate — no live channel needed — by grepping `:llm-note` from
+// the .md/.mdx on disk.
+
+/** The directive name — the greppable token in the plan file. */
+const LLM_NOTE = "llm-note";
+
+/** Readonly pill shown in place of the directive: a subtle badge, note text on hover. */
+const LlmNoteEditor = ({ mdastNode }) => {
+  const { note = "", anchor = "" } = mdastNode.attributes ?? {};
+  return (
+    <span
+      className="llm-note-pill"
+      title={anchor ? `note re: "${anchor}"` : "note"}
+      style={{
+        font: "600 10px ui-monospace, monospace",
+        color: "var(--link, #4493f8)",
+        border: "1px solid var(--border, currentColor)",
+        borderRadius: "4px",
+        padding: "0 4px",
+        margin: "0 2px",
+        userSelect: "none",
+        whiteSpace: "nowrap",
+      }}
+    >
+      ✎ {note || "note"}
+    </span>
+  );
+};
+
+/** Registers `llm-note` so directivesPlugin preserves it on round-trip and renders the pill. */
+const llmNoteDescriptor = {
+  name: LLM_NOTE,
+  testNode: (node) => node.name === LLM_NOTE,
+  attributes: ["note", "anchor"],
+  hasChildren: false,
+  Editor: LlmNoteEditor,
+};
+
+/**
+ * Toolbar button: anchor the note to the CURRENT SELECTION as a quoted snippet
+ * (not a fragile character offset — the agent relocates it by content search, so it
+ * survives reflow), prompt for the body, and insert an `llm-note` text directive.
+ * Quotes in the values are neutralized so a stray one can't break directive syntax.
+ */
+const AddNoteButton = () => {
+  const insert = usePublisher(insertDirective$);
+  const onMouseDown = (event) => {
+    // preventDefault keeps the editor selection alive across the click + prompt.
+    event.preventDefault();
+    const anchor = (window.getSelection()?.toString() ?? "").trim().replace(/"/g, "'");
+    const note = window.prompt("Note for the LLM:")?.trim();
+    if (!note) {
+      return;
+    }
+    const attributes = { note: note.replace(/"/g, "'") };
+    if (anchor) {
+      attributes.anchor = anchor;
+    }
+    insert({ type: "textDirective", name: LLM_NOTE, attributes });
+  };
+  return (
+    <button type="button" onMouseDown={onMouseDown} title="Annotate for the LLM" style={{ font: "inherit", cursor: "pointer" }}>
+      ✎ Note
+    </button>
+  );
+};
+
 function Holo() {
   // null until the initial GET resolves — MDXEditor reads its initial content
   // from `markdown` once at mount, so we render it only after the fetch lands.
@@ -186,6 +261,7 @@ function Holo() {
         codeBlockPlugin({ defaultCodeBlockLanguage: "txt" }),
         codeMirrorPlugin({ codeBlockLanguages: CODE_LANGUAGES, codeMirrorExtensions }),
         markdownShortcutPlugin(),
+        directivesPlugin({ directiveDescriptors: [llmNoteDescriptor] }),
         toolbarPlugin({
           toolbarContents: () => (
             <>
@@ -201,6 +277,8 @@ function Holo() {
               <InsertTable />
               <InsertThematicBreak />
               <InsertCodeBlock />
+              <Separator />
+              <AddNoteButton />
             </>
           ),
         }),
