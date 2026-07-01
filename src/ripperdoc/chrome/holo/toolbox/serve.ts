@@ -42,6 +42,143 @@ export type ServeOptions = {
     host: string
     port: number
     open?: boolean
+    killOnDisconnect?: boolean
+}
+
+/**
+ * Grace window (ms) after the last HMR client drops before the server self-reaps.
+ *
+ * A steady-state HMR edit keeps the socket open (Vite pushes over the persistent
+ * ws), so only a full reload or a real tab close severs it — and a reload
+ * immediately reconnects. This window absorbs that reconnect blip so a reload
+ * does NOT kill the server; only a viewer that stays gone triggers the reap.
+ * Only consulted under `--kill-on-disconnect`.
+ */
+export const DISCONNECT_GRACE_MS = 5000
+
+/**
+ * Backstop timeout (ms) armed at start: if NO client ever connects, reap anyway.
+ *
+ * The interactive plan hook spawns a server then opens a tab; if that tab never
+ * materializes (open failed, host quit), nothing would ever connect and the
+ * process would leak forever. This ceiling reaps such a never-viewed spawn.
+ * Only consulted under `--kill-on-disconnect`.
+ */
+export const STARTUP_TIMEOUT_MS = 60000
+
+/**
+ * A pure, testable state machine that decides WHEN to reap a server based on HMR
+ * client connect/disconnect events — extracted from any real socket so the spec
+ * drives it with fake timers.
+ *
+ * Lifecycle: {@link DisconnectReaper.start} arms a startup backstop; the first
+ * {@link DisconnectReaper.onConnect} cancels it and marks the server "seen". Once
+ * seen, each {@link DisconnectReaper.onDisconnect} that drops the live count to 0
+ * arms a grace timer; if a client reconnects (onConnect) before it fires, the
+ * timer is cancelled (a reload blip is absorbed); if the timer elapses with the
+ * count still 0, `onReap` fires exactly once. Before the first connect, the only
+ * path to a reap is the startup backstop — a disconnect can never fire first.
+ */
+export type DisconnectReaper = {
+    /** Arm the startup backstop: reap if no client connects within `startupMs`. */
+    start: () => void
+    /** Record a client connecting: cancel the startup backstop and any pending grace timer. */
+    onConnect: () => void
+    /** Record a client disconnecting: if the count hits 0 (and ≥1 was seen), arm the grace timer. */
+    onDisconnect: () => void
+}
+
+/**
+ * Build a {@link DisconnectReaper} over injectable timer primitives so the spec
+ * can drive it deterministically (no real `setTimeout`, no real socket).
+ *
+ * `onReap` is invoked AT MOST ONCE — the first time either the startup backstop
+ * or the grace window elapses with no live clients. `setTimer`/`clearTimer` are
+ * generic over the handle type `T` so the real wiring passes Node's
+ * `setTimeout`/`clearTimeout` and the spec passes fakes.
+ *
+ * @typeParam T - the timer handle type returned by `setTimer` and consumed by `clearTimer`.
+ * @param opts - grace/startup windows, the reap callback, and the timer primitives.
+ * @returns the reaper's `start`/`onConnect`/`onDisconnect` handlers.
+ *
+ * @example
+ * const reaper = createDisconnectReaper({
+ *     graceMs: 5000,
+ *     startupMs: 60000,
+ *     onReap: () => server.close(),
+ *     setTimer: (fn, ms) => setTimeout(fn, ms),
+ *     clearTimer: (t) => clearTimeout(t)
+ * })
+ * reaper.start()
+ */
+export const createDisconnectReaper = <T>(opts: {
+    graceMs: number
+    startupMs: number
+    onReap: () => void
+    setTimer: (fn: () => void, ms: number) => T
+    clearTimer: (timer: T) => void
+}): DisconnectReaper => {
+    let count = 0
+    let seen = false
+    let reaped = false
+    let startupTimer: T | undefined
+    let graceTimer: T | undefined
+
+    const clearStartup = (): void => {
+        if (startupTimer !== undefined) {
+            opts.clearTimer(startupTimer)
+            startupTimer = undefined
+        }
+    }
+    const clearGrace = (): void => {
+        if (graceTimer !== undefined) {
+            opts.clearTimer(graceTimer)
+            graceTimer = undefined
+        }
+    }
+    const reap = (): void => {
+        if (reaped) {
+            return
+        }
+        reaped = true
+        clearStartup()
+        clearGrace()
+        opts.onReap()
+    }
+
+    return {
+        start: (): void => {
+            // Backstop: a spawn whose tab never opens must not leak forever.
+            startupTimer = opts.setTimer(() => {
+                if (!seen && count === 0) {
+                    reap()
+                }
+            }, opts.startupMs)
+        },
+        onConnect: (): void => {
+            seen = true
+            count += 1
+            // A live viewer (re)appeared: cancel both the startup backstop and any
+            // pending grace timer so a reload's reconnect never trips the reap.
+            clearStartup()
+            clearGrace()
+        },
+        onDisconnect: (): void => {
+            if (count > 0) {
+                count -= 1
+            }
+            // Only arm the grace window once we've genuinely served someone and the
+            // last of them has now dropped — a reload reconnects within `graceMs`.
+            if (seen && count === 0) {
+                clearGrace()
+                graceTimer = opts.setTimer(() => {
+                    if (count === 0) {
+                        reap()
+                    }
+                }, opts.graceMs)
+            }
+        }
+    }
 }
 
 /**
@@ -164,6 +301,11 @@ const escapeHtmlText = (text: string): string =>
  * SIGINT/SIGTERM `await server.close()` then unblock and exit cleanly. HMR is on
  * by default in dev mode and is deliberately left enabled.
  *
+ * When `killOnDisconnect` is set, a {@link createDisconnectReaper} rides on Vite's
+ * HMR websocket and funnels through the SAME shutdown path once the last viewer
+ * drops (tab close / real reload past the grace window), so a hook-spawned server
+ * self-cleans; without it the server stays persistent (manual `serve` unchanged).
+ *
  * @param file - the positional path to the plan source `.mdx`/`.md`.
  * @param options - the resolved launch knobs; see {@link ServeOptions}.
  * @returns a promise that resolves when the server has stopped (immediately on dry-run).
@@ -206,11 +348,14 @@ export const serve = async (file: string, options: ServeOptions): Promise<void> 
     process.stdout.write(`holo: ready url=${url} mdx=${mdxPath}\n`)
     server.printUrls()
 
-    // The dev server blocks; park until a signal, close cleanly, then unblock/exit.
+    // The dev server blocks; park until a signal (or, under --kill-on-disconnect,
+    // the reaper), close cleanly ONCE, then unblock/exit.
     await effect(
         () =>
             new Promise<void>((resolve) => {
                 let stopped = false
+                // The single shutdown path: SIGINT/SIGTERM AND the disconnect reaper
+                // both funnel here, so the server is closed exactly once.
                 const shutdown = (): void => {
                     if (stopped) {
                         return
@@ -220,6 +365,25 @@ export const serve = async (file: string, options: ServeOptions): Promise<void> 
                 }
                 process.once("SIGINT", shutdown)
                 process.once("SIGTERM", shutdown)
+
+                if (options.killOnDisconnect) {
+                    const reaper = createDisconnectReaper({
+                        graceMs: DISCONNECT_GRACE_MS,
+                        startupMs: STARTUP_TIMEOUT_MS,
+                        onReap: shutdown,
+                        setTimer: (fn, ms) => setTimeout(fn, ms),
+                        clearTimer: (timer) => clearTimeout(timer)
+                    })
+                    // Vite 7's HMR ws server exposes the raw `ws` server's `on`, so
+                    // "connection" delivers the raw socket and its "close" fires when
+                    // that viewer drops (tab close / full reload). A steady-state HMR
+                    // edit keeps the socket open, so it never trips this.
+                    server.ws.on("connection", (socket) => {
+                        reaper.onConnect()
+                        socket.on("close", () => reaper.onDisconnect())
+                    })
+                    reaper.start()
+                }
             })
     )
 }
@@ -248,11 +412,17 @@ const command = defineCommand({
             name: "open",
             arity: 0,
             description: "open the page in the default browser on boot (Vite server.open)"
+        },
+        {
+            name: "kill-on-disconnect",
+            arity: 0,
+            description:
+                "exit when the last HMR client disconnects — used by the interactive plan hook so each spawned server self-cleans on tab close"
         }
     ],
-    run: async ({ file, host, port, open }) => {
+    run: async ({ file, host, port, open, "kill-on-disconnect": killOnDisconnect }) => {
         try {
-            await serve(file, { host, port, open })
+            await serve(file, { host, port, open, killOnDisconnect })
         } catch (error) {
             if (error instanceof ServeError) {
                 process.stderr.write(`holo: error: ${error.message}\n`)

@@ -23,7 +23,6 @@
         "@vitejs/plugin-react": "^5.0.4",
         "argvex": "^0.0.6",
         "cmdore": "^0.4.1",
-        "github-markdown-css": "^5.8.1",
         "hono": "^4.12.27",
         "react": "^19.2.0",
         "react-dom": "^19.2.0",

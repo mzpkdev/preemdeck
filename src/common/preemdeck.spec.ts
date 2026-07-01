@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it } from "bun:test"
 import * as fs from "node:fs/promises"
 import * as os from "node:os"
 import * as path from "node:path"
-import { config, ENV, markdown, notifyEnabled } from "./preemdeck"
+import { config, ENV, interactiveEnabled, isInteractive, markdown, notifyEnabled } from "./preemdeck"
 
 const context = describe
 
@@ -83,6 +83,60 @@ describe("notifyEnabled", () => {
         ["an array", []]
     ] as [string, unknown][])("fails open (enabled) when notify is %s", (_label, value) => {
         expect(notifyEnabled({ notify: value as never }, "plan")).toBe(true)
+    })
+})
+
+describe("interactiveEnabled", () => {
+    it("is enabled only for an explicit interactive: true", () => {
+        expect(interactiveEnabled({ interactive: true })).toBe(true)
+    })
+
+    it("is disabled when interactive is absent (default-off)", () => {
+        expect(interactiveEnabled({})).toBe(false)
+    })
+
+    it("is disabled when interactive is false", () => {
+        expect(interactiveEnabled({ interactive: false })).toBe(false)
+    })
+
+    it.each([
+        ["a truthy non-boolean", "true"],
+        ["the number 1", 1],
+        ["null", null],
+        ["an object", {}]
+    ] as [string, unknown][])("is disabled for a non-boolean value (%s)", (_label, value) => {
+        expect(interactiveEnabled({ interactive: value as never })).toBe(false)
+    })
+})
+
+describe("isInteractive", () => {
+    let restore: PropertyDescriptor | undefined
+    let dir = ""
+    const file = () => path.join(dir, "preemdeck.json")
+
+    beforeEach(async () => {
+        dir = path.join(root, ".preemdeck")
+        await fs.mkdir(dir, { recursive: true })
+        restore = Object.getOwnPropertyDescriptor(ENV, "PREEMDECK_ROOT")
+        Object.defineProperty(ENV, "PREEMDECK_ROOT", { configurable: true, get: () => dir })
+    })
+
+    afterEach(() => {
+        if (restore) Object.defineProperty(ENV, "PREEMDECK_ROOT", restore)
+    })
+
+    it("resolves true for interactive: true", async () => {
+        await fs.writeFile(file(), JSON.stringify({ interactive: true }))
+        expect(await isInteractive()).toBe(true)
+    })
+
+    it("resolves false for an absent config file", async () => {
+        expect(await isInteractive()).toBe(false)
+    })
+
+    it("fails CLOSED (false) on malformed JSON", async () => {
+        await fs.writeFile(file(), "not json")
+        expect(await isInteractive()).toBe(false)
     })
 })
 

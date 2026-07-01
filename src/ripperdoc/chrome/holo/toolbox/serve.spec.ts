@@ -16,7 +16,7 @@ import { describe, expect, it } from "bun:test"
 import * as fs from "node:fs/promises"
 import * as os from "node:os"
 import * as path from "node:path"
-import { buildViteConfig, PLAN_ALIAS, resolveMdxPath, ServeError } from "./serve"
+import { buildViteConfig, createDisconnectReaper, PLAN_ALIAS, resolveMdxPath, ServeError } from "./serve"
 
 const context = describe
 
@@ -193,5 +193,130 @@ describe("serve", () => {
             expect(code).toBe(0)
             expect(stdout).toContain("serve")
         })
+    })
+})
+
+/**
+ * A deterministic fake-timer harness for the reaper: `setTimer` records a
+ * deadline-tagged callback under a monotonic id; `advance(ms)` moves a virtual
+ * clock forward and fires (once) every still-live timer whose deadline it passes.
+ * No real `setTimeout`, so the reaper's timing is asserted synchronously.
+ */
+const fakeClock = (): {
+    setTimer: (fn: () => void, ms: number) => number
+    clearTimer: (id: number) => void
+    advance: (ms: number) => void
+} => {
+    let now = 0
+    let nextId = 1
+    const pending = new Map<number, { at: number; fn: () => void }>()
+    return {
+        setTimer: (fn, ms) => {
+            const id = nextId++
+            pending.set(id, { at: now + ms, fn })
+            return id
+        },
+        clearTimer: (id) => {
+            pending.delete(id)
+        },
+        advance: (ms) => {
+            now += ms
+            for (const [id, timer] of [...pending]) {
+                if (timer.at <= now) {
+                    pending.delete(id)
+                    timer.fn()
+                }
+            }
+        }
+    }
+}
+
+describe("createDisconnectReaper", () => {
+    const GRACE = 5000
+    const STARTUP = 60000
+
+    it("reaps via the startup backstop when no client ever connects", () => {
+        const clock = fakeClock()
+        let reaped = 0
+        const reaper = createDisconnectReaper({ ...clock, graceMs: GRACE, startupMs: STARTUP, onReap: () => reaped++ })
+        reaper.start()
+        clock.advance(STARTUP - 1)
+        expect(reaped).toBe(0)
+        clock.advance(1)
+        expect(reaped).toBe(1)
+    })
+
+    it("first connect cancels the startup backstop (no reap even long after startupMs)", () => {
+        const clock = fakeClock()
+        let reaped = 0
+        const reaper = createDisconnectReaper({ ...clock, graceMs: GRACE, startupMs: STARTUP, onReap: () => reaped++ })
+        reaper.start()
+        reaper.onConnect()
+        clock.advance(STARTUP * 10)
+        expect(reaped).toBe(0)
+    })
+
+    it("arms the grace timer when the last client disconnects, and reaps once it elapses", () => {
+        const clock = fakeClock()
+        let reaped = 0
+        const reaper = createDisconnectReaper({ ...clock, graceMs: GRACE, startupMs: STARTUP, onReap: () => reaped++ })
+        reaper.start()
+        reaper.onConnect()
+        reaper.onDisconnect()
+        clock.advance(GRACE - 1)
+        expect(reaped).toBe(0)
+        clock.advance(1)
+        expect(reaped).toBe(1)
+    })
+
+    it("a reconnect within the grace window cancels the reap (reload/HMR-fallback blip)", () => {
+        const clock = fakeClock()
+        let reaped = 0
+        const reaper = createDisconnectReaper({ ...clock, graceMs: GRACE, startupMs: STARTUP, onReap: () => reaped++ })
+        reaper.start()
+        reaper.onConnect()
+        reaper.onDisconnect()
+        clock.advance(GRACE - 1) // still inside the window
+        reaper.onConnect() // a full reload reconnected
+        clock.advance(GRACE * 5) // long past the original window
+        expect(reaped).toBe(0)
+    })
+
+    it("a disconnect that still leaves ≥1 client does NOT reap", () => {
+        const clock = fakeClock()
+        let reaped = 0
+        const reaper = createDisconnectReaper({ ...clock, graceMs: GRACE, startupMs: STARTUP, onReap: () => reaped++ })
+        reaper.start()
+        reaper.onConnect() // count 1
+        reaper.onConnect() // count 2 (e.g. a second tab)
+        reaper.onDisconnect() // count 1 — one viewer remains
+        clock.advance(GRACE * 5)
+        expect(reaped).toBe(0)
+    })
+
+    it("never reaps before the first client connects (a stray disconnect is a no-op)", () => {
+        const clock = fakeClock()
+        let reaped = 0
+        const reaper = createDisconnectReaper({ ...clock, graceMs: GRACE, startupMs: STARTUP, onReap: () => reaped++ })
+        reaper.start()
+        reaper.onDisconnect() // never seen a client — must not arm the grace timer
+        clock.advance(GRACE * 5)
+        expect(reaped).toBe(0)
+        // the startup backstop is still the only live path
+        clock.advance(STARTUP)
+        expect(reaped).toBe(1)
+    })
+
+    it("reaps at most once (grace elapse then a later signal-style call is idempotent)", () => {
+        const clock = fakeClock()
+        let reaped = 0
+        const reaper = createDisconnectReaper({ ...clock, graceMs: GRACE, startupMs: STARTUP, onReap: () => reaped++ })
+        reaper.start()
+        reaper.onConnect()
+        reaper.onDisconnect()
+        clock.advance(GRACE) // reaps
+        reaper.onDisconnect() // a late event must not re-fire onReap
+        clock.advance(GRACE * 5)
+        expect(reaped).toBe(1)
     })
 })

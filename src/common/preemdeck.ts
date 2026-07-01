@@ -68,6 +68,8 @@ export type Config = {
     channel?: Channel
     /** Dock notifications: enable/disable the ding and the per-moment desktop / IDE alerts. */
     notify?: Notify
+    /** Interactive plan preview: true serves the plan via holo and opens the running URL in the IDE; absent/false uses the static IDE markdown preview. */
+    interactive?: boolean
 }
 
 export type Recipe<TDraft> = (draft: TDraft) => TDraft | Promise<TDraft>
@@ -107,6 +109,27 @@ export const isNotifyEnabled = async (key: NotifyKey): Promise<boolean> => {
         return notifyEnabled(await config.read(), key)
     } catch {
         return true
+    }
+}
+
+/**
+ * Whether interactive plan preview is enabled: `true` ONLY for an explicit
+ * `interactive: true`. An absent flag, `false`, or any non-boolean value reads
+ * as off, so the safe default is today's static IDE markdown preview.
+ */
+export const interactiveEnabled = (cfg: Config): boolean => cfg.interactive === true
+
+/**
+ * Read preemdeck.json and resolve {@link interactiveEnabled}. Fail-CLOSED: unlike
+ * notifications (fail-open), the safe default here is today's static preview, so
+ * any read or parse error resolves `false` — a missing or malformed config falls
+ * back to the static path rather than spinning up a holo server.
+ */
+export const isInteractive = async (): Promise<boolean> => {
+    try {
+        return interactiveEnabled(await config.read())
+    } catch {
+        return false
     }
 }
 
