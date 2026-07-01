@@ -2,21 +2,24 @@
 /**
  * serve.ts — the FOREGROUND holo server (blocking).
  *
- * Serve a rendered MDX plan as a live page over HTTP — a browser view of an
- * agent's plan. Resolves + validates the target `.mdx`, builds an inline Vite
- * dev config (no vite.config on disk) that aliases the external file in as
- * `@holo-plan` so `@mdx-js/rollup` transforms it, boots Vite in dev/HMR mode,
- * prints the greppable `holo: ready` banner, and blocks until a signal.
+ * Serve a plan file (`.mdx`/`.md`) as a live, EDITABLE page over HTTP — a browser
+ * view of an agent's plan a human can edit in place. Resolves + validates the
+ * target file, builds an inline Vite dev config (no vite.config on disk) rooted at
+ * the committed `app/` template, and mounts a tiny `/__holo/plan` endpoint that
+ * READS the file (to seed the in-browser MDX editor) and WRITES edits back to it,
+ * so the on-disk file stays the canonical artifact the agent reads. Boots Vite in
+ * dev mode, prints the greppable `holo: ready` banner, and blocks until a signal.
  *
  * The deterministic prelude (resolve + validate the path, build the config,
- * would-print the banner) is pure and unit-testable; only the real side-effects
- * — `server.listen()` and the shutdown block — ride `effect()`, so `--dry-run`
+ * would-print the banner) is pure and unit-testable, and the endpoint's decision
+ * is factored out pure too ({@link handlePlanIo}); only the real side-effects —
+ * `server.listen()` and the shutdown block — ride `effect()`, so `--dry-run`
  * rehearses the whole prelude WITHOUT binding a port.
  */
 
 import * as fs from "node:fs"
+import type { IncomingMessage } from "node:http"
 import * as path from "node:path"
-import mdx from "@mdx-js/rollup"
 import react from "@vitejs/plugin-react"
 import { defineCommand, effect, execute } from "cmdore"
 import { createServer, type InlineConfig, type ViteDevServer } from "vite"
@@ -31,13 +34,10 @@ export const DEFAULT_CSS = path.join(APP_ROOT, "style.css")
 /** The repo root, allow-listed for file serving alongside the app root + the mdx dir. */
 const REPO_ROOT = path.resolve(import.meta.dir, "..", "..", "..", "..", "..")
 
-/** Stable id the entry imports; aliased to the resolved external `.mdx` so rollup transforms it. */
-export const PLAN_ALIAS = "@holo-plan"
-
 /** Stable id the entry imports for its stylesheet; aliased to {@link DEFAULT_CSS} or the `--css` override. */
 export const STYLE_ALIAS = "@holo-style"
 
-/** Extensions holo will render as MDX (`.md` is accepted and compiled by `@mdx-js/rollup` too). */
+/** Extensions holo accepts as a plan source; the browser editor edits either as markdown/MDX. */
 const MDX_EXTENSIONS = new Set([".mdx", ".md"])
 
 /** Raised to fail the launch cleanly (exit 1) with a `holo: error:` message. */
@@ -253,41 +253,36 @@ export const resolveCssPath = (file: string): string => {
 }
 
 /**
- * Build the inline Vite dev config that renders `mdxPath` as a live MDX→React page.
+ * Build the inline Vite dev config that serves the editable plan page.
  *
  * Pure (returns a plain config object, binds nothing) so the spec can assert its
- * shape without booting Vite. The external `.mdx` lives anywhere on disk, so it
- * is fed in via a `resolve.alias` mapping {@link PLAN_ALIAS} → its absolute path;
- * because the resolved id ends in `.mdx`/`.md`, `@mdx-js/rollup` transforms it,
- * and `react()` wires Fast Refresh so editing the source hot-updates the page.
- * `server.fs.allow` lists the app root, the mdx's own directory, AND the repo
- * root — Vite restricts file serving to `root` by default, and the aliased
- * external file lives outside it, so its dir must be allow-listed.
+ * shape without booting Vite. The page is a small React app (the committed `app/`
+ * template) hosting an in-browser MDX editor; the plan text is NOT compiled by
+ * Vite — the page fetches it from the `/__holo/plan` endpoint at runtime — so no
+ * MDX rollup plugin or plan alias is needed here, only `react()` for the app shell.
+ * The stylesheet is still aliased ({@link STYLE_ALIAS} → {@link DEFAULT_CSS} or the
+ * `--css` override) so it themes the page chrome. `server.fs.allow` lists the app
+ * root, the stylesheet's dir, and the repo root — Vite restricts file serving to
+ * `root` by default, and the editor's own assets under `node_modules` (and any
+ * `--css` override) live outside it, so those dirs must be allow-listed.
  *
- * @param mdxPath - absolute path to the validated `.mdx`/`.md` (see {@link resolveMdxPath}).
  * @param options - the resolved launch knobs; see {@link ServeOptions}.
  * @returns a Vite {@link InlineConfig} with `configFile: false` (no file on disk) and `appType: "spa"`.
  *
  * @example
- * const config = buildViteConfig("/abs/plan.mdx", { host: "127.0.0.1", port: 5173 })
+ * const config = buildViteConfig({ host: "127.0.0.1", port: 5173 })
  */
-export const buildViteConfig = (mdxPath: string, options: ServeOptions): InlineConfig => {
-    const mdxDir = path.dirname(mdxPath)
+export const buildViteConfig = (options: ServeOptions): InlineConfig => {
     const cssPath = options.css !== undefined ? path.resolve(options.css) : DEFAULT_CSS
     const cssDir = path.dirname(cssPath)
     return {
         configFile: false,
         root: APP_ROOT,
-        // mdx BEFORE react so `.mdx`→JSX flows through Fast Refresh; `jsxImportSource`
-        // pins the runtime so the compiled MDX resolves `jsx`/`jsxs` from react.
-        plugins: [mdx({ jsxImportSource: "react" }), react()],
+        plugins: [react()],
         resolve: {
-            // The arbitrary external plan is pulled in under a stable id; its `.mdx`
-            // extension is what makes `@mdx-js/rollup` pick it up.
             alias: {
-                [PLAN_ALIAS]: mdxPath,
-                // The stylesheet is aliased the same way, so `--css` swaps the file the
-                // page loads without the entry import ever changing.
+                // The stylesheet is aliased so `--css` swaps the file the page loads
+                // without the entry import ever changing.
                 [STYLE_ALIAS]: cssPath
             }
         },
@@ -297,9 +292,9 @@ export const buildViteConfig = (mdxPath: string, options: ServeOptions): InlineC
             port: options.port,
             open: options.open,
             fs: {
-                // Root-restricted by default; the aliased external file lives outside
-                // the app root, so allow its dir (and the repo root) explicitly.
-                allow: [APP_ROOT, mdxDir, cssDir, REPO_ROOT]
+                // Root-restricted by default; the editor's node_modules assets and any
+                // `--css` override live outside the app root, so allow their dirs.
+                allow: [APP_ROOT, cssDir, REPO_ROOT]
             }
         },
         appType: "spa"
@@ -334,6 +329,48 @@ export const resolveLocalUrl = (server: ViteDevServer, host: string): string => 
 const escapeHtmlText = (text: string): string =>
     text.replace(/[&<>]/g, (c) => (c === "&" ? "&amp;" : c === "<" ? "&lt;" : "&gt;"))
 
+/** The dev-server endpoint the page uses to read the plan (GET) and persist edits (POST). */
+export const PLAN_ENDPOINT = "/__holo/plan"
+
+/** The outcome of {@link handlePlanIo}: an HTTP status plus an optional text body/content-type. */
+export type PlanIoResult = { status: number; body?: string; contentType?: string }
+
+/**
+ * Pure request logic for {@link PLAN_ENDPOINT}: `GET` reads the plan, `POST` writes
+ * the request body back to it, anything else is `405`. Extracted from the live
+ * middleware (which only adapts Node's req/res and the file I/O onto this) so the
+ * spec drives it with fake I/O — no socket, no real file. The write is the whole
+ * point: an edit made in the browser lands on the same file the agent reads.
+ *
+ * @param method - the request method (`req.method`).
+ * @param readBody - reads the full request body as text; consulted on `POST` only.
+ * @param io - the plan file's read/write side-effects, injected for testability.
+ * @returns the status and optional body/content-type to write onto the response.
+ */
+export const handlePlanIo = async (
+    method: string | undefined,
+    readBody: () => Promise<string>,
+    io: { read: () => Promise<string>; write: (text: string) => Promise<void> }
+): Promise<PlanIoResult> => {
+    if (method === "GET") {
+        return { status: 200, body: await io.read(), contentType: "text/plain; charset=utf-8" }
+    }
+    if (method === "POST") {
+        await io.write(await readBody())
+        return { status: 204 }
+    }
+    return { status: 405 }
+}
+
+/** Read a Node request stream to a single UTF-8 string (the POSTed plan text). */
+const readRequestBody = (req: IncomingMessage): Promise<string> =>
+    new Promise((resolve, reject) => {
+        const chunks: Buffer[] = []
+        req.on("data", (chunk: Buffer) => chunks.push(chunk))
+        req.on("end", () => resolve(Buffer.concat(chunks).toString("utf8")))
+        req.on("error", reject)
+    })
+
 /**
  * Run the foreground server: validate the path, build the config, boot Vite in
  * dev/HMR mode, print the banner, and block until a signal.
@@ -364,7 +401,7 @@ export const serve = async (file: string, options: ServeOptions): Promise<void> 
     if (options.css !== undefined) {
         resolveCssPath(options.css)
     }
-    const config = buildViteConfig(mdxPath, options)
+    const config = buildViteConfig(options)
 
     // Title the tab after the loaded file (not hardcoded): a serve-time
     // transformIndexHtml that rewrites <title> to the plan's basename.
@@ -375,6 +412,32 @@ export const serve = async (file: string, options: ServeOptions): Promise<void> 
             name: "holo-title",
             transformIndexHtml: (html: string): string =>
                 html.replace(/<title>[\s\S]*?<\/title>/, `<title>${title}</title>`)
+        },
+        {
+            // Mount the endpoint the page's editor talks to: GET seeds it with the
+            // file's current text, POST persists an edit back to the SAME file so the
+            // on-disk plan stays canonical for the agent. The decision is pure
+            // (handlePlanIo); this only adapts Node's req/res and the file I/O onto it.
+            name: "holo-editor",
+            configureServer(server: ViteDevServer): void {
+                server.middlewares.use(PLAN_ENDPOINT, (req, res) => {
+                    void handlePlanIo(req.method, () => readRequestBody(req), {
+                        read: () => fs.promises.readFile(mdxPath, "utf8"),
+                        write: (text) => fs.promises.writeFile(mdxPath, text)
+                    })
+                        .then((result) => {
+                            res.statusCode = result.status
+                            if (result.contentType !== undefined) {
+                                res.setHeader("content-type", result.contentType)
+                            }
+                            res.end(result.body)
+                        })
+                        .catch((error) => {
+                            res.statusCode = 500
+                            res.end(String(error))
+                        })
+                })
+            }
         }
     ]
 
@@ -438,7 +501,7 @@ export const serve = async (file: string, options: ServeOptions): Promise<void> 
 
 const command = defineCommand({
     name: "serve",
-    description: "Serve a rendered MDX plan as a live page over HTTP — a browser view of an agent's plan.",
+    description: "Serve a plan (.md/.mdx) as a live, editable page over HTTP — edit an agent's plan in the browser.",
     arguments: [{ name: "file", description: "path to the .mdx (or .md) plan to render", required: true }],
     options: [
         {

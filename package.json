@@ -19,7 +19,7 @@
     },
     "dependencies": {
         "@hono/zod-openapi": "^1.4.0",
-        "@mdx-js/rollup": "^3.1.0",
+        "@mdxeditor/editor": "^4.0.4",
         "@vitejs/plugin-react": "^5.0.4",
         "argvex": "^0.0.6",
         "cmdore": "^0.4.1",

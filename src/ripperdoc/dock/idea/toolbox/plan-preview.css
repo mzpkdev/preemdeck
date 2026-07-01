@@ -1,4 +1,4 @@
-/* style.css — holo's markdown stylesheet, matched to IntelliJ "New UI" Darcula's
+/* plan-preview.css — holo's markdown stylesheet, matched to IntelliJ "New UI" Darcula's
    markdown preview. Palette sampled from the IDE (bg #1e1f22, text #bcbec3 — one
    color for headings, body, and code — panels #303235, dividers + scrollbar thumb
    #4f5153). Bare element selectors, no scope class: it's a single-purpose internal
@@ -14,6 +14,16 @@
   --selection: #214283;
   --scrollbar: #4f5153;
   --scrollbar-hover: #5a5c5e;
+
+  /* Fenced-code syntax tokens (IntelliJ New UI Darcula). */
+  --code-keyword: #cf8e6d;
+  --code-string: #6aab73;
+  --code-number: #2aacb8;
+  --code-fn: #56a8f5;
+  --code-type: #b5b6e3;
+  --code-property: #c77dbb;
+  --code-comment: #7a7e85;
+  --code-error: #e5534b;
 }
 
 body {

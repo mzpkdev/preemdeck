@@ -1,5 +1,5 @@
 {
   "name": "holo",
   "version": "0.0.0",
-  "description": "Serve a rendered MDX plan as a live page over HTTP — a browser view of an agent's plan."
+  "description": "Serve a plan (.md/.mdx) as a live, editable page over HTTP — edit an agent's plan in the browser."
 }

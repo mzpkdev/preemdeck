@@ -13,6 +13,16 @@
   --canvas-subtle: #f6f8fa;
   --scrollbar: rgba(140, 149, 159, 0.4);
   --scrollbar-hover: rgba(140, 149, 159, 0.6);
+
+  /* Fenced-code syntax tokens (GitHub prettylights, light). */
+  --code-keyword: #cf222e;
+  --code-string: #0a3069;
+  --code-number: #0550ae;
+  --code-fn: #8250df;
+  --code-type: #953800;
+  --code-property: #116329;
+  --code-comment: #59636e;
+  --code-error: #82071e;
 }
 
 @media (prefers-color-scheme: dark) {
@@ -26,6 +36,16 @@
     --canvas-subtle: #151b23;
     --scrollbar: rgba(110, 118, 129, 0.4);
     --scrollbar-hover: rgba(110, 118, 129, 0.6);
+
+    /* Fenced-code syntax tokens (GitHub prettylights, dark). */
+    --code-keyword: #ff7b72;
+    --code-string: #a5d6ff;
+    --code-number: #79c0ff;
+    --code-fn: #d2a8ff;
+    --code-type: #ffa657;
+    --code-property: #7ee787;
+    --code-comment: #9198a1;
+    --code-error: #f85149;
   }
 }
 

@@ -1,15 +1,17 @@
 /**
  * serve.spec.ts — exercises serve.ts at two layers, never binding a real port.
  *
- * UNIT (hermetic): the pure builders — `resolveMdxPath` (a valid `.mdx` resolves
- * absolute; a missing file and a non-MDX extension throw `holo: error:`-shaped
- * messages) and `buildViteConfig` (root points at `app`, the alias maps
- * `@holo-plan`→the abs mdx, `server.fs.allow` includes the mdx's dir).
+ * UNIT (hermetic): the pure builders — `resolveMdxPath`/`resolveCssPath` (a valid
+ * file resolves absolute; a missing file or wrong extension throws a
+ * `holo: error:`-shaped message), `buildViteConfig` (root points at `app`, the
+ * alias maps `@holo-style`→the stylesheet, `server.fs.allow` covers the app + repo
+ * roots), and `handlePlanIo` (GET reads the plan, POST writes the body back, other
+ * methods are 405).
  *
  * E2E (subprocess): drive `serve --dry-run` so effect() skips createServer/listen
  * — the deterministic prelude (path validation, config build, the exact banner)
- * still runs. The real bind/block can't be exercised here (it would never
- * return); the live curl check proves that path.
+ * still runs. The real bind/block and the live `/__holo/plan` middleware can't be
+ * exercised here (the server would never return); the live curl check proves them.
  */
 
 import { describe, expect, it } from "bun:test"
@@ -20,7 +22,7 @@ import {
     buildViteConfig,
     createDisconnectReaper,
     DEFAULT_CSS,
-    PLAN_ALIAS,
+    handlePlanIo,
     resolveCssPath,
     resolveMdxPath,
     ServeError,
@@ -148,26 +150,26 @@ describe("serve", () => {
 
     context("buildViteConfig — the inline dev config", () => {
         it("roots at the committed app/ template dir and disables the config file", () => {
-            const config = buildViteConfig("/abs/plan.mdx", { host: "127.0.0.1", port: 5173 })
+            const config = buildViteConfig({ host: "127.0.0.1", port: 5173 })
             expect(config.configFile).toBe(false)
             expect(config.appType).toBe("spa")
             expect(config.root).toBe(path.join(import.meta.dir, "app"))
         })
 
-        it("aliases @holo-plan to the absolute mdx path", () => {
-            const config = buildViteConfig("/abs/plan.mdx", { host: "127.0.0.1", port: 5173 })
-            const alias = config.resolve?.alias as Record<string, string>
-            expect(alias[PLAN_ALIAS]).toBe("/abs/plan.mdx")
-        })
-
         it("aliases @holo-style to the built-in stylesheet when no --css is given", () => {
-            const config = buildViteConfig("/abs/plan.mdx", { host: "127.0.0.1", port: 5173 })
+            const config = buildViteConfig({ host: "127.0.0.1", port: 5173 })
             const alias = config.resolve?.alias as Record<string, string>
             expect(alias[STYLE_ALIAS]).toBe(DEFAULT_CSS)
         })
 
+        it("does NOT wire the old @holo-plan MDX alias (the editor fetches the plan at runtime)", () => {
+            const config = buildViteConfig({ host: "127.0.0.1", port: 5173 })
+            const alias = config.resolve?.alias as Record<string, string>
+            expect(alias["@holo-plan"]).toBeUndefined()
+        })
+
         it("aliases @holo-style to the --css override and allow-lists its dir", () => {
-            const config = buildViteConfig("/abs/plan.mdx", {
+            const config = buildViteConfig({
                 host: "127.0.0.1",
                 port: 5173,
                 css: "/themes/dracula.css"
@@ -177,24 +179,60 @@ describe("serve", () => {
             expect(config.server?.fs?.allow ?? []).toContain(path.dirname("/themes/dracula.css"))
         })
 
-        it("allow-lists the mdx's own directory for file serving", () => {
-            const mdxPath = "/somewhere/deep/plan.mdx"
-            const config = buildViteConfig(mdxPath, { host: "127.0.0.1", port: 5173 })
+        it("allow-lists the app root and the repo root for file serving", () => {
+            const config = buildViteConfig({ host: "127.0.0.1", port: 5173 })
             const allow = config.server?.fs?.allow ?? []
-            expect(allow).toContain(path.dirname(mdxPath))
             expect(allow).toContain(path.join(import.meta.dir, "app"))
+            expect(allow).toContain(path.resolve(import.meta.dir, "..", "..", "..", "..", ".."))
         })
 
         it("threads host/port/open through to server.*", () => {
-            const config = buildViteConfig("/abs/plan.mdx", { host: "0.0.0.0", port: 5199, open: true })
+            const config = buildViteConfig({ host: "0.0.0.0", port: 5199, open: true })
             expect(config.server?.host).toBe("0.0.0.0")
             expect(config.server?.port).toBe(5199)
             expect(config.server?.open).toBe(true)
         })
 
         it("does NOT set strictPort (lets Vite auto-bump)", () => {
-            const config = buildViteConfig("/abs/plan.mdx", { host: "127.0.0.1", port: 5173 })
+            const config = buildViteConfig({ host: "127.0.0.1", port: 5173 })
             expect(config.server?.strictPort).toBeUndefined()
+        })
+    })
+
+    context("handlePlanIo — the /__holo/plan read/write logic", () => {
+        it("GET reads the plan and returns it as text/plain, without writing", async () => {
+            let wrote = false
+            const result = await handlePlanIo("GET", async () => "should-not-be-read", {
+                read: async () => "# Plan\n",
+                write: async () => {
+                    wrote = true
+                }
+            })
+            expect(result.status).toBe(200)
+            expect(result.body).toBe("# Plan\n")
+            expect(result.contentType).toBe("text/plain; charset=utf-8")
+            expect(wrote).toBe(false)
+        })
+
+        it("POST writes the request body back to the plan and returns 204 (no body)", async () => {
+            let written: string | undefined
+            const result = await handlePlanIo("POST", async () => "# Edited\n", {
+                read: async () => "stale",
+                write: async (text) => {
+                    written = text
+                }
+            })
+            expect(result.status).toBe(204)
+            expect(result.body).toBeUndefined()
+            expect(written).toBe("# Edited\n")
+        })
+
+        it("answers any other method with 405", async () => {
+            const result = await handlePlanIo("DELETE", async () => "", {
+                read: async () => "",
+                write: async () => {}
+            })
+            expect(result.status).toBe(405)
         })
     })
 
