@@ -104,3 +104,23 @@
 [class*="toolbarRoot"]:focus-within {
   transform: translateY(0);
 }
+
+/* Table extend/select affordances — the pseudo cells that add or select columns/rows:
+   the add-column column (last th in each thead/tbody row), the add-row footer (every
+   tfoot th), and the select-handle cells for the first row + first column (matched by
+   the cell holding a table*EditorTrigger). Transparent + borderless. Structural, so it
+   tracks regardless of table size. */
+.mdxeditor-root-contenteditable thead > tr > th:first-child,
+.mdxeditor-root-contenteditable thead > tr > th:last-child,
+.mdxeditor-root-contenteditable tbody > tr > th:last-child,
+.mdxeditor-root-contenteditable tfoot > tr > th,
+.mdxeditor-root-contenteditable :is(th, td):has([class*="tableColumnEditorTrigger"], [class*="tableRowEditorTrigger"]) {
+  background: transparent;
+  border: none;
+}
+
+/* Add-row button: drop the full-width stretch, center it instead. */
+.mdxeditor-root-contenteditable [class*="addRowButton"] {
+  width: auto;
+  margin: auto;
+}
