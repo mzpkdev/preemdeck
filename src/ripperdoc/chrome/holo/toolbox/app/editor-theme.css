@@ -30,19 +30,77 @@
 [class*="codeMirrorWrapper"]:hover [class*="codeMirrorToolbar"],
 [class*="codeMirrorWrapper"]:focus-within [class*="codeMirrorToolbar"],
 [class*="codeMirrorWrapper"]:has([data-state="open"]) [class*="codeMirrorToolbar"] {
-  opacity: 1;
+  opacity: 0.75;
 }
 
-/* Strip the trigger's chrome: borderless, no fill, compact, muted until hovered. */
-[class*="toolbarCodeBlockLanguageSelectTrigger"] {
+/* The language picker is the button inside the code-block toolbar (span > button).
+   MDXEditor's toolbarCodeBlockLanguageSelect* classes don't land on this button in
+   the shipped build, so anchor on the real element. Minimal chrome + 8px; drop the
+   fixed width (spacing-48) on the button and its span wrapper. */
+[class*="codeMirrorToolbar"] > span,
+[class*="codeMirrorToolbar"] > span > button {
+  width: auto;
+}
+
+[class*="codeMirrorToolbar"] > span > button {
+  margin: 0;
+  padding: 0;
   border: 0;
   background: transparent;
-  padding: 2px 6px;
+  font-size: 8px;
   color: var(--muted, inherit);
-  font-size: 85%;
 }
 
-[class*="toolbarCodeBlockLanguageSelectTrigger"]:hover,
-[class*="toolbarCodeBlockLanguageSelectTrigger"][data-state="open"] {
+[class*="codeMirrorToolbar"] > span > button:hover {
   color: var(--fg, inherit);
+}
+
+/* Chevron: 14px box on its wrapper span (_selectDropdownArrow_); svg fills it below. */
+[class*="codeMirrorToolbar"] > span > button > [class*="selectDropdownArrow"] {
+  width: 14px;
+  height: 14px;
+}
+
+/* Trash / delete-code-block: the toolbar's direct-child button, 14px box. */
+[class*="codeMirrorToolbar"] > button {
+  width: 14px;
+  height: 14px;
+}
+
+/* Both icon svgs fill their 14px box — the chevron and the trash icon. */
+[class*="codeMirrorToolbar"] > span > button > [class*="selectDropdownArrow"] svg,
+[class*="codeMirrorToolbar"] > button svg {
+  width: 100%;
+  height: 100%;
+}
+
+/* Nudge the trash icon up to sit level with the chevron. */
+[class*="codeMirrorToolbar"] > button > svg {
+  vertical-align: super;
+}
+
+/* Best-effort 8px for the open dropdown list (a portaled popover, separate element). */
+[class*="toolbarCodeBlockLanguageSelectContent"] {
+  font-size: 8px;
+}
+
+/* Top editing toolbar: taken out of flow and parked just above the editor, offscreen
+   by default with a 4px peek at the top edge as the hover target; hovering (or
+   focusing a control) slides the bar down. Snappy. */
+.mdxeditor {
+  position: relative;
+}
+
+[class*="toolbarRoot"] {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  transform: translateY(calc(-100% + 4px));
+  transition: transform 0.15s cubic-bezier(0.2, 0, 0, 1);
+}
+
+[class*="toolbarRoot"]:hover,
+[class*="toolbarRoot"]:focus-within {
+  transform: translateY(0);
 }

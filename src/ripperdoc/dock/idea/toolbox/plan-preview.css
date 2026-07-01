@@ -174,3 +174,8 @@ html {
   scrollbar-width: thin;
   scrollbar-color: var(--scrollbar) transparent;
 }
+
+/* Code-block toolbar chip: gray, not MDXEditor's near-black --baseBase. */
+[class*="codeMirrorToolbar"] {
+  background-color: #3c3f41;
+}

@@ -85,7 +85,7 @@ const readPaletteIsDark = () => {
 // light theme (white background). Re-theme its container to the page's palette
 // variables so it tracks whatever stylesheet is active.
 const CODE_MIRROR_THEME_SPEC = {
-  "&": { backgroundColor: "var(--code-bg)", color: "var(--fg)" },
+  "&": { backgroundColor: "var(--code-bg)", color: "var(--fg)", fontSize: "12px" },
   ".cm-gutters": { backgroundColor: "var(--code-bg)", color: "var(--muted)", border: "none" },
   ".cm-activeLine, .cm-activeLineGutter": { backgroundColor: "transparent" },
   "&.cm-focused .cm-cursor": { borderLeftColor: "var(--fg)" },
