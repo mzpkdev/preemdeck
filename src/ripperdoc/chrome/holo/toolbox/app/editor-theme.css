@@ -130,4 +130,39 @@
    the intended chip shows, not a stray box. */
 [class*="_code_"] {
   background-color: var(--code-bg);
+  padding: 0.15em;
+}
+
+/* Icons in MDXEditor's popups (e.g. the link preview's open/edit/copy/unlink) → 14px.
+   Scoped to the stable .mdxeditor-popup-container class; our note popover is a separate
+   Radix portal, so it's untouched. */
+.mdxeditor-popup-container svg {
+  width: 14px;
+  height: 14px;
+}
+
+/* Link preview URL text → 10px (the anchor's span; anchored on the stable popup class,
+   not Radix's per-render #radix-… id). */
+.mdxeditor-popup-container a > span {
+  font-size: 10px;
+}
+
+/* All table-control icons → 12px (add-column/row, the column/row select handles, the
+   per-column tools) — every svg inside a button within the table. */
+.mdxeditor-root-contenteditable table button svg {
+  width: 12px;
+  height: 12px;
+}
+
+/* Code block wrapper: drop MDXEditor's 0.8rem padding + border, smaller radius. */
+[class*="codeMirrorWrapper"] {
+  padding: 0;
+  border: none;
+  border-radius: var(--radius-base);
+}
+
+/* Interactive table: pull it back under the prose margin — the select-handle column
+   and header row otherwise offset it by ~16px each. */
+.mdxeditor-root-contenteditable table {
+  transform: translate(-16px, -16px);
 }
