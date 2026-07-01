@@ -658,18 +658,15 @@ export function printSummary(harness: string, results: Record<string, string>): 
     return `${ok ? CYAN + CHECK : RED + CROSS}${RESET} ${name}`;
   });
   console.log(`    ${DIM}rig${RESET}  ${harness.padEnd(7)}${marks.join("   ")}`);
-  console.log();
 
+  // Per-harness errors surface here, next to their rig. The pass/fail banner + restart
+  // hint print ONCE at the end of main() across every target — not per rig.
   if (errors.length > 0) {
+    console.log();
     for (const line of errors) {
       console.log(`    ${RED}${CROSS}${RESET} ${line}`);
     }
-    console.log();
-    console.log(`    ${RED}${BOLD}flatlined${RESET} ${DIM}— some racks didn't slot; see above.${RESET}`);
-  } else {
-    console.log(`    ${CYAN}${BOLD}━━━${RESET} ${WHITE}${BOLD}preem, choom. you're chromed.${RESET}`);
   }
-  console.log(`        ${DIM}restart ${harness} to load the new rig.${RESET}`);
   console.log();
 }
 
@@ -870,11 +867,27 @@ export async function main(): Promise<number> {
   // One host failing (not on PATH, marketplace error) is isolated — others still install,
   // and the run reports nonzero so boot.sh's `set -e` surfaces it.
   let rc = 0;
+  const chromed: string[] = [];
   for (const harness of targets) {
-    if ((await installFor(harness, args.dryRun)) !== 0) {
+    if ((await installFor(harness, args.dryRun)) === 0) {
+      chromed.push(harness);
+    } else {
       rc = 1;
     }
   }
+
+  // Closing banner — printed ONCE for the whole run, not per rig. Lists every harness
+  // that slotted clean so a single restart hint covers them all.
+  if (rc === 0) {
+    console.log(`    ${CYAN}${BOLD}━━━${RESET} ${WHITE}${BOLD}preem, choom. you're chromed.${RESET}`);
+    console.log(`        ${DIM}restart ${chromed.join(" · ")} to load the new rig.${RESET}`);
+  } else {
+    console.log(`    ${RED}${BOLD}flatlined${RESET} ${DIM}— some racks didn't slot; see above.${RESET}`);
+    if (chromed.length > 0) {
+      console.log(`        ${DIM}restart ${chromed.join(" · ")} to load the new rig.${RESET}`);
+    }
+  }
+  console.log();
   return rc;
 }
 
