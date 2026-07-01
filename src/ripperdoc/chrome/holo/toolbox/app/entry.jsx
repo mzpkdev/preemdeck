@@ -30,10 +30,13 @@ import {
   toolbarPlugin,
   UndoRedo,
   useMdastNodeUpdater,
+  useNestedEditorContext,
   usePublisher,
 } from "@mdxeditor/editor";
 import "@mdxeditor/editor/style.css";
 import * as Popover from "@radix-ui/react-popover";
+import { PaperPlaneIcon } from "@radix-ui/react-icons";
+import { $createTextNode, $getNodeByKey } from "lexical";
 import { HighlightStyle, syntaxHighlighting } from "@codemirror/language";
 import { EditorView } from "@codemirror/view";
 import { tags as t } from "@lezer/highlight";
@@ -144,53 +147,43 @@ const buildCodeMirrorExtensions = (dark) => {
 /** The directive name — the greppable token in the plan file. */
 const LLM_NOTE = "llm-note";
 
-/** Truncate a snippet for popover headers / labels. */
-const truncate = (text, max = 42) => (text.length > max ? `${text.slice(0, max)}…` : text);
-
-// Shared popover chrome — holo palette vars, so it matches whatever --css is active.
-const CARD_STYLE = {
+// The note popover IS a single input-with-button control — no surrounding card. The
+// Content just positions; GROUP_STYLE carries the border/radius/shadow, INPUT is
+// borderless inside it, and SEND is an embedded icon button behind a divider.
+const CONTENT_STYLE = { zIndex: 60 };
+const GROUP_STYLE = {
   display: "flex",
-  flexDirection: "column",
-  gap: "8px",
-  width: "280px",
-  padding: "10px",
+  alignItems: "stretch",
+  width: "240px",
   font: "13px -apple-system, system-ui, sans-serif",
   color: "var(--fg)",
   background: "var(--bg)",
   border: "1px solid var(--border)",
   borderRadius: "8px",
   boxShadow: "0 8px 24px rgba(0, 0, 0, 0.35)",
-  zIndex: 60,
+  overflow: "hidden",
 };
 const INPUT_STYLE = {
   flex: 1,
   minWidth: 0,
-  padding: "6px 8px",
+  padding: "6px 10px",
   font: "inherit",
   color: "var(--fg)",
-  background: "var(--code-bg)",
-  border: "1px solid var(--border)",
-  borderRadius: "6px",
+  background: "transparent",
+  border: "none",
   outline: "none",
 };
 const SEND_STYLE = {
   display: "flex",
   alignItems: "center",
   justifyContent: "center",
-  width: "28px",
-  height: "28px",
   flex: "none",
+  width: "32px",
   cursor: "pointer",
-  color: "var(--bg)",
-  background: "var(--link)",
-  border: "1px solid var(--link)",
-  borderRadius: "6px",
+  border: "none",
+  borderLeft: "1px solid var(--border)",
 };
-const SEND_ICON = (
-  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-    <path d="M5 12h14M13 6l6 6-6 6" />
-  </svg>
-);
+const SEND_ICON = <PaperPlaneIcon width={15} height={15} />;
 
 /**
  * Single-line note input + icon send, shared by create (NoteAnnotator) and edit
@@ -207,13 +200,11 @@ const NoteForm = ({ initial = "", onSubmit, onCancel }) => {
     return () => clearTimeout(id);
   }, []);
   const send = () => {
-    const note = body.trim().replace(/"/g, "'");
-    if (note) {
-      onSubmit(note);
-    }
+    // Always submit — even empty; the edit popover treats empty as "remove note".
+    onSubmit(body.trim().replace(/"/g, "'"));
   };
   return (
-    <div style={{ display: "flex", gap: "6px", alignItems: "center" }}>
+    <div style={GROUP_STYLE}>
       <input
         ref={inputRef}
         type="text"
@@ -231,7 +222,14 @@ const NoteForm = ({ initial = "", onSubmit, onCancel }) => {
         placeholder="Note for the LLM…"
         style={INPUT_STYLE}
       />
-      <button type="button" onClick={send} title="Save note" aria-label="Save note" style={SEND_STYLE}>
+      <button
+        type="button"
+        className="holo-note-send"
+        onClick={send}
+        title="Save note"
+        aria-label="Save note"
+        style={SEND_STYLE}
+      >
         {SEND_ICON}
       </button>
     </div>
@@ -248,9 +246,17 @@ const LlmNoteEditor = ({ mdastNode }) => {
   const { note = "" } = mdastNode.attributes ?? {};
   const text = (mdastNode.children ?? []).map((child) => child.value ?? "").join("");
   const updateMdastNode = useMdastNodeUpdater();
+  const { parentEditor, lexicalNode } = useNestedEditorContext();
   const [open, setOpen] = useState(false);
   const save = (next) => {
-    updateMdastNode({ attributes: { note: next } });
+    if (next) {
+      updateMdastNode({ attributes: { note: next } });
+    } else {
+      // Empty on edit → unwrap: replace the directive with its plain text, dropping the note.
+      parentEditor.update(() => {
+        $getNodeByKey(lexicalNode.getKey())?.replace($createTextNode(text));
+      });
+    }
     setOpen(false);
   };
   return (
@@ -270,8 +276,7 @@ const LlmNoteEditor = ({ mdastNode }) => {
         </span>
       </Popover.Trigger>
       <Popover.Portal>
-        <Popover.Content side="bottom" align="start" sideOffset={6} onOpenAutoFocus={(event) => event.preventDefault()} style={CARD_STYLE}>
-          <div style={{ color: "var(--muted)", fontSize: "11px" }}>Edit note</div>
+        <Popover.Content side="bottom" align="start" sideOffset={6} onOpenAutoFocus={(event) => event.preventDefault()} style={CONTENT_STYLE}>
           <NoteForm initial={note} onSubmit={save} onCancel={() => setOpen(false)} />
         </Popover.Content>
       </Popover.Portal>
@@ -320,14 +325,16 @@ const NoteAnnotator = () => {
 
   const close = () => setTarget(null);
   const add = (note) => {
-    // Wrap the selected text as the directive's children so the content stays in the
-    // document (rendered as a highlight) instead of being replaced by the marker.
-    insert({
-      type: "textDirective",
-      name: LLM_NOTE,
-      children: [{ type: "text", value: target.anchor }],
-      attributes: { note },
-    });
+    // Empty → create nothing. Otherwise wrap the selected text as the directive's
+    // children so the content stays in the document (a highlight), not replaced.
+    if (note) {
+      insert({
+        type: "textDirective",
+        name: LLM_NOTE,
+        children: [{ type: "text", value: target.anchor }],
+        attributes: { note },
+      });
+    }
     close();
   };
 
@@ -335,8 +342,7 @@ const NoteAnnotator = () => {
     <Popover.Root open={target !== null} onOpenChange={(open) => !open && close()}>
       <Popover.Anchor style={{ position: "fixed", left: target?.x ?? 0, top: target?.y ?? 0, width: 0, height: 0 }} />
       <Popover.Portal>
-        <Popover.Content side="bottom" align="start" sideOffset={6} onOpenAutoFocus={(event) => event.preventDefault()} style={CARD_STYLE}>
-          <div style={{ color: "var(--muted)", fontSize: "11px" }}>Note on “{truncate(target?.anchor ?? "")}”</div>
+        <Popover.Content side="bottom" align="start" sideOffset={6} onOpenAutoFocus={(event) => event.preventDefault()} style={CONTENT_STYLE}>
           {target ? <NoteForm initial="" onSubmit={add} onCancel={close} /> : null}
         </Popover.Content>
       </Popover.Portal>

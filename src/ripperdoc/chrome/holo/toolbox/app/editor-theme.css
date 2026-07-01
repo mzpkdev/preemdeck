@@ -166,3 +166,14 @@
 .mdxeditor-root-contenteditable table {
   transform: translate(-16px, -16px);
 }
+
+/* Note popover send button: accent fill + inverted icon on hover. */
+.holo-note-send {
+  color: var(--link);
+  background: transparent;
+  transition: background 0.1s cubic-bezier(0.2, 0, 0, 1), color 0.1s cubic-bezier(0.2, 0, 0, 1);
+}
+.holo-note-send:hover {
+  color: var(--bg);
+  background: var(--link);
+}
