@@ -1,12 +1,48 @@
-/* editor-theme.css — patch the MDXEditor dark tokens that its own `.dark-theme`
-   cascade misses. MDXEditor's dark-theme only remaps the raw radix scales; a few
-   SEMANTIC tokens keep their light literals — notably `--basePageBg: white`, which
-   paints the Select triggers (the toolbar's "Block type" and the code block's
-   language picker) and some popover surfaces. Map them to holo's active palette so
-   they match the rest of the dark chrome. Loaded last (after MDXEditor's own CSS),
-   scoped to `.dark-theme`, so it only applies when holo resolves a dark page. */
+/* editor-theme.css — overrides for MDXEditor's own chrome (toolbar, selects,
+   popovers). Imported unconditionally and LAST in entry.jsx, so it wins
+   MDXEditor's cascade and applies on EVERY run regardless of the --css override.
 
+   Two jobs:
+     1. Dark-token patches, scoped to `.dark-theme` — MDXEditor's dark theme only
+        remaps the raw radix scales; a few SEMANTIC tokens keep their light literals
+        (notably `--basePageBg: white`, which paints Select triggers + popovers).
+     2. Widget tweaks that apply to every run (unscoped).
+
+   MDXEditor ships CSS-module classnames with a build hash + line suffix
+   (e.g. `_toolbarCodeBlockLanguageSelectTrigger_f3hmk_342`) that shifts across
+   versions, so target the stable source-name substring via `[class*="…"]`. */
+
+/* (1) Dark-only: map the light `--basePageBg` literal to holo's panel color so the
+   Select triggers/menus and popover surfaces match the rest of the dark chrome. */
 .dark-theme {
-  /* Raised surfaces (Select triggers/menus, popover panels) → the panel color. */
   --basePageBg: var(--code-bg, var(--bg, #1e1f22));
+}
+
+/* (2) All runs: the fenced-code language picker — minimal, reveal on hover.
+   The toolbar row is hidden by default and shown when the code block is hovered,
+   focused, or its dropdown is open (:focus-within covers editing; :has(open) keeps
+   it up while picking, since the dropdown portals out of the wrapper's focus tree). */
+[class*="codeMirrorToolbar"] {
+  opacity: 0;
+  transition: opacity 0.12s ease;
+}
+
+[class*="codeMirrorWrapper"]:hover [class*="codeMirrorToolbar"],
+[class*="codeMirrorWrapper"]:focus-within [class*="codeMirrorToolbar"],
+[class*="codeMirrorWrapper"]:has([data-state="open"]) [class*="codeMirrorToolbar"] {
+  opacity: 1;
+}
+
+/* Strip the trigger's chrome: borderless, no fill, compact, muted until hovered. */
+[class*="toolbarCodeBlockLanguageSelectTrigger"] {
+  border: 0;
+  background: transparent;
+  padding: 2px 6px;
+  color: var(--muted, inherit);
+  font-size: 85%;
+}
+
+[class*="toolbarCodeBlockLanguageSelectTrigger"]:hover,
+[class*="toolbarCodeBlockLanguageSelectTrigger"][data-state="open"] {
+  color: var(--fg, inherit);
 }
