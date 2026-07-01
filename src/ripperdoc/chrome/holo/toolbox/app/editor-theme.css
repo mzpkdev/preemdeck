@@ -124,3 +124,10 @@
   width: auto;
   margin: auto;
 }
+
+/* Inline code: MDXEditor's own class paints --baseBg behind the chip (near-black on
+   Darcula, white on the light sheet). Retint it to the palette code background so only
+   the intended chip shows, not a stray box. */
+[class*="_code_"] {
+  background-color: var(--code-bg);
+}

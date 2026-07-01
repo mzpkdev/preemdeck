@@ -97,6 +97,11 @@ const CODE_MIRROR_THEME_SPEC = {
   ".cm-selectionBackground, &.cm-focused .cm-selectionBackground": {
     backgroundColor: "var(--selection, rgba(84, 174, 255, 0.25))",
   },
+  // Clicking/selecting a token highlights every match (.cm-selectionMatch) and search
+  // hits (.cm-searchMatch); both default to a light box — tie them to the palette so
+  // they don't flash white on a dark page.
+  ".cm-selectionMatch": { backgroundColor: "var(--selection, rgba(84, 174, 255, 0.25))" },
+  ".cm-searchMatch": { backgroundColor: "var(--selection, rgba(84, 174, 255, 0.25))" },
   // The bracket-match decoration defaults to a bright box; tie it to the palette.
   ".cm-matchingBracket, &.cm-focused .cm-matchingBracket": {
     backgroundColor: "var(--selection, rgba(84, 174, 255, 0.25))",
