@@ -1,143 +1,169 @@
-/* style.css — holo's markdown stylesheet, matched to IntelliJ "New UI" Darcula's
-   markdown preview. Palette sampled directly from the IDE (bg #1e1f22, text
-   #bcbec3 — one color for headings, body, and code — panels #303235, dividers
-   and scrollbar thumb #4f5153). No framework, no per-element classes; element
-   selectors under .holo. Dark-only by design. */
+/* style.css — holo's default markdown stylesheet, matched to GitHub's rendered
+   markdown (Primer): light by default with a prefers-color-scheme dark variant.
+   Bare element selectors, no scope class — it's a single-purpose page, so a
+   custom --css just styles h1/p/code/… directly. */
 
 :root {
-  --holo-bg: #1e1f22;
-  --holo-fg: #bcbec3;
-  --holo-muted: #7a7e85;
-  --holo-link: #287bde;
-  --holo-code-bg: #303235;
-  --holo-border: #4f5153;
-  --holo-selection: #214283;
-  --holo-scrollbar: #4f5153;
-  --holo-scrollbar-hover: #5a5c5e;
+  --bg: #ffffff;
+  --fg: #1f2328;
+  --muted: #59636e;
+  --link: #0969da;
+  --border: #d1d9e0;
+  --code-bg: rgba(129, 139, 152, 0.12);
+  --canvas-subtle: #f6f8fa;
+  --scrollbar: rgba(140, 149, 159, 0.4);
+  --scrollbar-hover: rgba(140, 149, 159, 0.6);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #0d1117;
+    --fg: #e6edf3;
+    --muted: #9198a1;
+    --link: #4493f8;
+    --border: #3d444d;
+    --code-bg: rgba(101, 108, 118, 0.2);
+    --canvas-subtle: #151b23;
+    --scrollbar: rgba(110, 118, 129, 0.4);
+    --scrollbar-hover: rgba(110, 118, 129, 0.6);
+  }
 }
 
 body {
   margin: 0;
-  background: var(--holo-bg);
-  color: var(--holo-fg);
-}
-
-::selection {
-  background: var(--holo-selection);
-}
-
-.holo {
-  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
-  font-size: 13px;
-  line-height: 1.6;
+  background: var(--bg);
+  color: var(--fg);
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans", Helvetica, Arial, sans-serif;
+  font-size: 16px;
+  line-height: 1.5;
   word-wrap: break-word;
 }
 
-.holo h1,
-.holo h2,
-.holo h3,
-.holo h4 {
-  margin: 1.5em 0 0.6em;
+::selection {
+  background: rgba(84, 174, 255, 0.4);
+}
+
+h1,
+h2,
+h3,
+h4,
+h5,
+h6 {
+  margin: 24px 0 16px;
   font-weight: 600;
   line-height: 1.25;
 }
 
-.holo h1 {
+h1 {
+  padding-bottom: 0.3em;
   font-size: 2em;
+  border-bottom: 1px solid var(--border);
 }
 
-.holo h2 {
+h2 {
+  padding-bottom: 0.3em;
   font-size: 1.5em;
+  border-bottom: 1px solid var(--border);
 }
 
-.holo h3 {
+h3 {
   font-size: 1.25em;
 }
 
-.holo p {
-  margin: 0 0 1em;
+h4 {
+  font-size: 1em;
 }
 
-.holo a {
-  color: var(--holo-link);
+p {
+  margin: 0 0 16px;
+}
+
+a {
+  color: var(--link);
   text-decoration: none;
 }
 
-.holo a:hover {
+a:hover {
   text-decoration: underline;
 }
 
-.holo ul,
-.holo ol {
-  margin: 0 0 1em;
+ul,
+ol {
+  margin: 0 0 16px;
   padding-left: 2em;
 }
 
-.holo li {
-  margin: 0.25em 0;
+li + li {
+  margin-top: 0.25em;
 }
 
-.holo code {
-  padding: 0.15em 0.4em;
-  font-family: ui-monospace, SFMono-Regular, "SF Mono", "JetBrains Mono", Menlo, monospace;
-  font-size: 0.9em;
-  background: var(--holo-code-bg);
-  border-radius: 5px;
+code {
+  padding: 0.2em 0.4em;
+  font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+  font-size: 85%;
+  background: var(--code-bg);
+  border-radius: 6px;
 }
 
-.holo pre {
-  margin: 0 0 1em;
-  padding: 1em;
+pre {
+  margin: 0 0 16px;
+  padding: 16px;
   overflow: auto;
-  background: var(--holo-code-bg);
-  border-radius: 8px;
+  font-size: 85%;
+  line-height: 1.45;
+  background: var(--canvas-subtle);
+  border-radius: 6px;
 }
 
-.holo pre code {
+pre code {
   padding: 0;
-  font-size: 0.875em;
-  background: none;
+  font-size: 100%;
+  background: transparent;
+  border: 0;
 }
 
-.holo blockquote {
-  margin: 0 0 1em;
+blockquote {
+  margin: 0 0 16px;
   padding: 0 1em;
-  color: var(--holo-muted);
-  border-left: 0.25em solid var(--holo-border);
+  color: var(--muted);
+  border-left: 0.25em solid var(--border);
 }
 
-.holo table {
+table {
   display: block;
   width: max-content;
   max-width: 100%;
-  margin: 0 0 1em;
+  margin: 0 0 16px;
   overflow: auto;
   border-collapse: collapse;
 }
 
-.holo th,
-.holo td {
-  padding: 0.5em 0.9em;
-  border: 1px solid var(--holo-border);
+th,
+td {
+  padding: 6px 13px;
+  border: 1px solid var(--border);
 }
 
-.holo th {
+th {
   font-weight: 600;
-  background: var(--holo-code-bg);
 }
 
-.holo hr {
-  margin: 1.5em 0;
+tr:nth-child(2n) {
+  background: var(--canvas-subtle);
+}
+
+hr {
+  height: 0.25em;
+  margin: 24px 0;
   border: 0;
-  border-top: 1px solid var(--holo-border);
+  background: var(--border);
 }
 
-.holo img {
+img {
   max-width: 100%;
 }
 
-/* Scrollbars — IntelliJ New UI: slim solid #4f5153 pill thumb (inset via a
-   transparent border + padding-box clip), transparent track, no arrows. */
+/* Scrollbars — slim translucent thumb, transparent track, no arrows. */
 ::-webkit-scrollbar {
   width: 12px;
   height: 12px;
@@ -148,14 +174,14 @@ body {
 }
 
 ::-webkit-scrollbar-thumb {
-  background: var(--holo-scrollbar);
+  background: var(--scrollbar);
   background-clip: padding-box;
   border: 3px solid transparent;
   border-radius: 8px;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: var(--holo-scrollbar-hover);
+  background: var(--scrollbar-hover);
   background-clip: padding-box;
 }
 
@@ -165,5 +191,5 @@ body {
 
 html {
   scrollbar-width: thin;
-  scrollbar-color: var(--holo-scrollbar) transparent;
+  scrollbar-color: var(--scrollbar) transparent;
 }

@@ -16,7 +16,16 @@ import { describe, expect, it } from "bun:test"
 import * as fs from "node:fs/promises"
 import * as os from "node:os"
 import * as path from "node:path"
-import { buildViteConfig, createDisconnectReaper, PLAN_ALIAS, resolveMdxPath, ServeError } from "./serve"
+import {
+    buildViteConfig,
+    createDisconnectReaper,
+    DEFAULT_CSS,
+    PLAN_ALIAS,
+    resolveCssPath,
+    resolveMdxPath,
+    ServeError,
+    STYLE_ALIAS
+} from "./serve"
 
 const context = describe
 
@@ -107,6 +116,36 @@ describe("serve", () => {
         })
     })
 
+    context("resolveCssPath — --css override validation", () => {
+        it("resolves a valid .css to an absolute path", async () => {
+            const dir = await fs.mkdtemp(path.join(os.tmpdir(), "holo-css-"))
+            const file = path.join(dir, "theme.css")
+            await fs.writeFile(file, ".holo { color: red; }\n")
+            try {
+                expect(resolveCssPath(file)).toBe(file)
+            } finally {
+                await fs.rm(dir, { recursive: true, force: true })
+            }
+        })
+
+        it("throws a holo: error:-shaped message for a non-.css extension", async () => {
+            const dir = await fs.mkdtemp(path.join(os.tmpdir(), "holo-css-"))
+            const file = path.join(dir, "theme.scss")
+            await fs.writeFile(file, "nope")
+            try {
+                expect(() => resolveCssPath(file)).toThrow(ServeError)
+                expect(() => resolveCssPath(file)).toThrow(/not a \.css file/)
+            } finally {
+                await fs.rm(dir, { recursive: true, force: true })
+            }
+        })
+
+        it("throws for a missing file", () => {
+            const missing = path.join(os.tmpdir(), "holo-no-such-xyz.css")
+            expect(() => resolveCssPath(missing)).toThrow(/does not exist/)
+        })
+    })
+
     context("buildViteConfig — the inline dev config", () => {
         it("roots at the committed app/ template dir and disables the config file", () => {
             const config = buildViteConfig("/abs/plan.mdx", { host: "127.0.0.1", port: 5173 })
@@ -119,6 +158,23 @@ describe("serve", () => {
             const config = buildViteConfig("/abs/plan.mdx", { host: "127.0.0.1", port: 5173 })
             const alias = config.resolve?.alias as Record<string, string>
             expect(alias[PLAN_ALIAS]).toBe("/abs/plan.mdx")
+        })
+
+        it("aliases @holo-style to the built-in stylesheet when no --css is given", () => {
+            const config = buildViteConfig("/abs/plan.mdx", { host: "127.0.0.1", port: 5173 })
+            const alias = config.resolve?.alias as Record<string, string>
+            expect(alias[STYLE_ALIAS]).toBe(DEFAULT_CSS)
+        })
+
+        it("aliases @holo-style to the --css override and allow-lists its dir", () => {
+            const config = buildViteConfig("/abs/plan.mdx", {
+                host: "127.0.0.1",
+                port: 5173,
+                css: "/themes/dracula.css"
+            })
+            const alias = config.resolve?.alias as Record<string, string>
+            expect(alias[STYLE_ALIAS]).toBe("/themes/dracula.css")
+            expect(config.server?.fs?.allow ?? []).toContain(path.dirname("/themes/dracula.css"))
         })
 
         it("allow-lists the mdx's own directory for file serving", () => {

@@ -245,11 +245,21 @@ describe("openInteractive", () => {
         // the CLI builds. --kill-on-disconnect makes the fresh-per-plan server exit
         // when its IDE tab closes so no Vite process is orphaned.
         const holoServe = path.resolve(import.meta.dir, "..", "..", "..", "chrome", "holo", "toolbox", "serve.ts")
+        const planCss = path.resolve(import.meta.dir, "plan-preview.css")
         let argv: string[] = []
         const { deps } = makeDeps({
             findFreePort: async () => 47777,
             spawn: async (mdxPath, port) => {
-                argv = [process.execPath, holoServe, mdxPath, "--port", String(port), "--kill-on-disconnect"]
+                argv = [
+                    process.execPath,
+                    holoServe,
+                    mdxPath,
+                    "--port",
+                    String(port),
+                    "--kill-on-disconnect",
+                    "--css",
+                    planCss
+                ]
             }
         })
         await openInteractive({ plan: "# Plan" }, deps)
@@ -257,7 +267,7 @@ describe("openInteractive", () => {
         expect(argv[1]).toBe(holoServe)
         expect(argv[1]?.endsWith(path.join("chrome", "holo", "toolbox", "serve.ts"))).toBe(true)
         expect(argv[2]?.endsWith(".mdx")).toBe(true)
-        expect(argv.slice(3)).toEqual(["--port", "47777", "--kill-on-disconnect"])
+        expect(argv.slice(3)).toEqual(["--port", "47777", "--kill-on-disconnect", "--css", planCss])
     })
 
     it("is contained by run()'s try/catch when a dep throws (never-throw contract)", async () => {

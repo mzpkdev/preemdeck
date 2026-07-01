@@ -2,11 +2,11 @@
 // holo's own barebones stylesheet. Vite's React Fast Refresh hot-updates the page
 // when the source .mdx changes — no reload, no lost scroll.
 import { createRoot } from "react-dom/client";
-import "./style.css";
+import "@holo-style";
 import Plan from "@holo-plan";
 
 createRoot(document.getElementById("root")).render(
-  <article className="holo" style={{ margin: "24px" }}>
+  <article style={{ margin: "24px" }}>
     <Plan />
   </article>,
 );

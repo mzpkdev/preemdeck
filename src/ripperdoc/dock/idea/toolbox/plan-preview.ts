@@ -40,6 +40,9 @@ type HookData = Record<string, unknown>
  */
 const HOLO_SERVE = path.resolve(import.meta.dir, "..", "..", "..", "chrome", "holo", "toolbox", "serve.ts")
 
+/** dock/idea's own copy of the holo stylesheet, passed to every interactive spawn via `--css`. */
+const PLAN_CSS = path.resolve(import.meta.dir, "plan-preview.css")
+
 /** Monotonic counter so two plans materialized in the same millisecond get distinct temp names. */
 let planCounter = 0
 
@@ -198,7 +201,8 @@ const writeMdx = async (markdown: string): Promise<string> => {
  * `stdin: "ignore"`, then `proc.unref()` so the child outlives this hook. Wrapped
  * in `effect()` so `--dry-run` never forks a server. Passes `--kill-on-disconnect`
  * so this fresh-per-plan server self-reaps once its IDE tab closes — no orphaned
- * Vite process left behind (the manual `serve` path omits the flag, stays up).
+ * Vite process left behind (the manual `serve` path omits the flag, stays up) —
+ * and `--css` so the page renders with dock/idea's own stylesheet.
  */
 const spawnHolo = async (mdxPath: string, port: number): Promise<void> => {
     await effect(() => {
@@ -206,7 +210,16 @@ const spawnHolo = async (mdxPath: string, port: number): Promise<void> => {
         const fd = fs.openSync(log, "w")
         try {
             const proc = Bun.spawn(
-                [process.execPath, HOLO_SERVE, mdxPath, "--port", String(port), "--kill-on-disconnect"],
+                [
+                    process.execPath,
+                    HOLO_SERVE,
+                    mdxPath,
+                    "--port",
+                    String(port),
+                    "--kill-on-disconnect",
+                    "--css",
+                    PLAN_CSS
+                ],
                 {
                     stdin: "ignore",
                     stdout: fd,

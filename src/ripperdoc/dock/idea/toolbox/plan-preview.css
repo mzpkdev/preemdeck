@@ -1,0 +1,166 @@
+/* style.css — holo's markdown stylesheet, matched to IntelliJ "New UI" Darcula's
+   markdown preview. Palette sampled from the IDE (bg #1e1f22, text #bcbec3 — one
+   color for headings, body, and code — panels #303235, dividers + scrollbar thumb
+   #4f5153). Bare element selectors, no scope class: it's a single-purpose internal
+   page, so a custom --css just styles h1/p/code/… directly. Dark-only by design. */
+
+:root {
+  --bg: #1e1f22;
+  --fg: #bcbec3;
+  --muted: #7a7e85;
+  --link: #287bde;
+  --code-bg: #303235;
+  --border: #4f5153;
+  --selection: #214283;
+  --scrollbar: #4f5153;
+  --scrollbar-hover: #5a5c5e;
+}
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--fg);
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+  font-size: 13px;
+  line-height: 1.6;
+  word-wrap: break-word;
+}
+
+::selection {
+  background: var(--selection);
+}
+
+h1,
+h2,
+h3,
+h4 {
+  margin: 1.5em 0 0.6em;
+  font-weight: 600;
+  line-height: 1.25;
+}
+
+h1 {
+  font-size: 2em;
+}
+
+h2 {
+  font-size: 1.5em;
+}
+
+h3 {
+  font-size: 1.25em;
+}
+
+p {
+  margin: 0 0 1em;
+}
+
+a {
+  color: var(--link);
+  text-decoration: none;
+}
+
+a:hover {
+  text-decoration: underline;
+}
+
+ul,
+ol {
+  margin: 0 0 1em;
+  padding-left: 2em;
+}
+
+li {
+  margin: 0.25em 0;
+}
+
+code {
+  padding: 0.15em 0.4em;
+  font-family: ui-monospace, SFMono-Regular, "SF Mono", "JetBrains Mono", Menlo, monospace;
+  font-size: 0.9em;
+  background: var(--code-bg);
+  border-radius: 5px;
+}
+
+pre {
+  margin: 0 0 1em;
+  padding: 1em;
+  overflow: auto;
+  background: var(--code-bg);
+  border-radius: 8px;
+}
+
+pre code {
+  padding: 0;
+  font-size: 0.875em;
+  background: none;
+}
+
+blockquote {
+  margin: 0 0 1em;
+  padding: 0 1em;
+  color: var(--muted);
+  border-left: 0.25em solid var(--border);
+}
+
+table {
+  display: block;
+  width: max-content;
+  max-width: 100%;
+  margin: 0 0 1em;
+  overflow: auto;
+  border-collapse: collapse;
+}
+
+th,
+td {
+  padding: 0.5em 0.9em;
+  border: 1px solid var(--border);
+}
+
+th {
+  font-weight: 600;
+  background: var(--code-bg);
+}
+
+hr {
+  margin: 1.5em 0;
+  border: 0;
+  border-top: 1px solid var(--border);
+}
+
+img {
+  max-width: 100%;
+}
+
+/* Scrollbars — IntelliJ New UI: slim solid #4f5153 pill thumb (inset via a
+   transparent border + padding-box clip), transparent track, no arrows. */
+::-webkit-scrollbar {
+  width: 12px;
+  height: 12px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--scrollbar);
+  background-clip: padding-box;
+  border: 3px solid transparent;
+  border-radius: 8px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--scrollbar-hover);
+  background-clip: padding-box;
+}
+
+::-webkit-scrollbar-corner {
+  background: transparent;
+}
+
+html {
+  scrollbar-width: thin;
+  scrollbar-color: var(--scrollbar) transparent;
+}

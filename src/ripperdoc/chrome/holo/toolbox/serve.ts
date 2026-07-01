@@ -25,11 +25,17 @@ import { integer } from "./coerce"
 /** The committed app template dir Vite roots at; holds `index.html` + `entry.jsx`. */
 const APP_ROOT = path.join(import.meta.dir, "app")
 
+/** The committed default stylesheet the page loads unless `--css` overrides it. */
+export const DEFAULT_CSS = path.join(APP_ROOT, "style.css")
+
 /** The repo root, allow-listed for file serving alongside the app root + the mdx dir. */
 const REPO_ROOT = path.resolve(import.meta.dir, "..", "..", "..", "..", "..")
 
 /** Stable id the entry imports; aliased to the resolved external `.mdx` so rollup transforms it. */
 export const PLAN_ALIAS = "@holo-plan"
+
+/** Stable id the entry imports for its stylesheet; aliased to {@link DEFAULT_CSS} or the `--css` override. */
+export const STYLE_ALIAS = "@holo-style"
 
 /** Extensions holo will render as MDX (`.md` is accepted and compiled by `@mdx-js/rollup` too). */
 const MDX_EXTENSIONS = new Set([".mdx", ".md"])
@@ -43,6 +49,8 @@ export type ServeOptions = {
     port: number
     open?: boolean
     killOnDisconnect?: boolean
+    /** Optional `--css` override path (a `.css` file); absent → {@link DEFAULT_CSS}. */
+    css?: string
 }
 
 /**
@@ -215,6 +223,36 @@ export const resolveMdxPath = (file: string): string => {
 }
 
 /**
+ * Resolve `file` to an absolute path and assert it is an existing `.css`.
+ *
+ * The `--css` override sibling of {@link resolveMdxPath}: a pure stat + extension
+ * check so a bad override fails the launch cleanly (exit 1) rather than booting a
+ * page whose stylesheet 404s. `holo: error:`-shaped messages (the runner prefixes
+ * `holo: error:`).
+ *
+ * @param file - the `--css` path; resolved against cwd.
+ * @returns the absolute path to the validated `.css` file.
+ * @throws {ServeError} if the path does not exist, is not a regular file, or is not `.css`.
+ */
+export const resolveCssPath = (file: string): string => {
+    const abs = path.resolve(file)
+    const ext = path.extname(abs).toLowerCase()
+    if (ext !== ".css") {
+        throw new ServeError(`${file} is not a .css file (got '${ext || "no extension"}').`)
+    }
+    let stat: fs.Stats
+    try {
+        stat = fs.statSync(abs)
+    } catch {
+        throw new ServeError(`${file} does not exist (resolved ${abs}).`)
+    }
+    if (!stat.isFile()) {
+        throw new ServeError(`${file} is not a regular file (resolved ${abs}).`)
+    }
+    return abs
+}
+
+/**
  * Build the inline Vite dev config that renders `mdxPath` as a live MDX→React page.
  *
  * Pure (returns a plain config object, binds nothing) so the spec can assert its
@@ -235,6 +273,8 @@ export const resolveMdxPath = (file: string): string => {
  */
 export const buildViteConfig = (mdxPath: string, options: ServeOptions): InlineConfig => {
     const mdxDir = path.dirname(mdxPath)
+    const cssPath = options.css !== undefined ? path.resolve(options.css) : DEFAULT_CSS
+    const cssDir = path.dirname(cssPath)
     return {
         configFile: false,
         root: APP_ROOT,
@@ -245,7 +285,10 @@ export const buildViteConfig = (mdxPath: string, options: ServeOptions): InlineC
             // The arbitrary external plan is pulled in under a stable id; its `.mdx`
             // extension is what makes `@mdx-js/rollup` pick it up.
             alias: {
-                [PLAN_ALIAS]: mdxPath
+                [PLAN_ALIAS]: mdxPath,
+                // The stylesheet is aliased the same way, so `--css` swaps the file the
+                // page loads without the entry import ever changing.
+                [STYLE_ALIAS]: cssPath
             }
         },
         server: {
@@ -256,7 +299,7 @@ export const buildViteConfig = (mdxPath: string, options: ServeOptions): InlineC
             fs: {
                 // Root-restricted by default; the aliased external file lives outside
                 // the app root, so allow its dir (and the repo root) explicitly.
-                allow: [APP_ROOT, mdxDir, REPO_ROOT]
+                allow: [APP_ROOT, mdxDir, cssDir, REPO_ROOT]
             }
         },
         appType: "spa"
@@ -316,6 +359,11 @@ const escapeHtmlText = (text: string): string =>
  */
 export const serve = async (file: string, options: ServeOptions): Promise<void> => {
     const mdxPath = resolveMdxPath(file)
+    // Validate the --css override up front (like the mdx path) so a bad path fails
+    // the launch cleanly, even on --dry-run; buildViteConfig re-resolves it for the alias.
+    if (options.css !== undefined) {
+        resolveCssPath(options.css)
+    }
     const config = buildViteConfig(mdxPath, options)
 
     // Title the tab after the loaded file (not hardcoded): a serve-time
@@ -418,11 +466,17 @@ const command = defineCommand({
             arity: 0,
             description:
                 "exit when the last HMR client disconnects — used by the interactive plan hook so each spawned server self-cleans on tab close"
+        },
+        {
+            name: "css",
+            arity: 1,
+            hint: "path",
+            description: "override the page stylesheet with a .css file (default: holo's built-in style.css)"
         }
     ],
-    run: async ({ file, host, port, open, "kill-on-disconnect": killOnDisconnect }) => {
+    run: async ({ file, host, port, open, css, "kill-on-disconnect": killOnDisconnect }) => {
         try {
-            await serve(file, { host, port, open, killOnDisconnect })
+            await serve(file, { host, port, open, css, killOnDisconnect })
         } catch (error) {
             if (error instanceof ServeError) {
                 process.stderr.write(`holo: error: ${error.message}\n`)
