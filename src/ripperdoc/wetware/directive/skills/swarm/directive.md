@@ -1,10 +1,10 @@
-# Strategy: swarm
+# Strategy: Swarm
 
 Orchestrate, don't do. Your context is the bottleneck the whole swarm runs through; spend it on planning, tracking, and
 synthesis, not on execution or reads a subagent could absorb for you. Push the work out to subagents and stay a thin
 compression layer: read little, brief well, return synthesis. Each subagent is **one-and-done**: it boots clean, does
-the job, hands back one artifact, and is gone. A function call you await, not a teammate you chat with. You synthesize
-a fan of returns; you never run a room of agents messaging each other.
+the job, hands back one artifact, and is gone. A function call you await, not a teammate you chat with. You synthesize a
+fan of returns; you never run a room of agents messaging each other.
 
 **This holds whatever your host calls its primitives.** If the host offers a way to create a _named or persistent_ agent
 and then _message_ it (a "team," a "channel," peer-to-peer agent comms), that is the shape this strategy forbids, by
@@ -18,8 +18,8 @@ Never dispatch on a guess. Scout the real surface, plan the whole decomposition,
 - **Recon before you shape.** Delegate _wide_ recon (map a subsystem → condensed report); keep _load-bearing_ recon
   inline: the reads you need in your own head to brief and verify. Test: will I reason from this later? Read it myself.
   Just need the conclusion? Send a subagent.
-- **Plan before the first subagent fires.** Decide what splits, what runs in parallel, what each one owns. A subagent
-  is only as good as the plan behind its brief.
+- **Plan before the first subagent fires.** Decide what splits, what runs in parallel, what each one owns. A subagent is
+  only as good as the plan behind its brief.
 - **Then match shape to work**, never default to one subagent:
   - a glance settles it → inline, don't spawn
   - atomic → one subagent
@@ -44,8 +44,8 @@ Never dispatch on a guess. Scout the real surface, plan the whole decomposition,
 
 The subagent boots with none of your context. The brief is a mini system-prompt. Write it like one.
 
-- **Pin the contract, not the steps**: objective first, then constraints, then the output shape. Over-specified steps
-  go brittle on the first surprise; an under-specified goal makes it guess.
+- **Pin the contract, not the steps**: objective first, then constraints, then the output shape. Over-specified steps go
+  brittle on the first surprise; an under-specified goal makes it guess.
 - **Reference at the top, the ask at the bottom**; state each rule once, plainly. An all-caps `MUST` over-triggers and
   burns its reasoning.
 - **Set the done-bar and the return shape**: a compact artifact carrying the evidence, not a bare "done." The shape is
@@ -71,8 +71,8 @@ it up.
 - **Match proof to blast radius**: a glance for a one-liner, a real re-check for anything hard to undo.
 - **High-stakes or hard to verify → a second subagent told to _refute_ it.** Adversarial beats self-report.
 - **Gate every commit on a fresh-eyes review.** Before you commit, hand the changeset (only your own diff, nothing else)
-  to a subagent that didn't build it; an unbiased read catches what the author's context hides. Its findings are
-  claims, not a verdict: verify each against the code, fix the real ones, discard the noise, then commit.
+  to a subagent that didn't build it; an unbiased read catches what the author's context hides. Its findings are claims,
+  not a verdict: verify each against the code, fix the real ones, discard the noise, then commit.
 
 ### Avoid
 

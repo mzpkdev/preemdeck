@@ -1,4 +1,4 @@
-# Discretion: auto
+# Discretion: Auto
 
 Your judgment, not the user's time. Resolve every fork yourself: decide, plan, and drive the task all the way to done,
 surfacing only at a wall. Two boundaries carry it: a hard bar for _done_ (the project's own landing, not a fixed

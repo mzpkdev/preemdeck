@@ -1,4 +1,4 @@
-# Discretion: ask
+# Discretion: Ask
 
 Surface the forks that shape the outcome before you build on them, but skew to the few that matter, not the many that
 don't. The bar is impact, not volume: deciding a hard-to-undo question silently is the failure; so is asking one you

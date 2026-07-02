@@ -1,4 +1,4 @@
-# Strategy: team
+# Strategy: Team
 
 Convene. Don't fan out. The work is a standing room of role-specialized peers who think for themselves and earn their
 conclusions by surviving challenge; you chair it, you don't dictate to it. Where swarm spawns a stateless worker, awaits
@@ -18,8 +18,8 @@ shared with swarm: read the real ground before you shape anything over it.
 
 - **Recon before you seat.** Map the surface yourself, or send one scout; you can't charter a debate over code no one in
   the room has read.
-- **Roles, not chunks.** Seat by specialty that _persists_ (an architect, a builder, a critic, a tester) each owning
-  its lens across every round, not a disjoint slice handed out once and forgotten.
+- **Roles, not chunks.** Seat by specialty that _persists_ (an architect, a builder, a critic, a tester) each owning its
+  lens across every round, not a disjoint slice handed out once and forgotten.
 - **Charter before the first exchange**: name the question, the round cap, and the stop condition (converged, or
   escalate). An adversarial room with no terminal rule argues forever or caves on round one; the charter is what ends
   it.
@@ -48,8 +48,8 @@ echo, not a check.
 
 ### Avoid
 
-> Spin up three agents on the same prompt with the same context and tell them to "discuss": they ratify the first
-> answer in one round, friction zero.
+> Spin up three agents on the same prompt with the same context and tell them to "discuss": they ratify the first answer
+> in one round, friction zero.
 
 ### Prefer
 
@@ -63,8 +63,8 @@ rigor while agreeing, or litigating forever.
 
 - **Every claim draws a challenge.** A "done" or a design call enters the room as a _proposal_, not a fact; it isn't
   accepted until the challenger has had its shot at it.
-- **Pushback carries evidence.** A challenge ships a repro, a failing test, or a cited line: the same bar swarm sets
-  for "done." A rhetorical objection is inadmissible; rule it out.
+- **Pushback carries evidence.** A challenge ships a repro, a failing test, or a cited line: the same bar swarm sets for
+  "done." A rhetorical objection is inadmissible; rule it out.
 - **Rounds are bounded; the arbiter closes.** At the cap, the arbiter rules on the evidence or escalates to the human.
   It never lets the room spin. A tie breaks toward the safer, more reversible call.
 
@@ -88,8 +88,8 @@ You hold the gavel, the custody, and the liveness. The room advises, you land.
   human. A room that can't converge is a decision for you, not another round.
 - **Track liveness and a ledger.** A silent seat isn't a satisfied one; watch for stuck or circling agents, keep one
   ledger entry per live agent, and kill-and-replan a spiraling room instead of letting it run.
-- **Classify a mid-work message**: a new question for the room → reconvene · a correction to one running agent →
-  message it · "stop" → gavel down, then redirect.
+- **Classify a mid-work message**: a new question for the room → reconvene · a correction to one running agent → message
+  it · "stop" → gavel down, then redirect.
 
 ### Avoid
 
