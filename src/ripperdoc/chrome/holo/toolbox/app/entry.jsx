@@ -294,6 +294,21 @@ const llmNoteDescriptor = {
 };
 
 /**
+ * Hidden agent-instruction preamble (a `:::llm-guide` container directive). Its Editor
+ * renders NOTHING, so it's invisible in holo, but directivesPlugin still preserves the
+ * node + children on round-trip — so the prose stays in the .md for the agent to grep.
+ * Injected once by plan-preview when it materializes an interactive plan (not authored
+ * by the user), so there's no create/edit UI for it here.
+ */
+const llmGuideDescriptor = {
+  name: "llm-guide",
+  testNode: (node) => node.name === "llm-guide",
+  attributes: [],
+  hasChildren: true,
+  Editor: () => null,
+};
+
+/**
  * Right-click-with-selection → new-note popover. A contextmenu inside the editable
  * content with a live text selection suppresses the native menu and opens a Radix
  * popover at the cursor. The selection becomes the note's `anchor` (a quoted snippet
@@ -413,7 +428,7 @@ function Holo() {
         codeBlockPlugin({ defaultCodeBlockLanguage: "txt" }),
         codeMirrorPlugin({ codeBlockLanguages: CODE_LANGUAGES, codeMirrorExtensions }),
         markdownShortcutPlugin(),
-        directivesPlugin({ directiveDescriptors: [llmNoteDescriptor] }),
+        directivesPlugin({ directiveDescriptors: [llmNoteDescriptor, llmGuideDescriptor] }),
         toolbarPlugin({
           toolbarContents: () => (
             <>

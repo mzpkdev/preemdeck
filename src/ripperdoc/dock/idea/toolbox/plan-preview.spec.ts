@@ -194,7 +194,9 @@ describe("openInteractive", () => {
         await openInteractive({ plan: "# Inline\n\n- step" }, deps)
         expect(written).toHaveLength(1)
         expect(written[0]?.endsWith(".mdx")).toBe(true)
-        expect(await fs.readFile(written[0] as string, "utf8")).toBe("# Inline\n\n- step")
+        const contents = await fs.readFile(written[0] as string, "utf8")
+        expect(contents).toContain(":::llm-guide")
+        expect(contents.endsWith("# Inline\n\n- step")).toBe(true)
     })
 
     it("resolves a Gemini plan_path by reading the file to markdown", async () => {
@@ -203,7 +205,9 @@ describe("openInteractive", () => {
         const { deps, written } = makeDeps()
         await openInteractive({ plan_path: planPath }, deps)
         expect(written).toHaveLength(1)
-        expect(await fs.readFile(written[0] as string, "utf8")).toBe("# From file\n")
+        const contents = await fs.readFile(written[0] as string, "utf8")
+        expect(contents).toContain(":::llm-guide")
+        expect(contents.endsWith("# From file\n")).toBe(true)
     })
 
     it("spawns holo's serve.ts with the resolved temp and the reserved port", async () => {

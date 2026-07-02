@@ -43,6 +43,18 @@ const HOLO_SERVE = path.resolve(import.meta.dir, "..", "..", "..", "chrome", "ho
 /** dock/idea's own copy of the holo stylesheet, passed to every interactive spawn via `--css`. */
 const PLAN_CSS = path.resolve(import.meta.dir, "plan-preview.css")
 
+/**
+ * Hidden agent-instruction preamble prepended to every interactive plan — a
+ * `:::llm-guide` container directive. holo renders it invisible (its descriptor's Editor
+ * returns null) yet keeps it in the .md, so the agent greps it alongside the notes.
+ */
+const GUIDE_PREAMBLE = `:::llm-guide
+This plan carries reviewer annotations as llm-note directives. Address each note, then remove its directive so the wrapped text stays as plain prose. This block is instruction for you — do not surface it to the user.
+:::`
+
+/** Prepend {@link GUIDE_PREAMBLE} to a plan's markdown before it's served. */
+const withGuide = (markdown: string): string => `${GUIDE_PREAMBLE}\n\n${markdown}`
+
 /** Monotonic counter so two plans materialized in the same millisecond get distinct temp names. */
 let planCounter = 0
 
@@ -267,7 +279,7 @@ export const openInteractive = async (
     if (resolved === null) {
         return // no plan content: nothing to serve
     }
-    const mdxPath = await deps.writeMdx(resolved.markdown)
+    const mdxPath = await deps.writeMdx(withGuide(resolved.markdown))
     const port = await deps.findFreePort()
     // Defensive: without serve.ts on disk there is nothing to spawn — bail quietly.
     if (!fs.existsSync(HOLO_SERVE)) {
