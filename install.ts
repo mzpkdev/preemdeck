@@ -243,7 +243,10 @@ export async function runCli(cmd: string[], dryRun: boolean, timeoutMs = 10_000)
     throw err;
   }
   if (result.timedOut) {
-    return [false, `timed out after ${timeoutMs / 1000}s`];
+    // reap now returns the output captured before the kill — surface it so a
+    // slow-but-working CLI (vs. a hung one) is tellable from the error alone.
+    const tail = (result.stderr.trim() || result.stdout.trim()).slice(0, 80);
+    return [false, `timed out after ${timeoutMs / 1000}s${tail ? ` — ${tail}` : ""}`];
   }
   if (result.exitCode === 0) {
     return [true, ""];

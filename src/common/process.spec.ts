@@ -35,6 +35,35 @@ describe("reap", () => {
         }, 10_000)
     })
 
+    context("when a descendant outlives the child holding its pipes", () => {
+        // The dock-rack install bug: `claude plugin marketplace add` exited 0 in
+        // ~1s but a background child it spawned kept stdout/stderr open, so the
+        // old reap (drain-to-EOF before exited) never saw the clean exit and
+        // reported a false "timed out after 10s". Exit must decide the outcome;
+        // pipe EOF must not.
+        it("reports the child's clean exit instead of a false timeout", async () => {
+            const started = performance.now()
+            const result = await reap(Bun.spawn(["bash", "-c", "sleep 30 & printf done; exit 0"], PIPED), 5000)
+            const elapsed = performance.now() - started
+
+            expect(result.timedOut).toBe(false)
+            expect(result.exitCode).toBe(0)
+            expect(result.stdout).toBe("done")
+            // Returns within the post-exit pipe grace — not after `sleep 30`, not at the 5s timeout.
+            expect(elapsed).toBeLessThan(2000)
+        }, 10_000)
+
+        it("still reports a clean exit when the timeout is omitted", async () => {
+            const started = performance.now()
+            const result = await reap(Bun.spawn(["bash", "-c", "sleep 30 & exit 0"], PIPED))
+            const elapsed = performance.now() - started
+
+            expect(result.timedOut).toBe(false)
+            expect(result.exitCode).toBe(0)
+            expect(elapsed).toBeLessThan(2000)
+        }, 10_000)
+    })
+
     context("draining a child that finishes on its own", () => {
         it("returns exit 0 and captures stdout for a fast command", async () => {
             const result = await reap(Bun.spawn(["printf", "hi"], PIPED), 5000)
