@@ -83,7 +83,13 @@ const readPaletteIsDark = () => {
   const hex = bg.startsWith("#") ? bg.slice(1) : "";
   if (hex.length === 3 || hex.length === 6) {
     const full = hex.length === 3 ? [...hex].map((c) => c + c).join("") : hex;
-    return luminance(Number.parseInt(full.slice(0, 2), 16), Number.parseInt(full.slice(2, 4), 16), Number.parseInt(full.slice(4, 6), 16)) < 0.5;
+    return (
+      luminance(
+        Number.parseInt(full.slice(0, 2), 16),
+        Number.parseInt(full.slice(2, 4), 16),
+        Number.parseInt(full.slice(4, 6), 16),
+      ) < 0.5
+    );
   }
   const rgb = getComputedStyle(document.body).backgroundColor.match(/\d+/g);
   return rgb ? luminance(Number(rgb[0]), Number(rgb[1]), Number(rgb[2])) < 0.5 : false;
@@ -119,10 +125,17 @@ const CODE_MIRROR_THEME_SPEC = {
 // (IntelliJ New UI) palette, so a sheet that omits a token still reads correctly.
 const codeMirrorTokens = syntaxHighlighting(
   HighlightStyle.define([
-    { tag: [t.keyword, t.moduleKeyword, t.operatorKeyword, t.definitionKeyword], color: "var(--code-keyword, #cf8e6d)" },
+    {
+      tag: [t.keyword, t.moduleKeyword, t.operatorKeyword, t.definitionKeyword],
+      color: "var(--code-keyword, #cf8e6d)",
+    },
     { tag: [t.string, t.special(t.string), t.regexp], color: "var(--code-string, #6aab73)" },
     { tag: [t.number, t.bool, t.null], color: "var(--code-number, #2aacb8)" },
-    { tag: [t.comment, t.lineComment, t.blockComment], color: "var(--code-comment, var(--muted))", fontStyle: "italic" },
+    {
+      tag: [t.comment, t.lineComment, t.blockComment],
+      color: "var(--code-comment, var(--muted))",
+      fontStyle: "italic",
+    },
     { tag: [t.function(t.variableName), t.function(t.propertyName)], color: "var(--code-fn, #56a8f5)" },
     { tag: [t.typeName, t.className, t.tagName], color: "var(--code-type, #b5b6e3)" },
     { tag: [t.propertyName, t.attributeName], color: "var(--code-property, #c77dbb)" },
@@ -276,7 +289,13 @@ const LlmNoteEditor = ({ mdastNode }) => {
         </span>
       </Popover.Trigger>
       <Popover.Portal>
-        <Popover.Content side="bottom" align="start" sideOffset={6} onOpenAutoFocus={(event) => event.preventDefault()} style={CONTENT_STYLE}>
+        <Popover.Content
+          side="bottom"
+          align="start"
+          sideOffset={6}
+          onOpenAutoFocus={(event) => event.preventDefault()}
+          style={CONTENT_STYLE}
+        >
           <NoteForm initial={note} onSubmit={save} onCancel={() => setOpen(false)} />
         </Popover.Content>
       </Popover.Portal>
@@ -357,7 +376,13 @@ const NoteAnnotator = () => {
     <Popover.Root open={target !== null} onOpenChange={(open) => !open && close()}>
       <Popover.Anchor style={{ position: "fixed", left: target?.x ?? 0, top: target?.y ?? 0, width: 0, height: 0 }} />
       <Popover.Portal>
-        <Popover.Content side="bottom" align="start" sideOffset={6} onOpenAutoFocus={(event) => event.preventDefault()} style={CONTENT_STYLE}>
+        <Popover.Content
+          side="bottom"
+          align="start"
+          sideOffset={6}
+          onOpenAutoFocus={(event) => event.preventDefault()}
+          style={CONTENT_STYLE}
+        >
           {target ? <NoteForm initial="" onSubmit={add} onCancel={close} /> : null}
         </Popover.Content>
       </Popover.Portal>

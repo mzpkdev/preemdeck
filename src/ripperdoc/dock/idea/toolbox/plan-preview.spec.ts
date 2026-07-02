@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it } from "bun:test"
 import * as fs from "node:fs/promises"
 import * as os from "node:os"
 import * as path from "node:path"
-import { type InteractiveDeps, ensureGuide, openInteractive, resolvePlanMarkdown } from "./plan-preview"
+import { ensureGuide, type InteractiveDeps, openInteractive, resolvePlanMarkdown } from "./plan-preview"
 
 const context = describe
 
