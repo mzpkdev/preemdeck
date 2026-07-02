@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it } from "bun:test"
 import * as fs from "node:fs/promises"
 import * as os from "node:os"
 import * as path from "node:path"
-import { type InteractiveDeps, openInteractive, resolvePlanMarkdown } from "./plan-preview"
+import { type InteractiveDeps, ensureGuide, openInteractive, resolvePlanMarkdown } from "./plan-preview"
 
 const context = describe
 
@@ -160,31 +160,41 @@ describe("plan-preview CLI", () => {
     })
 })
 
-/** A recorded spawn: the argv holo's serve.ts was launched with, and the port. */
-type SpawnCall = { mdxPath: string; port: number }
+/** A recorded spawn: the file path holo's serve.ts was launched with, and the port. */
+type SpawnCall = { servePath: string; port: number }
 /** A recorded open: the URL + title handed to the IDE preview. */
 type OpenCall = { url: string; title: string }
 
 /**
  * Build fully-stubbed {@link InteractiveDeps} with recorders, so the interactive
  * branch can be exercised WITHOUT binding a real port, spawning a real server, or
- * touching a real IDE. `resolvePlan` defaults to the REAL resolver (so the
- * plan/plan_path resolution is genuinely tested); every side-effecting seam is a
- * spy over `overrides`.
+ * touching a real IDE. `resolvePlan` defaults to the REAL resolver and `ensureGuide`
+ * to the REAL in-place prepend (so path resolution and the guide write are genuinely
+ * tested against files under the temp `directory`); the port/spawn/open seams are
+ * spies over `overrides`. `written` records inline temp writes; `guided` records the
+ * canonical paths ensureGuide touched.
  */
 const makeDeps = (
     overrides: Partial<InteractiveDeps> = {}
 ): {
     deps: InteractiveDeps
     written: string[]
+    guided: string[]
     spawns: SpawnCall[]
     opens: OpenCall[]
 } => {
     const written: string[] = []
+    const guided: string[] = []
     const spawns: SpawnCall[] = []
     const opens: OpenCall[] = []
     const deps: InteractiveDeps = {
         resolvePlan: overrides.resolvePlan ?? ((toolInput) => resolvePlanMarkdown(toolInput)),
+        ensureGuide:
+            overrides.ensureGuide ??
+            (async (planPath, current) => {
+                guided.push(planPath)
+                await ensureGuide(planPath, current)
+            }),
         writeMdx:
             overrides.writeMdx ??
             (async (markdown) => {
@@ -196,8 +206,8 @@ const makeDeps = (
         findFreePort: overrides.findFreePort ?? (async () => 45123),
         spawn:
             overrides.spawn ??
-            (async (mdxPath, port) => {
-                spawns.push({ mdxPath, port })
+            (async (servePath, port) => {
+                spawns.push({ servePath, port })
             }),
         waitForPort: overrides.waitForPort ?? (async () => {}),
         openUrl:
@@ -206,7 +216,7 @@ const makeDeps = (
                 opens.push({ url, title })
             })
     }
-    return { deps, written, spawns, opens }
+    return { deps, written, guided, spawns, opens }
 }
 
 describe("openInteractive", () => {
@@ -220,37 +230,53 @@ describe("openInteractive", () => {
         expect(contents.endsWith("# Inline\n\n- step")).toBe(true)
     })
 
-    it("resolves a Gemini plan_path by reading the file to markdown", async () => {
+    it("serves a Gemini plan_path canonical file with the guide prepended in place (no temp)", async () => {
         const planPath = path.join(directory, "plan.md")
         await fs.writeFile(planPath, "# From file\n")
-        const { deps, written } = makeDeps()
+        const { deps, written, guided, spawns } = makeDeps()
         await openInteractive({ plan_path: planPath }, deps)
-        expect(written).toHaveLength(1)
-        const contents = await fs.readFile(written[0] as string, "utf8")
+        expect(written).toHaveLength(0) // canonical path: no throwaway temp
+        expect(guided).toEqual([planPath])
+        const contents = await fs.readFile(planPath, "utf8")
         expect(contents).toContain(":::llm-guide")
         expect(contents.endsWith("# From file\n")).toBe(true)
+        expect(spawns[0]?.servePath).toBe(planPath) // holo serves the canonical file itself
     })
 
-    it("resolves a Claude planFilePath by reading the canonical file, titled by basename", async () => {
+    it("serves a Claude planFilePath canonical file in place, titled by basename", async () => {
         const planPath = path.join(directory, "my-plan.md")
         await fs.writeFile(planPath, "# From canonical\n")
-        const { deps, written, opens } = makeDeps()
+        const { deps, written, guided, spawns, opens } = makeDeps()
         await openInteractive({ planFilePath: planPath }, deps)
-        expect(written).toHaveLength(1)
-        const contents = await fs.readFile(written[0] as string, "utf8")
+        expect(written).toHaveLength(0)
+        expect(guided).toEqual([planPath])
+        const contents = await fs.readFile(planPath, "utf8")
         expect(contents).toContain(":::llm-guide")
         expect(contents.endsWith("# From canonical\n")).toBe(true)
+        expect(spawns[0]?.servePath).toBe(planPath)
         expect(opens[0]?.title).toBe("my-plan.md")
     })
 
     it("prefers the canonical plan file over the inline plan string when both are present", async () => {
         const planPath = path.join(directory, "canonical.md")
         await fs.writeFile(planPath, "# Canonical body\n")
-        const { deps, written } = makeDeps()
+        const { deps, written, spawns } = makeDeps()
         await openInteractive({ plan: "# STALE INLINE", planFilePath: planPath }, deps)
-        const contents = await fs.readFile(written[0] as string, "utf8")
+        expect(written).toHaveLength(0)
+        const contents = await fs.readFile(planPath, "utf8")
         expect(contents.endsWith("# Canonical body\n")).toBe(true)
         expect(contents).not.toContain("STALE INLINE")
+        expect(spawns[0]?.servePath).toBe(planPath)
+    })
+
+    it("is idempotent — a re-fired hook does not stack a second guide block", async () => {
+        const planPath = path.join(directory, "replan.md")
+        await fs.writeFile(planPath, "# Body\n")
+        const { deps } = makeDeps()
+        await openInteractive({ planFilePath: planPath }, deps)
+        await openInteractive({ planFilePath: planPath }, deps) // reject → re-ExitPlanMode re-fires the hook
+        const contents = await fs.readFile(planPath, "utf8")
+        expect(contents.split(":::llm-guide").length - 1).toBe(1)
     })
 
     it("falls back to the inline plan when the path field cannot be read", async () => {
@@ -261,12 +287,12 @@ describe("openInteractive", () => {
         expect(contents.endsWith("# Inline fallback")).toBe(true)
     })
 
-    it("spawns holo's serve.ts with the resolved temp and the reserved port", async () => {
+    it("spawns holo's serve.ts with the inline-plan temp and the reserved port", async () => {
         const { deps, written, spawns } = makeDeps()
         await openInteractive({ plan: "# Plan" }, deps)
         expect(spawns).toHaveLength(1)
         expect(spawns[0]?.port).toBe(45123)
-        expect(spawns[0]?.mdxPath).toBe(written[0] as string)
+        expect(spawns[0]?.servePath).toBe(written[0] as string)
     })
 
     it("opens the hook-owned URL http://127.0.0.1:<port> in the IDE with the plan title", async () => {
@@ -285,11 +311,12 @@ describe("openInteractive", () => {
         expect(opens[0]?.title).toBe("plan")
     })
 
-    it("no-ops (no write, no spawn, no open) when there is no plan content", async () => {
-        const { deps, written, spawns, opens } = makeDeps()
+    it("no-ops (no write, no guide, no spawn, no open) when there is no plan content", async () => {
+        const { deps, written, guided, spawns, opens } = makeDeps()
         await openInteractive({ plan: "   " }, deps)
         await openInteractive({}, deps)
         expect(written).toHaveLength(0)
+        expect(guided).toHaveLength(0)
         expect(spawns).toHaveLength(0)
         expect(opens).toHaveLength(0)
     })
@@ -304,11 +331,11 @@ describe("openInteractive", () => {
         let argv: string[] = []
         const { deps } = makeDeps({
             findFreePort: async () => 47777,
-            spawn: async (mdxPath, port) => {
+            spawn: async (servePath, port) => {
                 argv = [
                     process.execPath,
                     holoServe,
-                    mdxPath,
+                    servePath,
                     "--port",
                     String(port),
                     "--kill-on-disconnect",

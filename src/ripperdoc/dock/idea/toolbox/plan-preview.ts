@@ -15,9 +15,13 @@
  * + preview either way.
  *
  * When preemdeck.json sets `env.HOLO_PLANNER: true`, run() takes a different branch
- * (openInteractive): materialize the plan to a fresh `.mdx`, spawn a dedicated
- * holo dev server on a hook-owned port, and open THAT URL in the IDE's JCEF tab
- * — a fresh server per plan, no reuse. Absent/false keeps the static preview.
+ * (openInteractive): serve the CANONICAL plan file ITSELF over a dedicated holo dev
+ * server on a hook-owned port and open THAT URL in the IDE's JCEF tab — so a human's
+ * browser edits (and the `llm-note` directives they leave) persist straight to the
+ * file the agent re-reads. holo stays oblivious: it is handed a path and reads/writes
+ * it. Only an inline-only plan (no path field) falls back to a throwaway `.mdx`, whose
+ * edits are stranded. A fresh server per plan, no reuse. Absent/false keeps the static
+ * preview.
  *
  * Best-effort and SILENT by contract: a missing IDE, absent/foreign stdin, or any
  * open/spawn failure yields a no-op (run() catches internally and returns
@@ -77,7 +81,7 @@ This plan carries reviewer annotations as llm-note directives. Address each note
 :::`
 
 /** Prepend {@link GUIDE_PREAMBLE} to a plan's markdown before it's served. */
-const withGuide = (markdown: string): string => `${GUIDE_PREAMBLE}\n\n${markdown}`
+export const withGuide = (markdown: string): string => `${GUIDE_PREAMBLE}\n\n${markdown}`
 
 /** Monotonic counter so two plans materialized in the same millisecond get distinct temp names. */
 let planCounter = 0
@@ -125,29 +129,47 @@ const openPlan = async (toolInput: HookData): Promise<void> => {
 }
 
 /**
- * Resolve the plan markdown from the payload for the interactive (holo) path:
- * the contents of the canonical plan file ({@link resolvePlanPath}) if one resolves
- * and reads non-empty, else the inline `plan` string. Returns null when neither
- * yields content — the interactive path then no-ops. `source` titles the IDE tab:
- * the plan file's basename, else "plan".
+ * Resolve the plan for the interactive (holo) path from the payload. Prefer the
+ * CANONICAL plan file ({@link resolvePlanPath}) when one resolves and reads
+ * non-empty: `path` is its absolute path so {@link openInteractive} serves that file
+ * DIRECTLY (edits persist to the file the agent re-reads). Otherwise fall back to the
+ * inline `plan` string with `path: null` — a throwaway temp gets materialized instead.
+ * Returns null when neither yields content — the interactive path then no-ops.
+ * `markdown` is the current file/inline text; `source` titles the IDE tab (the plan
+ * file's basename, else "plan").
  */
 export const resolvePlanMarkdown = async (
     toolInput: HookData
-): Promise<{ markdown: string; source: string } | null> => {
+): Promise<{ markdown: string; source: string; path: string | null } | null> => {
     const planPath = resolvePlanPath(toolInput)
     if (planPath) {
         // .catch: a bad/missing path falls through to the inline `plan` snapshot
         // rather than throwing out of the best-effort hook.
         const text = await fs.promises.readFile(planPath, "utf8").catch(() => "")
         if (text.trim()) {
-            return { markdown: text, source: path.basename(planPath) }
+            return { markdown: text, source: path.basename(planPath), path: planPath }
         }
     }
     const plan = toolInput.plan
     if (typeof plan === "string" && plan.trim()) {
-        return { markdown: plan, source: "plan" }
+        return { markdown: plan, source: "plan", path: null }
     }
     return null
+}
+
+/**
+ * Prepend the hidden {@link GUIDE_PREAMBLE} to the CANONICAL plan file in place,
+ * unless it is already present — the interactive path serves this same file, so the
+ * guide (rendered invisibly by holo, kept in the `.md`) rides into the file the agent
+ * re-reads alongside the user's `llm-note` directives. Idempotent so a re-fired hook
+ * (reject → re-ExitPlanMode) never stacks duplicate blocks. Rides `effect()` so
+ * `--dry-run` rehearses without touching the file.
+ */
+export const ensureGuide = async (planPath: string, current: string): Promise<void> => {
+    if (current.includes(GUIDE_PREAMBLE)) {
+        return
+    }
+    await effect(() => fs.promises.writeFile(planPath, withGuide(current), "utf8"))
 }
 
 /**
@@ -206,14 +228,16 @@ const READY_TIMEOUT_MS = 2000
  * real work behind `effect()` so `--dry-run` rehearses the branch harmlessly.
  */
 export type InteractiveDeps = {
-    /** Resolve the plan markdown + a tab-title source from the payload. */
-    resolvePlan: (toolInput: HookData) => Promise<{ markdown: string; source: string } | null>
-    /** Materialize `markdown` to a fresh `.mdx` and return its absolute path. */
+    /** Resolve the plan: `path` set → serve the canonical file; `path` null → inline temp. */
+    resolvePlan: (toolInput: HookData) => Promise<{ markdown: string; source: string; path: string | null } | null>
+    /** Prepend the guide to the canonical plan file in place (idempotent) before it is served. */
+    ensureGuide: (planPath: string, current: string) => Promise<void>
+    /** Materialize an inline-only `markdown` to a fresh `.mdx` and return its absolute path. */
     writeMdx: (markdown: string) => Promise<string>
     /** Reserve a free TCP port the hook owns (so the URL is known without the banner). */
     findFreePort: () => Promise<number>
-    /** Spawn holo's `serve.ts` DETACHED on `port`, pointed at `mdxPath`. */
-    spawn: (mdxPath: string, port: number) => Promise<void>
+    /** Spawn holo's `serve.ts` DETACHED on `port`, pointed at `servePath`. */
+    spawn: (servePath: string, port: number) => Promise<void>
     /** Best-effort wait for `port` to accept before the tab opens. */
     waitForPort: (port: number, timeoutMs: number) => Promise<void>
     /** Open `url` in the IDE (titled `title`); mirrors {@link previewUrl}. */
@@ -237,15 +261,16 @@ const writeMdx = async (markdown: string): Promise<string> => {
 }
 
 /**
- * Spawn holo's `serve.ts` DETACHED with the host runtime, pointed at `mdxPath` on
- * `port`. Mirrors wire/start.ts's idiom: redirect stdout/stderr to a temp log fd,
- * `stdin: "ignore"`, then `proc.unref()` so the child outlives this hook. Wrapped
- * in `effect()` so `--dry-run` never forks a server. Passes `--kill-on-disconnect`
- * so this fresh-per-plan server self-reaps once its IDE tab closes — no orphaned
- * Vite process left behind (the manual `serve` path omits the flag, stays up) —
- * and `--css` so the page renders with dock/idea's own stylesheet.
+ * Spawn holo's `serve.ts` DETACHED with the host runtime, pointed at `servePath` (the
+ * canonical plan file, or a temp for an inline-only plan) on `port`. Mirrors
+ * wire/start.ts's idiom: redirect stdout/stderr to a temp log fd, `stdin: "ignore"`,
+ * then `proc.unref()` so the child outlives this hook. Wrapped in `effect()` so
+ * `--dry-run` never forks a server. Passes `--kill-on-disconnect` so this
+ * fresh-per-plan server self-reaps once its IDE tab closes — no orphaned Vite process
+ * left behind (the manual `serve` path omits the flag, stays up) — and `--css` so the
+ * page renders with dock/idea's own stylesheet.
  */
-const spawnHolo = async (mdxPath: string, port: number): Promise<void> => {
+const spawnHolo = async (servePath: string, port: number): Promise<void> => {
     await effect(() => {
         const log = path.join(os.tmpdir(), `holo-plan-${Date.now()}-${planCounter++}.log`)
         const fd = fs.openSync(log, "w")
@@ -254,7 +279,7 @@ const spawnHolo = async (mdxPath: string, port: number): Promise<void> => {
                 [
                     process.execPath,
                     HOLO_SERVE,
-                    mdxPath,
+                    servePath,
                     "--port",
                     String(port),
                     "--kill-on-disconnect",
@@ -277,6 +302,7 @@ const spawnHolo = async (mdxPath: string, port: number): Promise<void> => {
 
 const DEFAULT_INTERACTIVE_DEPS: InteractiveDeps = {
     resolvePlan: resolvePlanMarkdown,
+    ensureGuide,
     writeMdx,
     findFreePort,
     spawn: spawnHolo,
@@ -288,17 +314,19 @@ const DEFAULT_INTERACTIVE_DEPS: InteractiveDeps = {
 }
 
 /**
- * Interactive plan preview: materialize the plan to a fresh `.mdx`, spawn a
- * dedicated holo dev server on a hook-owned port, and open its URL in the IDE's
- * JCEF web-preview tab. Fresh server PER plan — no reuse, no lifecycle; the temp
- * `.mdx` is orphaned by design.
+ * Interactive plan preview: serve the plan over a dedicated holo dev server on a
+ * hook-owned port and open its URL in the IDE's JCEF web-preview tab. When the
+ * payload carries a canonical plan path, holo serves THAT file directly (guide
+ * prepended in place first), so browser edits persist to the file the agent
+ * re-reads; an inline-only plan falls back to a fresh, orphaned `.mdx`. Fresh
+ * server PER plan — no reuse, no lifecycle.
  *
  * Best-effort and never-throw by the hook's contract: `deps` inject every seam so
- * the spec exercises the branch without a real port/server/IDE. Steps: resolve
- * the markdown (no content → no-op), write the `.mdx`, reserve a free port, assert
- * holo's `serve.ts` exists, spawn it detached, optionally poll readiness (capped
- * at {@link READY_TIMEOUT_MS}), then open the URL REGARDLESS — the tab tolerates a
- * booting server.
+ * the spec exercises the branch without a real port/server/IDE. Steps: resolve the
+ * plan (no content → no-op); for a canonical path ensure the guide then serve the
+ * file, else write a temp; reserve a free port, assert holo's `serve.ts` exists,
+ * spawn it detached, optionally poll readiness (capped at {@link READY_TIMEOUT_MS}),
+ * then open the URL REGARDLESS — the tab tolerates a booting server.
  */
 export const openInteractive = async (
     toolInput: HookData,
@@ -308,13 +336,22 @@ export const openInteractive = async (
     if (resolved === null) {
         return // no plan content: nothing to serve
     }
-    const mdxPath = await deps.writeMdx(withGuide(resolved.markdown))
+    // Canonical file → prepend the guide in place and serve THAT file, so the user's
+    // browser edits + llm-note directives persist to the file the agent re-reads.
+    // Inline-only (no path) → materialize a throwaway `.mdx`; its edits are stranded.
+    let servePath: string
+    if (resolved.path !== null) {
+        await deps.ensureGuide(resolved.path, resolved.markdown)
+        servePath = resolved.path
+    } else {
+        servePath = await deps.writeMdx(withGuide(resolved.markdown))
+    }
     const port = await deps.findFreePort()
     // Defensive: without serve.ts on disk there is nothing to spawn — bail quietly.
     if (!fs.existsSync(HOLO_SERVE)) {
         return
     }
-    await deps.spawn(mdxPath, port)
+    await deps.spawn(servePath, port)
     await deps.waitForPort(port, READY_TIMEOUT_MS)
     await deps.openUrl(`http://127.0.0.1:${port}`, resolved.source)
 }
