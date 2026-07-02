@@ -1,4 +1,4 @@
-description = "Show the team strategy directive — prints skills/team/directive.md."
+description = "Adopt the team strategy directive for this session — loads skills/team/directive.md into context and applies it to your behavior; prints nothing, persists nothing."
 prompt = """
-Run the bundled reader — `"$HOME/.preemdeck/preemdeck-runtime" "$HOME/.preemdeck/src/ripperdoc/wetware/directive/scripts/show-mode.ts" team` — and print its output verbatim. This only displays the directive — it writes nothing. To set a directive, use /directive:default.
+Load the directive into your own context by running: cat "$HOME/.preemdeck/src/ripperdoc/wetware/directive/skills/team/directive.md". Adopt it as your operating directive for the rest of this session and apply it to how you work from here on. Do not print or summarize it back to the user, and do not write preemdeck.json — this is an in-session application only. To set the persisted directive instead, use /directive:set-default. Acknowledge in one short line (e.g. "Team strategy active").
 """

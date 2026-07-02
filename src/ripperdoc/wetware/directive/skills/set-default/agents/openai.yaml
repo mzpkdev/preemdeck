@@ -1,4 +1,4 @@
 # Codex equivalent of Claude's `disable-model-invocation: true`.
-# Keeps /directive:default a user-only command — the model never auto-invokes the setter.
+# Keeps /directive:set-default a user-only command — the model never auto-invokes the setter.
 policy:
   allow_implicit_invocation: false

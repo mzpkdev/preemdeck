@@ -1,17 +1,21 @@
 ---
 description:
-  Show the team strategy directive — prints skills/team/directive.md. Trigger ONLY when the user types /team. NEVER
-  auto-invoke.
+  Adopt the team strategy directive for this session — loads skills/team/directive.md into your context and applies it
+  to your own behavior. It prints nothing to the user and does not change the persisted directive. Trigger ONLY when the
+  user types /team. NEVER auto-invoke.
 user-invocable: true
 disable-model-invocation: true
 ---
 
-# Show the team strategy directive
+# Adopt the team strategy directive
 
-Run the bundled reader — nothing else:
+Load the directive into your own context — nothing else:
 
 ```bash
-"$HOME/.preemdeck/preemdeck-runtime" "$HOME/.preemdeck/src/ripperdoc/wetware/directive/scripts/show-mode.ts" team
+cat "$HOME/.preemdeck/src/ripperdoc/wetware/directive/skills/team/directive.md"
 ```
 
-Relay the script's output verbatim. This only displays the directive; to **set** a directive, use `/directive:default`.
+Adopt it as your operating directive for the rest of this session and apply it to how you work from here on. Do **not**
+print or summarize it back to the user, and do **not** write `preemdeck.json` — this is an in-session application only.
+To set the persisted directive instead, use `/directive:set-default`. Acknowledge in one short line (e.g. "Team strategy
+active").
