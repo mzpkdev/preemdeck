@@ -8,6 +8,7 @@
     "files": {
         "includes": [
             "src/common/**/*.ts",
+            "src/install/**/*.ts",
             "devscripts/**/*.ts",
             "src/ripperdoc/**/*.ts",
             "*.json",

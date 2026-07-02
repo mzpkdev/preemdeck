@@ -1,44 +1,27 @@
 /**
- * uninstall.spec.ts — bun-test suite for uninstall.ts.
+ * uninstall.spec.ts — uninstaller suite (manifest inversion + overlay reversal).
  *
- * Seams: unregister/runCli shell out through install.ts's runCli, which spawns inline via
- * `Bun.spawn(argv, PIPED)` and reaps — we `spyOn(Bun, "spawn")` and serve a canned child
- * (`fakeChild`, built fresh per call so a command that spawns more than once never re-reads
- * a consumed stream), capturing the exact argv and scripting exit codes/stderr. A tmp mkdtemp
+ * Seams: unregister shells out through hosts.runCli -> Bun.spawn; we `spyOn(Bun, "spawn")`
+ * and serve a canned child, capturing argv + scripting exit codes/stderr. A tmp mkdtemp
  * fixture backs the manifest + overlay FS (repoRoot is threaded into loadManifestOrExit /
- * writeManifest / main), and `spyOn(process, "exit")` drives the bail-out exit codes. The
- * spawn spy is restored in afterEach.
+ * main), and captureExit drives the bail-out exit codes.
  */
 
 import { afterEach, beforeEach, describe, expect, it, spyOn } from "bun:test"
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
-import { MANIFEST_SCHEMA, type OverlayRecord, STAGE_ROOT } from "./install"
-import { loadManifestOrExit, main, reverseOverlay, uninstallFor, unregister, writeManifest } from "./uninstall"
+import { MANIFEST_FILE, MANIFEST_SCHEMA, STAGE_ROOT } from "./constants"
+import type { OverlayRecord } from "./manifest"
+import { captureExit, fakeChild, silenceLog } from "./testkit"
+import { loadManifestOrExit, main, reverseOverlay, uninstallFor, unregister } from "./uninstall"
 
 const context = describe
 
-// A canned Bun.Subprocess: stdout/stderr as drainable streams + a resolved exit.
-// reap() reads the streams to text and awaits `exited`; built fresh per call so a
-// command that spawns more than once never re-reads a consumed stream.
-const fakeChild = (stdout = "", exitCode = 0, stderr = "") =>
-    ({
-        stdout: new Response(stdout).body,
-        stderr: new Response(stderr).body,
-        exited: Promise.resolve(exitCode),
-        exitCode,
-        kill() {}
-    }) as unknown as Bun.Subprocess
-
-// unregister/runCli shell out through install.runCli -> Bun.spawn; spy on Bun.spawn
-// (no mock.module on the shared ./src/common/process.ts — it leaks across files) and
-// restore it in afterEach. The default child exits 0.
 let spawnSpy: ReturnType<typeof spyOn<typeof Bun, "spawn">>
 const spawnCalls = (): string[][] => spawnSpy.mock.calls.map((c) => c[0] as string[])
 
 let dir = ""
-const MANIFEST_FILE = ".install-manifest.json"
 
 beforeEach(() => {
     dir = mkdtempSync(join(tmpdir(), "preemdeck-uninstall-"))
@@ -53,30 +36,6 @@ afterEach(() => {
 function seedManifest(payload: unknown): void {
     writeFileSync(join(dir, MANIFEST_FILE), typeof payload === "string" ? payload : JSON.stringify(payload))
 }
-
-function captureExit(fn: () => unknown): { code: number | null; stderr: string } {
-    let code: number | null = null
-    let stderr = ""
-    const exitSpy = spyOn(process, "exit").mockImplementation(((c?: number) => {
-        code = c ?? 0
-        throw new Error(`__exit__:${code}`)
-    }) as never)
-    const errSpy = spyOn(process.stderr, "write").mockImplementation(((chunk: string) => {
-        stderr += chunk
-        return true
-    }) as never)
-    try {
-        fn()
-    } catch (e) {
-        if (!(e instanceof Error) || !e.message.startsWith("__exit__:")) throw e
-    } finally {
-        exitSpy.mockRestore()
-        errSpy.mockRestore()
-    }
-    return { code, stderr }
-}
-
-const silenceLog = () => spyOn(console, "log").mockImplementation(() => {})
 
 describe("uninstall", () => {
     context("loadManifestOrExit", () => {
@@ -178,12 +137,13 @@ describe("uninstall", () => {
             } finally {
                 logSpy.mockRestore()
             }
-            const removed = lines.filter((l) => l.includes("removed")).map((l) => (l.includes("b.md") ? "b.md" : "a.md"))
+            const removed = lines
+                .filter((l) => l.includes("removed"))
+                .map((l) => (l.includes("b.md") ? "b.md" : "a.md"))
             expect(removed).toEqual(["b.md", "a.md"])
         })
     })
 
-    // unregister (command shapes via the spawn mock)
     context("unregister", () => {
         it("gemini uses extensions uninstall", async () => {
             const logSpy = silenceLog()
@@ -249,38 +209,6 @@ describe("uninstall", () => {
         })
     })
 
-    // writeManifest (uninstall's manifest mutation)
-    context("writeManifest", () => {
-        it("rewrites when harnesses remain", () => {
-            const manifest = { schema: MANIFEST_SCHEMA, harnesses: { gemini: { overlay: [] } } }
-            const logSpy = silenceLog()
-            try {
-                writeManifest(dir, manifest, false)
-            } finally {
-                logSpy.mockRestore()
-            }
-            const data = JSON.parse(readFileSync(join(dir, MANIFEST_FILE), "utf8"))
-            expect(new Set(Object.keys(data.harnesses))).toEqual(new Set(["gemini"]))
-        })
-
-        it("deletes the file when empty", () => {
-            seedManifest({ schema: MANIFEST_SCHEMA, harnesses: {} })
-            writeManifest(dir, { schema: MANIFEST_SCHEMA, harnesses: {} }, false)
-            expect(existsSync(join(dir, MANIFEST_FILE))).toBe(false)
-        })
-
-        it("dry-run never writes", () => {
-            const logSpy = silenceLog()
-            try {
-                writeManifest(dir, { schema: MANIFEST_SCHEMA, harnesses: { gemini: {} } }, true)
-            } finally {
-                logSpy.mockRestore()
-            }
-            expect(existsSync(join(dir, MANIFEST_FILE))).toBe(false)
-        })
-    })
-
-    // uninstallFor — skip path
     context("uninstallFor", () => {
         it("skips a harness absent from the manifest", async () => {
             const lines: string[] = []
@@ -297,7 +225,6 @@ describe("uninstall", () => {
         })
     })
 
-    // main (end-to-end manifest mutation)
     context("main", () => {
         it("drops the last harness and removes the file", async () => {
             const dst = join(dir, "settings.json")
@@ -306,9 +233,7 @@ describe("uninstall", () => {
                 schema: MANIFEST_SCHEMA,
                 harnesses: {
                     claude: {
-                        overlay: [
-                            { dst, src: "src/overwrite/claude/settings.json", backup: null, action: "create" }
-                        ],
+                        overlay: [{ dst, src: "src/overwrite/claude/settings.json", backup: null, action: "create" }],
                         marketplaces: [],
                         plugins: []
                     }
