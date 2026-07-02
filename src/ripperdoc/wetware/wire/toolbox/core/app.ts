@@ -27,6 +27,8 @@ import {
     JackinResponse,
     JackoutResponse,
     MessageEvent,
+    type PeekHeader,
+    PeekResponse,
     PresenceEvent,
     RecvResponse,
     SendResponse
@@ -68,7 +70,8 @@ const RecvResponseDoc = z
         events: z.array(z.union([MessageEvent, PresenceEvent])).openapi({ description: RECV_EVENTS_DESC }),
         present_peers: RecvResponse.shape.present_peers,
         read_your_last_message: RecvResponse.shape.read_your_last_message,
-        quiet_for: RecvResponse.shape.quiet_for
+        quiet_for: RecvResponse.shape.quiet_for,
+        pending: RecvResponse.shape.pending
     })
     .openapi("RecvResponse")
 
@@ -95,6 +98,28 @@ const eventToModel = (entry: LogEntry): WireEvent => {
         }
     }
     return { id: entry.id, type: entry.type, peer: entry.peer, sent_at: entry.sentAt }
+}
+
+/** Max characters of a message body shown in a /peek header — a glance, not the full text. */
+const PREVIEW_MAX = 80
+
+/**
+ * Render one room log entry to its compact /peek header. A message carries
+ * id/type/from/seq and a ~80-char `preview` of the body; a presence event carries
+ * only type/from (no seq, no preview — presence has neither). Mirrors
+ * {@link eventToModel} but leaner: enough to decide whether to stop and /recv.
+ */
+const eventToHeader = (entry: LogEntry): PeekHeader => {
+    if (entry.type === "message") {
+        return {
+            id: entry.id,
+            type: entry.type,
+            from: entry.sender,
+            seq: entry.seq,
+            preview: entry.message.slice(0, PREVIEW_MAX)
+        }
+    }
+    return { type: entry.type, from: entry.peer }
 }
 
 /** A /spectate snapshot/heartbeat payload: the live roster + silence, no backlog. */
@@ -208,6 +233,22 @@ const WAIT_PARAM = (): DocParam => ({
         "--max-time to 65 once — comfortably above the 60s max hold — and tune only wait; a --max-time at or below the " +
         "hold aborts the poll client-side before the heartbeat. A real message still returns the instant it's sent, " +
         "whatever wait is.",
+    schema: { type: "string" }
+})
+
+const UNTIL_PARAM = (): DocParam => ({
+    name: "until",
+    in: "query",
+    required: false,
+    description:
+        "Optional. A comma list of predicates that gate WHEN this poll returns (never WHAT it returns): `message` (any " +
+        "new chat message), `mentions:me` (a new message tagging your own name, the `@you` convention), `join`, " +
+        "`leave`, and `idle:<sec>` (the room has been quiet — no chat — for at least `sec` seconds, i.e. `quiet_for >= " +
+        "sec`). Any one predicate firing returns ALL your unread — the matching event PLUS anything that piled up — and " +
+        "advances your cursor, exactly like a normal /recv; `until` NEVER drops events. If nothing fires within `wait` " +
+        "you get the usual empty heartbeat and your unread stays queued for the next return. Omit it for default /recv " +
+        "(return on any new event). Unknown or malformed predicates are ignored; if none remain valid it behaves as if " +
+        "omitted.",
     schema: { type: "string" }
 })
 
@@ -362,6 +403,8 @@ const decorateDoc = (doc: Record<string, unknown>): Record<string, unknown> => {
     addParam("/send", "post", TOKEN_PARAM())
     addParam("/recv", "get", TOKEN_PARAM())
     addParam("/recv", "get", WAIT_PARAM())
+    addParam("/recv", "get", UNTIL_PARAM())
+    addParam("/peek", "get", TOKEN_PARAM())
     addParam("/jackout", "post", TOKEN_PARAM())
 
     // The raw-text /send body (no zod model drives it).
@@ -373,6 +416,7 @@ const decorateDoc = (doc: Record<string, unknown>): Record<string, unknown> => {
     add401("/shard", "get", SHARD_401_DESC)
     add401("/send", "post", TOKEN_401_DESC)
     add401("/recv", "get", TOKEN_401_DESC)
+    add401("/peek", "get", TOKEN_401_DESC)
     add401("/jackout", "post", TOKEN_401_DESC)
 
     // The plain routes' 200 success bodies (the generator emitted none).
@@ -480,7 +524,8 @@ export const createApp = (config: Config, now?: Clock): WireApp => {
                     you_are: name,
                     conversation_topic: config.topic,
                     peers: room.peers(),
-                    actions: jackinActions(base, token)
+                    actions: jackinActions(base, token),
+                    pending: room.pending(token)
                 },
                 200
             )
@@ -521,7 +566,13 @@ export const createApp = (config: Config, now?: Clock): WireApp => {
         const text = await c.req.text()
         const result = await room.send(token, text)
         return c.json(
-            { id: result.id, seq: result.seq, behind_by: result.behindBy, present_peers: result.presentPeers },
+            {
+                id: result.id,
+                seq: result.seq,
+                behind_by: result.behindBy,
+                present_peers: result.presentPeers,
+                pending: room.pending(token)
+            },
             200
         )
     })
@@ -541,7 +592,9 @@ export const createApp = (config: Config, now?: Clock): WireApp => {
                 "here right now and `quiet_for` is how many seconds since anyone last spoke (`null` if no one has " +
                 "yet) — a populated roster with a long `quiet_for` is just a quiet room, so poll again. The only dead " +
                 "signal is a failed connection. The token is validated *before* the poll parks, so a dead token 401s " +
-                "instantly and never hangs. Gated by `token`.",
+                "instantly and never hangs. Optionally pass `until` (a comma list: `message`, `mentions:me`, `join`, " +
+                "`leave`, `idle:<sec>`) to hold the poll for a specific trigger instead of any new event; it still " +
+                "returns ALL your unread on that trigger and never drops events — see the `until` param. Gated by `token`.",
             responses: {
                 200: {
                     description: "Your unseen events (or an empty heartbeat) plus the live roster and silence.",
@@ -553,12 +606,55 @@ export const createApp = (config: Config, now?: Clock): WireApp => {
             const token = c.req.query("token") as string
             const waitRaw = c.req.query("wait")
             const wait = waitRaw === undefined ? null : Math.min(Number(waitRaw), config.waitMax)
-            const result = await room.recv(token, wait)
+            // `until` is forwarded raw; the room parses it (unknown predicates are
+            // ignored there). Absent -> null -> unchanged /recv behavior.
+            const until = c.req.query("until") ?? null
+            const result = await room.recv(token, wait, until)
             return c.json(
                 {
                     events: result.events.map(eventToModel),
                     present_peers: result.presentPeers,
                     read_your_last_message: result.readYourLastMessage,
+                    quiet_for: result.quietFor,
+                    pending: room.pending(token)
+                },
+                200
+            )
+        }
+    )
+
+    // -- GET /peek (token-gated, NON-CONSUMING glance) --
+    // A quick, non-blocking read: returns the caller's unread WITHOUT advancing
+    // its cursor, so a /recv right after still delivers the same events. Never
+    // parks. Same token gate as /recv (validated before the body runs).
+    app.use("/peek", requireToken(room))
+    app.openapi(
+        createRoute({
+            method: "get",
+            path: "/peek",
+            description:
+                "Glance at your unread WITHOUT consuming it — a quick, non-blocking read that does NOT advance your " +
+                "read-cursor, so a following /recv still delivers the same events. Returns `pending` (how many events " +
+                "are waiting), `headers` (a light preview of each: a chat message carries id/type/from/seq and a " +
+                "~80-char `preview` of the body; a join/leave carries type/from only), plus `present_peers` and " +
+                "`quiet_for`. Use it between work steps to decide whether to stop and /recv. Gated by `token`; a missing " +
+                "or unknown token 401s. Non-blocking — it never long-polls.",
+            responses: {
+                200: {
+                    description:
+                        "Your unread count + light headers, plus the live roster and silence. Cursor untouched.",
+                    content: { "application/json": { schema: PeekResponse } }
+                }
+            }
+        }),
+        (c) => {
+            const token = c.req.query("token") as string
+            const result = room.peek(token)
+            return c.json(
+                {
+                    pending: result.pending,
+                    headers: result.events.map(eventToHeader),
+                    present_peers: result.presentPeers,
                     quiet_for: result.quietFor
                 },
                 200

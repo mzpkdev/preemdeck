@@ -153,9 +153,102 @@ export const RecvResponse = z
                     "after someone spoke, larger during a lull; counts only chat (a join/leave is not talk). `null` when " +
                     "no message has been sent yet. A large value plus a non-empty `present_peers` is a live but quiet " +
                     "room, not a dead one."
+            }),
+        pending: z
+            .number()
+            .int()
+            .openapi({
+                description:
+                    "How many events remain unread for you AFTER this response — the count your next /recv would " +
+                    "deliver. Normally 0 right after a /recv, which just consumed everything; a nonzero value means more " +
+                    "arrived in the meantime, so poll again. Counts chat AND presence past your cursor, excluding events " +
+                    "about yourself. The same signal /peek reports without consuming."
             })
     })
     .openapi("RecvResponse")
+
+/**
+ * A chat message's compact /peek header — enough to preview what's waiting
+ * without consuming it: the stream `id`, the message-only `seq`, the sender under
+ * `from`, and a ~80-char `preview` of the body.
+ */
+export const MessageHeader = z
+    .object({
+        id: z.number().int().openapi({
+            description:
+                "Stream position (event id) of the unread message — the id it will carry when /recv delivers it."
+        }),
+        type: z.literal("message").openapi({
+            description:
+                'Event discriminator — literally `"message"` for a chat-message header. Branch on it vs a join/leave.'
+        }),
+        from: z.string().openapi({
+            description: "The sender's peer name (e.g. `peer-1`)."
+        }),
+        seq: z.number().int().openapi({
+            description: "The message's own gap-free sequence number (chat-only counter)."
+        }),
+        preview: z.string().openapi({
+            description:
+                "The first ~80 characters of the message body — a glance at what's waiting, not the full text. " +
+                "/recv delivers the complete body."
+        })
+    })
+    .openapi("MessageHeader")
+
+/**
+ * A presence event's compact /peek header — who joined or left. Carries only
+ * `type` and `from`: presence has no message `seq` and no body, so no `preview`.
+ */
+export const PresenceHeader = z
+    .object({
+        type: z.enum(["action(join)", "action(leave)"]).openapi({
+            description:
+                'Event discriminator — `"action(join)"` when a peer joined or `"action(leave)"` when one left. A ' +
+                "presence header carries no `seq` and no `preview`."
+        }),
+        from: z.string().openapi({
+            description: "The peer that joined or left (e.g. `peer-2`)."
+        })
+    })
+    .openapi("PresenceHeader")
+
+/**
+ * The /peek body: a NON-CONSUMING glance at unread. `pending` counts the events
+ * your next /recv would deliver and `headers` previews each — WITHOUT moving your
+ * read-cursor, so a /recv right after still returns those same events.
+ */
+export const PeekResponse = z
+    .object({
+        pending: z
+            .number()
+            .int()
+            .openapi({
+                description:
+                    "How many events are waiting for you right now — the count of unread events past your read-cursor " +
+                    "(chat AND presence, excluding events about yourself), exactly what your next /recv would deliver. " +
+                    "Peeking does NOT consume them: your cursor is untouched, so a following /recv returns the same events."
+            }),
+        headers: z.array(z.union([MessageHeader, PresenceHeader])).openapi({
+            description:
+                "A light preview of each unread event, oldest first. A chat message carries id/type/from/seq and a " +
+                "~80-char `preview` of the body; a join/leave carries type/from only. Enough to decide whether to stop " +
+                "and /recv — the full events arrive on /recv."
+        }),
+        present_peers: z.array(z.string()).openapi({
+            description: "Names of the peers in the room right now — the live roster, the same one /recv reports."
+        }),
+        quiet_for: z
+            .number()
+            .int()
+            .nullable()
+            .openapi({
+                description:
+                    "Whole seconds since the most recent chat message, or `null` if no one has spoken yet — the same " +
+                    "silence signal /recv reports."
+            })
+    })
+    .openapi("PeekResponse")
 
 /** A pseudo-HATEOAS affordance handed to a peer at /jackin. */
 export const Action = z
@@ -203,7 +296,16 @@ export const JackinResponse = z
         actions: z.array(Action).openapi({
             description:
                 "Pseudo-HATEOAS affordances — the next calls you can make (send, recv), each pre-filled with your token."
-        })
+        }),
+        pending: z
+            .number()
+            .int()
+            .openapi({
+                description:
+                    "How many events are already waiting for you — the backlog your first /recv will deliver (others' " +
+                    "messages and joins/leaves that happened before you joined). 0 when you join a fresh, empty room. " +
+                    "Peek or /recv to read them."
+            })
     })
     .openapi("JackinResponse")
 
@@ -254,7 +356,17 @@ export const SendResponse = z
                 "Names of the peers in the room right now — the live roster at the moment your message landed, in " +
                 "join order. The same roster /recv reports, handed back on /send so you see who's present without a " +
                 "separate poll."
-        })
+        }),
+        pending: z
+            .number()
+            .int()
+            .openapi({
+                description:
+                    "How many events are unread for you right now — every event past your read-cursor (chat AND " +
+                    "presence, excluding your own), i.e. exactly what your next /recv would deliver. Broader than " +
+                    "`behind_by`, which counts only chat messages from others; `pending` also counts joins/leaves. " +
+                    "Sending does not consume them — they stay unread until you /recv."
+            })
     })
     .openapi("SendResponse")
 
@@ -298,6 +410,10 @@ export type MessageEvent = z.infer<typeof MessageEvent>
 export type PresenceEvent = z.infer<typeof PresenceEvent>
 export type RecvEvent = z.infer<typeof RecvEvent>
 export type RecvResponse = z.infer<typeof RecvResponse>
+export type MessageHeader = z.infer<typeof MessageHeader>
+export type PresenceHeader = z.infer<typeof PresenceHeader>
+export type PeekHeader = MessageHeader | PresenceHeader
+export type PeekResponse = z.infer<typeof PeekResponse>
 export type Action = z.infer<typeof Action>
 export type JackinResponse = z.infer<typeof JackinResponse>
 export type JackoutResponse = z.infer<typeof JackoutResponse>

@@ -345,11 +345,14 @@ describe("wire HTTP app", () => {
             // is 3, but it's the FIRST chat -> seq 1. behind_by 0 (own msg never counts).
             const sendR = await post(app, `/send?token=${t1}`, "hello peer-2")
             expect(sendR.status).toBe(200)
+            // pending 1: peer-1's unread is peer-2's join (id 2); its own join (id 1)
+            // and its own message (id 3) are filtered. behind_by 0 counts chat only.
             expect(await sendR.json()).toEqual({
                 id: 3,
                 seq: 1,
                 behind_by: 0,
-                present_peers: ["peer-1", "peer-2"]
+                present_peers: ["peer-1", "peer-2"],
+                pending: 1
             })
 
             // peer-2 reads it (wait=0). Picks the message; sees peer-1's join (id 1).
@@ -667,7 +670,7 @@ describe("wire HTTP app", () => {
             const sendResponse = doc.components.schemas.SendResponse
             expect(sendResponse).toBeDefined()
             expect(new Set(Object.keys(sendResponse.properties))).toEqual(
-                new Set(["id", "seq", "behind_by", "present_peers"])
+                new Set(["id", "seq", "behind_by", "present_peers", "pending"])
             )
             expect(sendResponse.properties.behind_by.description).toBeTruthy()
         })
