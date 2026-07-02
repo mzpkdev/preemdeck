@@ -1,8 +1,9 @@
-### Spawning the fixer subagent
+### Spawning worker subagents
 
-Use `spawn_agent`. Required: `agent: "fixer"` and `instruction` (the full self-contained briefing). Optional:
-`fork_turns: false` starts fresh; `fork_turns: true` (the default) inherits session history but rejects `agent_type` /
-`model` / `reasoning_effort` overrides.
+Use `spawn_agent` with `agent` set to the worker that fits: `fixer` (read-write generalist and catch-all), `runner`
+(read-only recon), `critic` (read-only adversarial review), `scanner` (read-only outward research). Required: `agent`
+and `instruction` (the full self-contained briefing). Optional: `fork_turns: false` starts fresh; `fork_turns: true`
+(the default) inherits session history but rejects `agent_type` / `model` / `reasoning_effort` overrides.
 
 Codex defaults to `[agents] max_depth = 1` (root at depth 0, one child level). Keep the swarm shallow — fan out from the
 root; a spawned agent can't spawn another unless that cap is raised.

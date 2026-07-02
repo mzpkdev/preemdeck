@@ -1,7 +1,12 @@
-### Spawning the fixer subagent
+### Spawning worker subagents
 
-Use `Agent` with `subagent_type: "fixer"`. Pass the goal as `description`, the full self-contained briefing as `prompt`.
-(Named `Task` pre-v2.1.63; both names work.)
+Use `Agent` with `subagent_type` set to the worker that fits the job — pass the goal as `description`, the full
+self-contained briefing as `prompt`. (Named `Task` pre-v2.1.63; both names work.)
+
+- **`fixer`** — read-write generalist and catch-all: building, multi-step work, anything no specialist covers.
+- **`runner`** — read-only recon: map a subsystem, return a condensed report.
+- **`critic`** — read-only adversarial review: try to break a claim or a diff, report what fails.
+- **`scanner`** — read-only outward research: answer from web / docs / upstream, return a cited brief.
 
 **Always pass `run_in_background: true`.** Default calls block the orchestrating turn until the subagent returns,
 locking the user out of the chat. Backgrounding returns immediately with an `agentId`, ends the orchestrator's turn, and

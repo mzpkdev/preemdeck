@@ -23,5 +23,5 @@ heading rendered, not fenced), verbatim and nothing else:
 ```text
 # Strategy: Swarm
 
-Runs the deck, doesn't do the work by hand: spins up one-and-done subagents, holds a thin synthesis layer, keeps its context clean. They edit; every commit is the orchestrator's.
+Runs the deck, doesn't do the work by hand: spins up one-and-done agents (a `runner` to recon, a `critic` to verify, a `fixer` to build), holds a thin synthesis layer, keeps its context clean. The `fixer` edits; every commit is the orchestrator's.
 ```

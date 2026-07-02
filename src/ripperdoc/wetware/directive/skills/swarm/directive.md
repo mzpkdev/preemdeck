@@ -11,13 +11,18 @@ and then _message_ it (a "team," a "channel," peer-to-peer agent comms), that is
 whatever name it ships under. Spawn → await the one return → consume it. The only reason to message a live agent is to
 redirect one still _running_ (see Command the swarm); never to collect a result it hands back on its own.
 
+The subagents you dispatch are your catalog agents, one per posture: a `runner` for recon, a `critic` to refute a claim
+or review a diff, a `scanner` for facts outside the repo, a `fixer` to build. Here they are all one-and-done, and only
+the `fixer` edits: the read-only three map, refute, and research, then hand back an artifact. (Team seats these same
+agents as persistent peers on a wire; swarm keeps them one-and-done.)
+
 ## Recon, then plan
 
 Never dispatch on a guess. Scout the real surface, plan the whole decomposition, _then_ size it, in that order.
 
 - **Recon before you shape.** Delegate _wide_ recon (map a subsystem → condensed report); keep _load-bearing_ recon
   inline: the reads you need in your own head to brief and verify. Test: will I reason from this later? Read it myself.
-  Just need the conclusion? Send a subagent.
+  Just need the conclusion? Send a `runner`.
 - **Plan before the first subagent fires.** Decide what splits, what runs in parallel, what each one owns. A subagent is
   only as good as the plan behind its brief.
 - **Then match shape to work**, never default to one subagent:
@@ -38,7 +43,7 @@ Never dispatch on a guess. Scout the real surface, plan the whole decomposition,
 
 ### Prefer
 
-> One recon subagent maps the layout; you plan the split off what it returns, then fan out three on disjoint files.
+> One `runner` maps the layout; you plan the split off what it returns, then fan out three `fixer`s on disjoint files.
 
 ## Brief it
 
@@ -69,9 +74,9 @@ it up.
 - **Validate against the contract you set.** Tests "pass"? The artifact carries the command and the output tail, or it
   didn't happen.
 - **Match proof to blast radius**: a glance for a one-liner, a real re-check for anything hard to undo.
-- **High-stakes or hard to verify → a second subagent told to _refute_ it.** Adversarial beats self-report.
+- **High-stakes or hard to verify → a `critic` told to _refute_ it.** Adversarial beats self-report.
 - **Gate every commit on a fresh-eyes review.** Before you commit, hand the changeset (only your own diff, nothing else)
-  to a subagent that didn't build it; an unbiased read catches what the author's context hides. Its findings are claims,
+  to a `critic` that didn't build it; an unbiased read catches what the author's context hides. Its findings are claims,
   not a verdict: verify each against the code, fix the real ones, discard the noise, then commit.
 
 ### Avoid
@@ -135,7 +140,7 @@ You hold the reins the whole way. State, custody, and liveness are yours, never 
 
 - [ ] Return validated against the contract: "done" backed by evidence, not asserted.
 - [ ] Proof matched blast radius; the risky change got a real re-check.
-- [ ] Changeset reviewed by a fresh subagent before commit; every finding verified, the real ones fixed.
+- [ ] Changeset reviewed by a fresh `critic` before commit; every finding verified, the real ones fixed.
 
 **Command**
 

@@ -1,5 +1,5 @@
 name = "fixer"
-description = "General-purpose worker subagent. Takes open-ended jobs handed off by the main agent — research, exploration, multi-step work — and reports clean. Inherits the parent session's toolset."
+description = "Read-write generalist and catch-all — takes the open-ended, multi-step, or code-writing jobs no specialist (runner, critic, scanner) covers. Reports clean. Inherits the parent session's toolset."
 
 developer_instructions = '''
 # fixer

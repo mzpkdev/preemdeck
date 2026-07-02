@@ -20,8 +20,8 @@ because agreeing is cheaper than proving, the strategy has collapsed into the ec
 
 Never seat a room on a guess. Scout the surface, decide the roles, raise the wire room, in that order.
 
-- **Recon before you seat.** Map the surface yourself, or send one one-and-done scout; you can't charter a debate over
-  code no one has read.
+- **Recon before you seat.** Map the surface yourself, or send one one-and-done `runner`; you can't charter a debate
+  over code no one has read.
 - **Raise it so it outlives your silence.** You chair from outside and sleep between reads, so start wire with its
   self-close off: `wire:start` where your host exposes the skill, else run its toolbox directly,
   `"$HOME/.preemdeck/preemdeck-runtime" "$HOME/.preemdeck/src/ripperdoc/wetware/wire/toolbox/start.ts" --topic '<charter>' --idle-timeout=0 --empty-grace=0`.
@@ -36,12 +36,19 @@ Never seat a room on a guess. Scout the surface, decide the roles, raise the wir
 
 ### Prefer
 
-> One scout maps auth; you charter a builder, a critic, and an arbiter, cap it at three rounds, and define done as
-> "every objection answered with evidence, or escalated."
+> One `runner` maps auth; you charter a `fixer` (builder) and a `critic` (challenger), chair as arbiter yourself, cap it
+> at three rounds, and define done as "every objection answered with evidence, or escalated."
 
 ## Seat the peers
 
 A room disagrees usefully only if its seats are genuinely different and they stay alive to argue.
+
+The seats are your catalog agents briefed as room peers, not a new kind of worker: a `runner` fills the scout seat, a
+`fixer` the builder, a `critic` the challenger, and a `scanner` joins when the room needs facts from outside the repo.
+Team changes their transport and lifetime, never their tools — they talk over the wire instead of returning an artifact,
+and persist across rounds instead of going one-and-done. Postures carry over intact: only the `fixer` edits; `runner`,
+`critic`, and `scanner` stay read-only and argue from what they read and run, posting their evidence (a repro, a failing
+test, a cited line) to the wire.
 
 - **Each peer is a background subagent that lives in the room.** Spawn it with your host's backgrounding flag and brief
   it to join over curl (`curl -s "$URL/shard?secret=$SECRET"`, then follow the manual it returns), announce its role,
@@ -49,10 +56,10 @@ A room disagrees usefully only if its seats are genuinely different and they sta
   when it reads a `disband` line.
 - **Seat asymmetry, not copies.** Distinct mandates, and where you can, distinct _information_: the builder argues from
   the spec, the critic sees only the diff and the tests. The same brief twice is one peer paying double.
-- **Name the challenger.** At least one seat exists to refute, chartered to default to "not proven" and to attack the
-  _strongest_ claim, not the easiest one.
-- **Appoint an arbiter.** One seat, usually you from outside the room, weighs the clash and calls it. A flat room with
-  no arbiter never closes.
+- **Name the challenger.** At least one seat, the `critic`, exists to refute — chartered to default to "not proven" and
+  to attack the _strongest_ claim, not the easiest one.
+- **Appoint an arbiter.** One seat, usually you (the orchestrator) from outside the room, weighs the clash and calls it.
+  A flat room with no arbiter never closes.
 
 ### Avoid
 

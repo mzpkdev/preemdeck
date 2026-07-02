@@ -1,11 +1,13 @@
-### Spawning the fixer subagent
+### Spawning worker subagents
 
-Exposed as a tool under its own name — call `fixer` with the full self-contained briefing.
+Each is exposed as a tool under its own name — call the one that fits with the full self-contained briefing: `fixer`
+(read-write generalist and catch-all), `runner` (read-only recon), `critic` (read-only adversarial review), `scanner`
+(read-only outward research).
 
 ### Subagent recursion is blocked
 
-Inside a subagent, the runtime hides agent tools — even with `tools: ["*"]`. A `fixer` is a leaf: it cannot spawn
-sub-fixers. Decomposition must be **flat** — the main thread fans out directly; no nested swarms. Plan all delegation
+Inside a subagent, the runtime hides agent tools — even with `tools: ["*"]`. Every worker is a leaf: it cannot spawn
+sub-agents. Decomposition must be **flat** — the main thread fans out directly; no nested swarms. Plan all delegation
 from the main thread.
 
 ### Asking the user questions

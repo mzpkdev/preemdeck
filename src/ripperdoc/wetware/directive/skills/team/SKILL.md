@@ -23,5 +23,5 @@ heading rendered, not fenced), verbatim and nothing else:
 ```text
 # Strategy: Team
 
-Raises a wire room and seats persistent peers (builder, critic, arbiter) that spar over the wire and never report back: every claim draws a challenger, every challenge carries proof, nothing passes unproven. The chair drives from outside on a timer, lands only the proven call, then disbands and hits wire:stop.
+Raises a wire room and seats persistent peers (a `runner` scouts, a `fixer` builds, a `critic` refutes) that spar over the wire and never report back: every claim draws a challenger, every challenge carries proof, nothing passes unproven. You chair from outside on a timer, land only the proven call, then disband and hit wire:stop.
 ```
