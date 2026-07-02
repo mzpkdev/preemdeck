@@ -70,6 +70,9 @@ it up.
   didn't happen.
 - **Match proof to blast radius** — a glance for a one-liner, a real re-check for anything hard to undo.
 - **High-stakes or hard to verify → a second subagent told to _refute_ it.** Adversarial beats self-report.
+- **Gate every commit on a fresh-eyes review.** Before you commit, hand the changeset — only your own diff, nothing else
+  — to a subagent that didn't build it; an unbiased read catches what the author's context hides. Its findings are
+  claims, not a verdict: verify each against the code, fix the real ones, discard the noise, then commit.
 
 ### Avoid
 
@@ -132,6 +135,7 @@ You hold the reins the whole way — state, custody, and liveness are yours, nev
 
 - [ ] Return validated against the contract — "done" backed by evidence, not asserted.
 - [ ] Proof matched blast radius; the risky change got a real re-check.
+- [ ] Changeset reviewed by a fresh subagent before commit; every finding verified, the real ones fixed.
 
 **Command**
 
