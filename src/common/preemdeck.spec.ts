@@ -87,16 +87,17 @@ describe("notifyEnabled", () => {
 })
 
 describe("interactiveEnabled", () => {
-    it("is enabled only for an explicit interactive: true", () => {
-        expect(interactiveEnabled({ interactive: true })).toBe(true)
+    it("is enabled only for an explicit env.HOLO_PLANNER: true", () => {
+        expect(interactiveEnabled({ env: { HOLO_PLANNER: true } })).toBe(true)
     })
 
-    it("is disabled when interactive is absent (default-off)", () => {
+    it("is disabled when HOLO_PLANNER is absent (default-off)", () => {
         expect(interactiveEnabled({})).toBe(false)
+        expect(interactiveEnabled({ env: {} })).toBe(false)
     })
 
-    it("is disabled when interactive is false", () => {
-        expect(interactiveEnabled({ interactive: false })).toBe(false)
+    it("is disabled when HOLO_PLANNER is false", () => {
+        expect(interactiveEnabled({ env: { HOLO_PLANNER: false } })).toBe(false)
     })
 
     it.each([
@@ -105,7 +106,7 @@ describe("interactiveEnabled", () => {
         ["null", null],
         ["an object", {}]
     ] as [string, unknown][])("is disabled for a non-boolean value (%s)", (_label, value) => {
-        expect(interactiveEnabled({ interactive: value as never })).toBe(false)
+        expect(interactiveEnabled({ env: { HOLO_PLANNER: value as never } })).toBe(false)
     })
 })
 
@@ -125,8 +126,8 @@ describe("isInteractive", () => {
         if (restore) Object.defineProperty(ENV, "PREEMDECK_ROOT", restore)
     })
 
-    it("resolves true for interactive: true", async () => {
-        await fs.writeFile(file(), JSON.stringify({ interactive: true }))
+    it("resolves true for env.HOLO_PLANNER: true", async () => {
+        await fs.writeFile(file(), JSON.stringify({ env: { HOLO_PLANNER: true } }))
         expect(await isInteractive()).toBe(true)
     })
 

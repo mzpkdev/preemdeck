@@ -72,7 +72,7 @@ const emit = async (host: string): Promise<void> => {
     const cwd = (data.cwd as string | undefined) || process.env.PWD
     const body = notificationMessage(data) ?? `${host} needs your attention`
     const titleText = title(host, cwd, null)
-    await notify(htmlEscape(body), { title: htmlEscape(titleText), all: true })
+    await notify(htmlEscape(body), { title: htmlEscape(titleText), all: await isNotifyEnabled("broadcast") })
 }
 
 const command = defineCommand({

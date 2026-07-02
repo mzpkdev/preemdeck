@@ -11,7 +11,7 @@
  * payload carries: Claude's inline plan -> openInline (.md temp); Gemini's path
  * -> open directly. Both opens are fire-and-forget + preview.
  *
- * When preemdeck.json sets `interactive: true`, run() takes a different branch
+ * When preemdeck.json sets `env.HOLO_PLANNER: true`, run() takes a different branch
  * (openInteractive): materialize the plan to a fresh `.mdx`, spawn a dedicated
  * holo dev server on a hook-owned port, and open THAT URL in the IDE's JCEF tab
  * — a fresh server per plan, no reuse. Absent/false keeps the static preview.
@@ -307,7 +307,7 @@ const command = defineCommand({
             const data = await readHookInput()
             const toolInput = data.tool_input
             if (toolInput !== null && typeof toolInput === "object" && !Array.isArray(toolInput)) {
-                // interactive: true serves the plan via holo and opens the running
+                // env.HOLO_PLANNER: true serves the plan via holo and opens the running
                 // URL; absent/false keeps today's static IDE markdown preview.
                 if (await isInteractive()) {
                     await openInteractive(toolInput as HookData)

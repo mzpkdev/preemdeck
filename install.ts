@@ -74,7 +74,8 @@ export const DISABLED_PLUGINS: ReadonlySet<string> = new Set(["ghost"]);
 export const CONFIG_FILE = "preemdeck.json";
 const DEFAULT_CONFIG_DATA: Config = {
   directive: { strategy: "swarm", discretion: "ask" },
-  notify: { sound: true, turn: true, permission: true, ask: true, plan: true },
+  notify: { sound: true, turn: true, permission: true, ask: true, plan: true, broadcast: true },
+  env: { HOLO_PLANNER: false },
 };
 export const DEFAULT_CONFIG = `${JSON.stringify(DEFAULT_CONFIG_DATA, null, 2)}\n`;
 

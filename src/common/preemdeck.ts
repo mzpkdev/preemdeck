@@ -50,8 +50,9 @@ export type Directive = {
 /** The release channel an install tracks: stable (released main) or edge (main HEAD). */
 export type Channel = "stable" | "edge"
 
-/** A dock notification kind: the audio ding, or one of the four moments a visual alert fires. */
-export type NotifyKey = "sound" | "turn" | "permission" | "ask" | "plan"
+/** A dock notification kind (the audio ding, or one of the four moments a visual alert fires),
+ *  plus `broadcast` — the scope toggle: on = every running IDE, off = only the originating one. */
+export type NotifyKey = "sound" | "turn" | "permission" | "ask" | "plan" | "broadcast"
 
 /**
  * Dock notification config. `true` or absent = everything on; `false` = everything
@@ -68,8 +69,10 @@ export type Config = {
     channel?: Channel
     /** Dock notifications: enable/disable the ding and the per-moment desktop / IDE alerts. */
     notify?: Notify
-    /** Interactive plan preview: true serves the plan via holo and opens the running URL in the IDE; absent/false uses the static IDE markdown preview. */
-    interactive?: boolean
+    /** Env-style key/value toggles. `HOLO_PLANNER: true` serves the plan via holo (the
+     *  interactive planner) and opens the running URL in the IDE; absent/false keeps the
+     *  static IDE markdown preview. */
+    env?: Record<string, boolean>
 }
 
 export type Recipe<TDraft> = (draft: TDraft) => TDraft | Promise<TDraft>
@@ -113,11 +116,11 @@ export const isNotifyEnabled = async (key: NotifyKey): Promise<boolean> => {
 }
 
 /**
- * Whether interactive plan preview is enabled: `true` ONLY for an explicit
- * `interactive: true`. An absent flag, `false`, or any non-boolean value reads
- * as off, so the safe default is today's static IDE markdown preview.
+ * Whether the interactive holo planner is enabled: `true` ONLY for an explicit
+ * `env.HOLO_PLANNER: true`. An absent flag, `false`, or any non-boolean value reads
+ * as off, so the safe default is the static IDE markdown preview.
  */
-export const interactiveEnabled = (cfg: Config): boolean => cfg.interactive === true
+export const interactiveEnabled = (cfg: Config): boolean => cfg.env?.HOLO_PLANNER === true
 
 /**
  * Read preemdeck.json and resolve {@link interactiveEnabled}. Fail-CLOSED: unlike

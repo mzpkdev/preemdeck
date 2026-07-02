@@ -174,7 +174,7 @@ const emit = async (host: string, deps: TurnNotifyDeps): Promise<void> => {
     // `all` broadcasts the turn-end balloon to every open project window of every
     // running JetBrains product, so it's visible whichever window/IDE is focused.
     // (No cwd: all-windows ignores it; the title already took the project name above.)
-    await notify(htmlEscape(body), { title: htmlEscape(titleText), all: true })
+    await notify(htmlEscape(body), { title: htmlEscape(titleText), all: await isNotifyEnabled("broadcast") })
 }
 
 const command = defineCommand({
