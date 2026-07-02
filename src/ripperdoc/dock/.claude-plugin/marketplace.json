@@ -19,6 +19,13 @@
       "source": "./os",
       "version": "0.0.0",
       "category": "dock"
+    },
+    {
+      "name": "tmux",
+      "description": "Rename the tmux window per agent state (idle/working/waiting) so parallel sessions read at a glance",
+      "source": "./tmux",
+      "version": "0.0.0",
+      "category": "dock"
     }
   ]
 }

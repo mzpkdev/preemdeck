@@ -51,8 +51,9 @@ export type Directive = {
 export type Channel = "stable" | "edge"
 
 /** A dock notification kind (the audio ding, or one of the four moments a visual alert fires),
- *  plus `broadcast` — the scope toggle: on = every running IDE, off = only the originating one. */
-export type NotifyKey = "sound" | "turn" | "permission" | "ask" | "plan" | "broadcast"
+ *  plus `broadcast` — the scope toggle: on = every running IDE, off = only the originating one —
+ *  and `tmux`, the per-state tmux window title (idle/busy/waiting). */
+export type NotifyKey = "sound" | "turn" | "permission" | "ask" | "plan" | "broadcast" | "tmux"
 
 /**
  * Dock notification config. `true` or absent = everything on; `false` = everything

@@ -13,6 +13,11 @@
       "name": "os",
       "source": "./os",
       "category": "dock"
+    },
+    {
+      "name": "tmux",
+      "source": "./tmux",
+      "category": "dock"
     }
   ]
 }

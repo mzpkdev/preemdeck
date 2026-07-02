@@ -1,0 +1,15 @@
+{
+  "name": "tmux",
+  "description": "Rename the tmux window per agent state (idle/working/waiting) so parallel sessions read at a glance",
+  "version": "0.0.0",
+  "author": {
+    "name": "preemdeck"
+  },
+  "keywords": [
+    "dock",
+    "tmux",
+    "window",
+    "status"
+  ],
+  "hooks": "./.codex-plugin/hooks/hooks.json"
+}

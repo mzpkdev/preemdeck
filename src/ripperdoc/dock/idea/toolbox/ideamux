@@ -1,0 +1,46 @@
+#!/usr/bin/env bash
+#
+# ideamux — attach the current terminal to a per-repo tmux session, creating it on
+# first use. Meant to be the JetBrains terminal's Shell path (see install-tmux.ts):
+# every IDE terminal tab in a repo lands in that repo's durable session, so
+# detaching keeps its windows alive and reopening a tab reattaches.
+#
+# The session lives on its own socket keyed by a hash of the git top-level (so each
+# repo is isolated), falling back to $PWD outside a repo. The shell INSIDE tmux is
+# tmux's default-shell (the user's $SHELL) — this wraps the terminal, it does not
+# replace the user's shell.
+#
+# SAFETY: if tmux is not installed, exec the user's login shell instead, so setting
+# this as the IDE Shell path can never leave the terminal unable to open.
+
+set -e
+
+# The tmux binary, overridable (a custom path, or forcing the fallback in tests).
+tmux_bin="${IDEAMUX_TMUX:-tmux}"
+
+if ! command -v "$tmux_bin" >/dev/null 2>&1; then
+  exec "${SHELL:-/bin/sh}" -l
+fi
+
+socket_dir="${IDEAMUX_SOCKET_DIR:-$HOME/.ideamux}"
+
+if [ -z "${IDEAMUX_SOCKET_PATH:-}" ]; then
+  root=$(git rev-parse --show-toplevel 2>/dev/null || printf '%s' "$PWD")
+  # Portable hash of the repo root: md5sum (Linux) / md5 (macOS) / cksum (fallback).
+  if command -v md5sum >/dev/null 2>&1; then
+    key=$(printf '%s' "$root" | md5sum | awk '{print $1}')
+  elif command -v md5 >/dev/null 2>&1; then
+    key=$(md5 -q -s "$root")
+  else
+    key=$(printf '%s' "$root" | cksum | awk '{print $1}')
+  fi
+  IDEAMUX_SOCKET_PATH="$socket_dir/$key.sock"
+fi
+
+mkdir -p "$socket_dir"
+
+if "$tmux_bin" -S "$IDEAMUX_SOCKET_PATH" has-session 2>/dev/null; then
+  exec "$tmux_bin" -S "$IDEAMUX_SOCKET_PATH" attach-session
+else
+  exec "$tmux_bin" -S "$IDEAMUX_SOCKET_PATH" new-session -c "$PWD"
+fi

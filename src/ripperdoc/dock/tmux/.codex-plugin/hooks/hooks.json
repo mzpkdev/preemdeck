@@ -1,0 +1,52 @@
+{
+  "hooks": {
+    "SessionStart": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "$HOME/.preemdeck/preemdeck-runtime \"$HOME/.preemdeck/src/ripperdoc/dock/tmux/toolbox/tmux-title.ts\" idle",
+            "timeout": 5
+          }
+        ]
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "$HOME/.preemdeck/preemdeck-runtime \"$HOME/.preemdeck/src/ripperdoc/dock/tmux/toolbox/tmux-title.ts\" busy",
+            "timeout": 5
+          }
+        ]
+      }
+    ],
+    "PermissionRequest": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "$HOME/.preemdeck/preemdeck-runtime \"$HOME/.preemdeck/src/ripperdoc/dock/tmux/toolbox/tmux-title.ts\" waiting",
+            "timeout": 5
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "$HOME/.preemdeck/preemdeck-runtime \"$HOME/.preemdeck/src/ripperdoc/dock/tmux/toolbox/tmux-title.ts\" idle",
+            "timeout": 5
+          }
+        ]
+      }
+    ]
+  }
+}

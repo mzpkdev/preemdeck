@@ -1,0 +1,67 @@
+{
+  "name": "tmux",
+  "version": "0.0.0",
+  "description": "Rename the tmux window per agent state (idle/working/waiting) so parallel sessions read at a glance",
+  "hooks": {
+    "SessionStart": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "$HOME/.preemdeck/preemdeck-runtime \"$HOME/.preemdeck/src/ripperdoc/dock/tmux/toolbox/tmux-title.ts\" idle",
+            "timeout": 5
+          }
+        ]
+      }
+    ],
+    "BeforeAgent": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "$HOME/.preemdeck/preemdeck-runtime \"$HOME/.preemdeck/src/ripperdoc/dock/tmux/toolbox/tmux-title.ts\" busy",
+            "timeout": 5
+          }
+        ]
+      }
+    ],
+    "Notification": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "$HOME/.preemdeck/preemdeck-runtime \"$HOME/.preemdeck/src/ripperdoc/dock/tmux/toolbox/tmux-title.ts\" waiting",
+            "timeout": 5
+          }
+        ]
+      }
+    ],
+    "AfterAgent": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "$HOME/.preemdeck/preemdeck-runtime \"$HOME/.preemdeck/src/ripperdoc/dock/tmux/toolbox/tmux-title.ts\" idle",
+            "timeout": 5
+          }
+        ]
+      }
+    ],
+    "SessionEnd": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "$HOME/.preemdeck/preemdeck-runtime \"$HOME/.preemdeck/src/ripperdoc/dock/tmux/toolbox/tmux-title.ts\" reset",
+            "timeout": 5
+          }
+        ]
+      }
+    ]
+  }
+}

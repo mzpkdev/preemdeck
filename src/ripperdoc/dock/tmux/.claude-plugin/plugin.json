@@ -1,0 +1,76 @@
+{
+  "name": "tmux",
+  "description": "Rename the tmux window per agent state (idle/working/waiting) so parallel sessions read at a glance",
+  "version": "0.0.0",
+  "author": {
+    "name": "preemdeck"
+  },
+  "keywords": [
+    "dock",
+    "tmux",
+    "window",
+    "status"
+  ],
+  "hooks": {
+    "SessionStart": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "$HOME/.preemdeck/preemdeck-runtime \"$HOME/.preemdeck/src/ripperdoc/dock/tmux/toolbox/tmux-title.ts\" idle",
+            "timeout": 5
+          }
+        ]
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "$HOME/.preemdeck/preemdeck-runtime \"$HOME/.preemdeck/src/ripperdoc/dock/tmux/toolbox/tmux-title.ts\" busy",
+            "timeout": 5
+          }
+        ]
+      }
+    ],
+    "Notification": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "$HOME/.preemdeck/preemdeck-runtime \"$HOME/.preemdeck/src/ripperdoc/dock/tmux/toolbox/tmux-title.ts\" waiting",
+            "timeout": 5
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "$HOME/.preemdeck/preemdeck-runtime \"$HOME/.preemdeck/src/ripperdoc/dock/tmux/toolbox/tmux-title.ts\" idle",
+            "timeout": 5
+          }
+        ]
+      }
+    ],
+    "SessionEnd": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "$HOME/.preemdeck/preemdeck-runtime \"$HOME/.preemdeck/src/ripperdoc/dock/tmux/toolbox/tmux-title.ts\" reset",
+            "timeout": 5
+          }
+        ]
+      }
+    ]
+  }
+}
