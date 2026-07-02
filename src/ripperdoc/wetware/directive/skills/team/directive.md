@@ -1,129 +1,143 @@
 # Strategy: Team
 
-Convene. Don't fan out. The work is a standing room of role-specialized peers who think for themselves and earn their
-conclusions by surviving challenge; you chair it, you don't dictate to it. Where swarm spawns a stateless worker, awaits
-its one return, and verifies after, team seats persistent agents who hold their context across rounds, argue against
-each other while the work forms, and converge only when a claim has outlived every objection raised to it. The room's
-value is friction: a conclusion no one could break, not one no one examined.
+Convene a room, don't fan out. Team seats a standing crew of role-specialized peers who hold their own context, argue
+with each other while the work forms, and converge only when a claim has outlived every challenge raised to it. Where
+swarm spawns a stateless worker, awaits its one return, and verifies after, team runs a live debate: peers that persist
+across rounds and push back on each other with evidence. The room's value is friction, a conclusion no one could break,
+not one no one examined.
 
-**One bright line carries it: every claim faces a challenger before it's accepted, and every challenge carries
+**The transport is `wire`, not a host's native "teams."** Claude's agent teams are experimental and flag-gated; Codex
+and Gemini have no equivalent. wire is a plain LAN room any agent joins over `curl`, so it hands every host the same
+persistent peer-to-peer channel. The peers live in the room and talk over it; they never report through a subagent
+return, and you never wait for one. This is the one shape swarm forbids, and it is the shape team is built on.
+
+**One bright line carries the debate: every claim faces a challenger before it's accepted, and every challenge carries
 evidence.** A peer that only agrees is a wasted seat; a challenge that only asserts is noise. Disagreement is the
 product, but _grounded_ disagreement, a failing test or a cited line, never a vibe. The moment the room converges
 because agreeing is cheaper than proving, the strategy has collapsed into the echo chamber it exists to prevent.
 
-## Convene, then charter
+## Raise the room
 
-Never seat a room on a guess. Scout the surface, decide the roles, set the rules of order, in that order. Recon is
-shared with swarm: read the real ground before you shape anything over it.
+Never seat a room on a guess. Scout the surface, decide the roles, raise the wire room, in that order.
 
-- **Recon before you seat.** Map the surface yourself, or send one scout; you can't charter a debate over code no one in
-  the room has read.
-- **Roles, not chunks.** Seat by specialty that _persists_ (an architect, a builder, a critic, a tester) each owning its
-  lens across every round, not a disjoint slice handed out once and forgotten.
-- **Charter before the first exchange**: name the question, the round cap, and the stop condition (converged, or
-  escalate). An adversarial room with no terminal rule argues forever or caves on round one; the charter is what ends
-  it.
+- **Recon before you seat.** Map the surface yourself, or send one one-and-done scout; you can't charter a debate over
+  code no one has read.
+- **Raise it so it outlives your silence.** You chair from outside and sleep between reads, so start wire with its
+  self-close off: `wire:start` where your host exposes the skill, else run its toolbox directly,
+  `"$HOME/.preemdeck/preemdeck-runtime" "$HOME/.preemdeck/src/ripperdoc/wetware/wire/toolbox/start.ts" --topic '<charter>' --idle-timeout=0 --empty-grace=0`.
+  Keep the printed `URL` and `secret`.
+- **Charter before the first peer joins**: name the question, the round cap, and the stop condition (converged, or
+  escalate). A room with no terminal rule argues forever or caves on round one.
 
 ### Avoid
 
-> Seat four agents on a vague "review the auth module", no roles, no cap. They circle, half-agree, and hand back a
-> transcript no one can act on.
+> Seat four peers on a vague "review the auth module", no roles, no cap. They circle, half-agree, and leave a transcript
+> no one can act on.
 
 ### Prefer
 
 > One scout maps auth; you charter a builder, a critic, and an arbiter, cap it at three rounds, and define done as
 > "every objection answered with evidence, or escalated."
 
-## Seat the table
+## Seat the peers
 
-A room disagrees usefully only if its seats are genuinely different. Identical agents agree by construction. That's an
-echo, not a check.
+A room disagrees usefully only if its seats are genuinely different and they stay alive to argue.
 
+- **Each peer is a background subagent that lives in the room.** Spawn it with your host's backgrounding flag and brief
+  it to join over curl (`curl -s "$URL/shard?secret=$SECRET"`, then follow the manual it returns), announce its role,
+  then long-poll `/recv` and act on what it reads. It puts every result on the wire, never returns one, and stops only
+  when it reads a `disband` line.
 - **Seat asymmetry, not copies.** Distinct mandates, and where you can, distinct _information_: the builder argues from
-  the spec, the critic sees only the diff and the tests. The same prompt twice is one agent paying double.
+  the spec, the critic sees only the diff and the tests. The same brief twice is one peer paying double.
 - **Name the challenger.** At least one seat exists to refute, chartered to default to "not proven" and to attack the
   _strongest_ claim, not the easiest one.
-- **Appoint an arbiter.** One seat, often you, holds the gavel: it weighs the clash and calls it. A flat room with no
-  arbiter never closes.
+- **Appoint an arbiter.** One seat, usually you from outside the room, weighs the clash and calls it. A flat room with
+  no arbiter never closes.
 
 ### Avoid
 
-> Spin up three agents on the same prompt with the same context and tell them to "discuss": they ratify the first answer
-> in one round, friction zero.
+> Spawn three peers on the same brief with the same context: they ratify the first answer in one round, friction zero.
 
 ### Prefer
 
 > The builder argues from the spec; the critic, handed only the diff, hunts where it diverges; the arbiter holds both
 > and decides. Three lenses, real clash.
 
-## Run the clash
+## Run the clash over the wire
 
-The loop is the work: claim → challenge → evidence → ruling. Police it, or it decays into theater: agents performing
-rigor while agreeing, or litigating forever.
+The loop is claim → challenge → evidence → ruling, and it plays out in the room, not in your context. Police it, or it
+decays into theater: peers performing rigor while agreeing, or litigating forever.
 
 - **Every claim draws a challenge.** A "done" or a design call enters the room as a _proposal_, not a fact; it isn't
-  accepted until the challenger has had its shot at it.
+  accepted until the challenger has had its shot at it. `@name` aims a message at one peer without hiding it from the
+  room.
 - **Pushback carries evidence.** A challenge ships a repro, a failing test, or a cited line: the same bar swarm sets for
   "done." A rhetorical objection is inadmissible; rule it out.
-- **Rounds are bounded; the arbiter closes.** At the cap, the arbiter rules on the evidence or escalates to the human.
-  It never lets the room spin. A tie breaks toward the safer, more reversible call.
+- **Rounds are bounded; the arbiter closes.** At the cap, the arbiter rules on the evidence or escalates to the human. A
+  tie breaks toward the safer, more reversible call.
 
 ### Avoid
 
-> The critic says "this feels fragile," the builder says "it's fine," both move on: an objection with no evidence, a
+> The critic posts "this feels fragile," the builder posts "it's fine," both move on: an objection with no evidence, a
 > defense with no proof, settled by neither.
 
 ### Prefer
 
-> The critic lands a failing test on the edge case; the builder fixes it and shows it green; the arbiter records the
+> The critic lands a failing test on the edge case; the builder fixes it and posts it green; the arbiter records the
 > claim as proven and closes the round.
 
-## Chair the room
+## Chair from outside the room
 
-You hold the gavel, the custody, and the liveness. The room advises, you land.
+You never join the debate as one more voice. You hold the gavel, the custody, and the liveness, and you drive from
+outside, because a peer that never returns can never wake you.
 
-- **Custody stays yours.** Agents argue and edit; _you_ commit, push, and move branches, and only once a claim is
-  proven, never on the room's say-so alone.
-- **You own the gavel.** Hold the arbiter seat or appoint it, end debate at the cap, and escalate a true deadlock to the
-  human. A room that can't converge is a decision for you, not another round.
-- **Track liveness and a ledger.** A silent seat isn't a satisfied one; watch for stuck or circling agents, keep one
-  ledger entry per live agent, and kill-and-replan a spiraling room instead of letting it run.
-- **Classify a mid-work message**: a new question for the room → reconvene · a correction to one running agent → message
-  it · "stop" → gavel down, then redirect.
+- **Drive on a timer, never blocking.** The peers never complete, so they never re-invoke you, and a blocking `/recv` on
+  your main thread would lock the user out. Wake yourself on your host's scheduled-wakeup or self-paced loop; each wake,
+  take a bounded read (`/spectate?secret=$SECRET` for a read-only snapshot, or `/recv` with a cursor and a short
+  `--max-time`), post the next instruction or a ruling, then sleep again.
+- **Custody stays yours.** Peers argue and edit; _you_ commit, push, and move branches, and only once a claim is proven,
+  never on the room's say-so alone.
+- **Track liveness.** A peer that stops polling has left (an `action(leave)` on the stream); a silent seat isn't a
+  satisfied one. Re-spawn a dropped peer from its brief, or kill-and-replan a spiraling room.
+- **Mind the burn.** Cost scales with peers times every message and heartbeat, and runs until you stop it. Keep the
+  roster small (three to five), time-box the debate, disband the moment the claim is proven.
+- **Close the room.** Goal met: post `disband` so the peers stop polling and leave, then `wire:stop` (or the toolbox
+  `stop.ts`) drops the server. A room left running is tokens burning for nothing.
 
 ### Avoid
 
-> The room declares consensus and an agent pushes the branch. A conclusion that merely went unchallenged is now
-> committed under your name.
+> The room reaches consensus and a peer commits the branch. A conclusion that merely went unchallenged is now committed
+> under your name, and the server keeps polling after everyone's done.
 
 ### Prefer
 
-> The room hands you the proven diff and the evidence behind it; you read it, then commit and push yourself.
+> The room posts the proven diff and its evidence; you read it off the wire, commit and push yourself, post `disband`,
+> then `wire:stop`.
 
 ## Checklist
 
-**Convene**
+**Raise**
 
-- [ ] Scouted the surface before seating: no room convened on a guess.
-- [ ] Seated by persistent role, not by disjoint chunk.
+- [ ] Scouted the surface before seating: no room raised on a guess.
+- [ ] Room raised with `--idle-timeout=0 --empty-grace=0` so it survives between your reads.
 - [ ] Chartered the question, the round cap, and the stop condition up front.
 
 **Seat**
 
-- [ ] Asymmetric seats: distinct mandates and, where possible, distinct information; no prompt run twice.
-- [ ] A challenger chartered to refute the strongest claim, defaulting to "not proven."
-- [ ] An arbiter appointed to weigh the clash and close it.
+- [ ] Every peer a backgrounded subagent that joins over curl, lives on `/recv`, puts results on the wire, and never
+      returns.
+- [ ] Asymmetric seats: distinct mandates and, where possible, distinct information; no brief run twice.
+- [ ] A challenger chartered to refute the strongest claim; an arbiter appointed to close.
 
 **Clash**
 
-- [ ] Every claim faced a challenge before acceptance: no fact entered the record unexamined.
+- [ ] Every claim faced a challenge before acceptance: nothing entered the record unexamined.
 - [ ] Every challenge carried evidence: repro, failing test, or citation; rhetoric ruled inadmissible.
 - [ ] Rounds bounded; the arbiter ruled or escalated at the cap; ties broke toward the reversible call.
 
 **Chair**
 
-- [ ] Repo state stayed yours: agents edited and argued; you committed, pushed, moved branches, and only on a proven
-      claim.
-- [ ] Held the gavel: ended debate at the cap, escalated a true deadlock to the human instead of spinning.
-- [ ] Tracked liveness and a per-agent ledger; killed-and-replanned a spiral instead of letting it run.
-- [ ] Reported the proven conclusion and its evidence, not the raw transcript.
+- [ ] Drove from outside on a timed wake, never a blocking read on the main thread.
+- [ ] Repo state stayed yours: peers argued and edited; you committed and pushed, only on a proven claim.
+- [ ] Tracked liveness; re-spawned a dropped peer or killed-and-replanned a spiral.
+- [ ] Disbanded and ran `wire:stop` on close; roster stayed small and time-boxed.
