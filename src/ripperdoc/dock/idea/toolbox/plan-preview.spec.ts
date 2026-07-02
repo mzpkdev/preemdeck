@@ -82,6 +82,26 @@ describe("plan-preview CLI", () => {
             expect(stderr).toBe("")
         })
 
+        it("exits 0 silently for a Claude planFilePath under --dry-run", async () => {
+            const planPath = path.join(directory, "plan.md")
+            await fs.writeFile(planPath, "# Plan\n")
+            const payload = JSON.stringify({ tool_input: { planFilePath: planPath } })
+            const { code, stdout, stderr } = await run(payload, ["--dry-run"])
+            expect(code).toBe(0)
+            expect(stdout).toBe("")
+            expect(stderr).toBe("")
+        })
+
+        it("prefers planFilePath over the inline plan and still exits 0 silently", async () => {
+            const planPath = path.join(directory, "plan.md")
+            await fs.writeFile(planPath, "# From file\n")
+            const payload = JSON.stringify({ tool_input: { plan: "inline", planFilePath: planPath } })
+            const { code, stdout, stderr } = await run(payload, ["--dry-run"])
+            expect(code).toBe(0)
+            expect(stdout).toBe("")
+            expect(stderr).toBe("")
+        })
+
         it("accepts and ignores a host-name positional, still exits 0 silently", async () => {
             const payload = JSON.stringify({ tool_input: { plan: "# Plan" } })
             const { code, stdout, stderr } = await run(payload, ["Gemini", "--dry-run"])
@@ -95,6 +115,7 @@ describe("plan-preview CLI", () => {
             ["empty tool_input", JSON.stringify({ tool_input: {} })],
             ["whitespace plan", JSON.stringify({ tool_input: { plan: "   " } })],
             ["empty plan_path", JSON.stringify({ tool_input: { plan_path: "" } })],
+            ["empty planFilePath", JSON.stringify({ tool_input: { planFilePath: "" } })],
             ["non-string plan", JSON.stringify({ tool_input: { plan: ["not", "a", "str"] } })],
             ["non-object tool_input", JSON.stringify({ tool_input: "not-a-dict" })],
             ["malformed JSON", "not json"],
@@ -208,6 +229,36 @@ describe("openInteractive", () => {
         const contents = await fs.readFile(written[0] as string, "utf8")
         expect(contents).toContain(":::llm-guide")
         expect(contents.endsWith("# From file\n")).toBe(true)
+    })
+
+    it("resolves a Claude planFilePath by reading the canonical file, titled by basename", async () => {
+        const planPath = path.join(directory, "my-plan.md")
+        await fs.writeFile(planPath, "# From canonical\n")
+        const { deps, written, opens } = makeDeps()
+        await openInteractive({ planFilePath: planPath }, deps)
+        expect(written).toHaveLength(1)
+        const contents = await fs.readFile(written[0] as string, "utf8")
+        expect(contents).toContain(":::llm-guide")
+        expect(contents.endsWith("# From canonical\n")).toBe(true)
+        expect(opens[0]?.title).toBe("my-plan.md")
+    })
+
+    it("prefers the canonical plan file over the inline plan string when both are present", async () => {
+        const planPath = path.join(directory, "canonical.md")
+        await fs.writeFile(planPath, "# Canonical body\n")
+        const { deps, written } = makeDeps()
+        await openInteractive({ plan: "# STALE INLINE", planFilePath: planPath }, deps)
+        const contents = await fs.readFile(written[0] as string, "utf8")
+        expect(contents.endsWith("# Canonical body\n")).toBe(true)
+        expect(contents).not.toContain("STALE INLINE")
+    })
+
+    it("falls back to the inline plan when the path field cannot be read", async () => {
+        const { deps, written } = makeDeps()
+        await openInteractive({ plan: "# Inline fallback", planFilePath: path.join(directory, "missing.md") }, deps)
+        expect(written).toHaveLength(1)
+        const contents = await fs.readFile(written[0] as string, "utf8")
+        expect(contents.endsWith("# Inline fallback")).toBe(true)
     })
 
     it("spawns holo's serve.ts with the resolved temp and the reserved port", async () => {

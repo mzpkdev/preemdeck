@@ -4,12 +4,15 @@
  * markdown preview. The plan-presentation hook entrypoint, fired by two hosts the
  * moment the agent exits plan mode:
  *
- *     Claude  PreToolUse  matcher ExitPlanMode    tool_input.plan       (markdown string)
- *     Gemini  BeforeTool  matcher exit_plan_mode  tool_input.plan_path  (markdown file)
+ *     Claude  PreToolUse  matcher ExitPlanMode    tool_input.planFilePath (path) + tool_input.plan (string)
+ *     Gemini  BeforeTool  matcher exit_plan_mode  tool_input.plan_path (path)
  *
- * Both fire BEFORE the host's approval gate. run() branches on which field the
- * payload carries: Claude's inline plan -> openInline (.md temp); Gemini's path
- * -> open directly. Both opens are fire-and-forget + preview.
+ * Both fire BEFORE the host's approval gate. openPlan() prefers the CANONICAL plan
+ * file — see PLAN_PATH_KEYS — and opens it directly so the user's IDE edits land in
+ * the same file the agent re-reads. Only when no path field resolves does it fall
+ * back to spilling Claude's inline `plan` string to a throwaway .md temp (whose
+ * edits are stranded — the file the agent re-reads never sees them). Fire-and-forget
+ * + preview either way.
  *
  * When preemdeck.json sets `env.HOLO_PLANNER: true`, run() takes a different branch
  * (openInteractive): materialize the plan to a fresh `.mdx`, spawn a dedicated
@@ -32,6 +35,27 @@ import { openFile } from "./open-file"
 import { openInline } from "./open-inline"
 
 type HookData = Record<string, unknown>
+
+/**
+ * Payload keys that may carry an absolute path to the CANONICAL plan file, in
+ * precedence order. Claude writes the plan to disk before ExitPlanMode fires and
+ * injects `planFilePath`; Gemini sends `plan_path`. The extra casings are defensive
+ * against host/version drift — the ExitPlanMode payload shape is NOT part of Claude
+ * Code's public hook docs, so we match the known names plus near-variants and fall
+ * back to the inline `plan` string (see openPlan) when none resolve.
+ */
+const PLAN_PATH_KEYS = ["planFilePath", "plan_file_path", "planPath", "plan_path", "plan_file"] as const
+
+/** First non-empty string value among {@link PLAN_PATH_KEYS} in `toolInput`, else null. */
+const resolvePlanPath = (toolInput: HookData): string | null => {
+    for (const key of PLAN_PATH_KEYS) {
+        const value = toolInput[key]
+        if (typeof value === "string" && value.trim()) {
+            return value
+        }
+    }
+    return null
+}
 
 /**
  * Absolute path to holo's `serve.ts`, resolved relative to THIS file so it works
@@ -81,14 +105,16 @@ export const readHookInput = async (): Promise<HookData> => {
 }
 
 /**
- * Dispatch the plan to the IDE's rendered preview by which field is present.
- * `plan_path` (Gemini's file) is checked first and opened directly; otherwise
- * `plan` (Claude's inline string) is spilled to a .md temp and opened. The two
- * are host-exclusive, so the order is just defensive.
+ * Dispatch the plan to the IDE's rendered preview. Prefer the CANONICAL plan file
+ * ({@link resolvePlanPath}: Claude's `planFilePath`, Gemini's `plan_path`) and open
+ * it directly, so edits the user makes in the IDE land back in the file the agent
+ * re-reads. Only when no path field resolves do we fall back to spilling Claude's
+ * inline `plan` string to a throwaway .md temp (edits there are stranded). Both
+ * opens are fire-and-forget + preview.
  */
 const openPlan = async (toolInput: HookData): Promise<void> => {
-    const planPath = toolInput.plan_path
-    if (typeof planPath === "string" && planPath.trim()) {
+    const planPath = resolvePlanPath(toolInput)
+    if (planPath) {
         await openFile(planPath, { preview: true })
         return
     }
@@ -99,24 +125,27 @@ const openPlan = async (toolInput: HookData): Promise<void> => {
 }
 
 /**
- * Resolve the plan markdown from the payload: the inline `plan` string if
- * present, else the contents of `plan_path`. Returns null when neither yields
- * non-empty content — the interactive path then no-ops. Also returns a `source`
- * basename used to title the IDE tab (the plan file's name, else "plan").
+ * Resolve the plan markdown from the payload for the interactive (holo) path:
+ * the contents of the canonical plan file ({@link resolvePlanPath}) if one resolves
+ * and reads non-empty, else the inline `plan` string. Returns null when neither
+ * yields content — the interactive path then no-ops. `source` titles the IDE tab:
+ * the plan file's basename, else "plan".
  */
 export const resolvePlanMarkdown = async (
     toolInput: HookData
 ): Promise<{ markdown: string; source: string } | null> => {
-    const plan = toolInput.plan
-    if (typeof plan === "string" && plan.trim()) {
-        return { markdown: plan, source: "plan" }
-    }
-    const planPath = toolInput.plan_path
-    if (typeof planPath === "string" && planPath.trim()) {
-        const text = await fs.promises.readFile(planPath, "utf8")
+    const planPath = resolvePlanPath(toolInput)
+    if (planPath) {
+        // .catch: a bad/missing path falls through to the inline `plan` snapshot
+        // rather than throwing out of the best-effort hook.
+        const text = await fs.promises.readFile(planPath, "utf8").catch(() => "")
         if (text.trim()) {
             return { markdown: text, source: path.basename(planPath) }
         }
+    }
+    const plan = toolInput.plan
+    if (typeof plan === "string" && plan.trim()) {
+        return { markdown: plan, source: "plan" }
     }
     return null
 }
