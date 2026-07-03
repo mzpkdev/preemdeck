@@ -1,0 +1,106 @@
+/* style.css — holo diagram theme, matched to dock/idea's IntelliJ "New UI" Darcula.
+   Dark-only by design, like plan-preview.css (the --css dock/idea hands the planner):
+   palette sampled from the IDE — editor/canvas bg #1e1f22, text #bcbec3, panels
+   (nodes, controls, minimap) #303235, dividers + scrollbar thumb #4f5153. Palette vars
+   live on :root so a future --css override can retarget them; the .react-flow block maps
+   React Flow's --xy-* theming vars onto them. React Flow measures its parent, so the
+   canvas root must be sized: #root fills the viewport. */
+
+:root {
+  --bg: #1e1f22;
+  --fg: #bcbec3;
+  --muted: #7a7e85;
+  --link: #287bde;
+  --code-bg: #303235;
+  --border: #4f5153;
+  --selection: #214283;
+  --scrollbar: #4f5153;
+  --scrollbar-hover: #5a5c5e;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--fg);
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+  font-size: 13px;
+}
+
+::selection {
+  background: var(--selection);
+}
+
+/* Theme the React Flow canvas. Each --xy-* resolves as var(--xy-NAME, var(--xy-NAME-default))
+   (some with an extra -props layer first); React Flow only ever sets the -default/-props
+   layers, so overriding the base --xy-NAME here themes everything without a .dark class and
+   independent of stylesheet load order. */
+.react-flow {
+  --xy-background-color: var(--bg);
+  --xy-background-pattern-color: #2e3033; /* subtle dot, one step above --bg */
+
+  --xy-node-background-color: var(--code-bg);
+  --xy-node-color: var(--fg);
+  --xy-node-border: 1px solid var(--border);
+  --xy-node-border-radius: 6px;
+
+  --xy-edge-stroke: var(--muted);
+  --xy-edge-stroke-selected: var(--link);
+
+  --xy-controls-button-background-color: var(--code-bg);
+  --xy-controls-button-background-color-hover: var(--scrollbar-hover);
+  --xy-controls-button-color: var(--fg);
+  --xy-controls-button-color-hover: var(--fg);
+  --xy-controls-button-border-color: var(--border);
+
+  --xy-minimap-background-color: var(--code-bg);
+
+  --xy-selection-background-color: color-mix(in srgb, var(--selection) 40%, transparent);
+  --xy-selection-border: 1px solid var(--link);
+
+  --xy-handle-background-color: var(--muted);
+  --xy-handle-border-color: var(--border);
+}
+
+/* Scrollbars — IntelliJ New UI: slim solid #4f5153 pill thumb (inset via a transparent
+   border + padding-box clip), transparent track, no arrows. Ported from plan-preview.css. */
+::-webkit-scrollbar {
+  width: 12px;
+  height: 12px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--scrollbar);
+  background-clip: padding-box;
+  border: 3px solid transparent;
+  border-radius: 8px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--scrollbar-hover);
+  background-clip: padding-box;
+}
+
+::-webkit-scrollbar-corner {
+  background: transparent;
+}
+
+html {
+  scrollbar-width: thin;
+  scrollbar-color: var(--scrollbar) transparent;
+}
+
+.holo-error {
+  padding: 16px;
+  font-family: ui-monospace, SFMono-Regular, "SF Mono", "JetBrains Mono", Menlo, monospace;
+  color: var(--fg);
+}

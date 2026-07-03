@@ -1,0 +1,66 @@
+{
+  "nodes": [
+    {
+      "id": "shape",
+      "kind": "class",
+      "name": "Shape",
+      "stereotype": "abstract",
+      "attributes": [
+        { "vis": "#", "name": "x", "type": "number" },
+        { "vis": "#", "name": "y", "type": "number" }
+      ],
+      "methods": [
+        { "vis": "+", "name": "area", "type": "number" },
+        { "vis": "+", "name": "draw", "params": "ctx: Context", "type": "void" },
+        { "vis": "#", "name": "moveBy", "params": "dx: number, dy: number", "type": "void" }
+      ]
+    },
+    {
+      "id": "circle",
+      "kind": "class",
+      "name": "Circle",
+      "attributes": [{ "vis": "+", "name": "radius", "type": "number" }],
+      "methods": [
+        { "vis": "+", "name": "area", "type": "number" },
+        { "vis": "+", "name": "circumference", "type": "number" }
+      ]
+    },
+    {
+      "id": "rectangle",
+      "kind": "class",
+      "name": "Rectangle",
+      "attributes": [
+        { "vis": "+", "name": "width", "type": "number" },
+        { "vis": "+", "name": "height", "type": "number" }
+      ],
+      "methods": [{ "vis": "+", "name": "area", "type": "number" }]
+    },
+    {
+      "id": "square",
+      "kind": "class",
+      "name": "Square",
+      "methods": [{ "vis": "+", "name": "setSide", "params": "n: number", "type": "void" }]
+    },
+    {
+      "id": "canvas",
+      "kind": "class",
+      "name": "Canvas",
+      "attributes": [
+        { "vis": "-", "name": "shapes", "type": "Shape[]" },
+        { "vis": "+", "name": "width", "type": "number" },
+        { "vis": "+", "name": "height", "type": "number" }
+      ],
+      "methods": [
+        { "vis": "+", "name": "add", "params": "shape: Shape", "type": "void" },
+        { "vis": "+", "name": "render", "type": "void" },
+        { "vis": "~", "name": "invalidate", "type": "void" }
+      ]
+    }
+  ],
+  "edges": [
+    { "id": "e1", "source": "shape", "target": "circle", "kind": "inheritance" },
+    { "id": "e2", "source": "shape", "target": "rectangle", "kind": "inheritance" },
+    { "id": "e3", "source": "rectangle", "target": "square", "kind": "inheritance" },
+    { "id": "e4", "source": "canvas", "target": "shape", "kind": "association" }
+  ]
+}
