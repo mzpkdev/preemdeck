@@ -177,7 +177,7 @@ describe("inject-tab-name", () => {
         })
 
         it("strips our glyph off the read-back title", async () => {
-            expect(await currentTabName(tabDeps({ title: "◐ tab-read-util" }))).toBe("tab-read-util")
+            expect(await currentTabName(tabDeps({ title: "• tab-read-util" }))).toBe("tab-read-util")
         })
         it("preserves a glyph-less (IDE-menu / auto) name", async () => {
             expect(await currentTabName(tabDeps({ title: "hand-named" }))).toBe("hand-named")
@@ -201,7 +201,7 @@ describe("inject-tab-name", () => {
             expect(await currentTabName(tabDeps({ title: null }))).toBeNull()
         })
         it("is null when the title strips to empty (a bare glyph)", async () => {
-            expect(await currentTabName(tabDeps({ title: "○" }))).toBeNull()
+            expect(await currentTabName(tabDeps({ title: "◦" }))).toBeNull()
         })
         it("is null (never throws) when the read seam rejects", async () => {
             const deps: CurrentTabNameDeps = {

@@ -112,7 +112,7 @@ describe("tab-title", () => {
         it("recovers the base from the current glyph'd title so the name survives the flip", async () => {
             const { deps, calls } = fakeDeps({ pids: [9], current: windowName("idle", "tab-naming") })
             expect(await applyTitle("busy", env({ CLAUDE_PROJECT_DIR: "/a/proj" }), deps)).toBe(true)
-            // ○ tab-naming read back, stripped to "tab-naming", re-flipped to ◐ tab-naming (NOT ◐ proj).
+            // ◦ tab-naming read back, stripped to "tab-naming", re-flipped to • tab-naming (NOT • proj).
             expect(calls).toEqual([{ name: windowName("busy", "tab-naming"), pids: [9] }])
         })
 

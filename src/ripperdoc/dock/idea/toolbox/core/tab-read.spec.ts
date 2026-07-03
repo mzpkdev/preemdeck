@@ -131,7 +131,7 @@ describe("parseTitle", () => {
         })
 
         it("preserves a glyph-prefixed title verbatim (the caller strips it)", () => {
-            expect(parseTitle('{"title":"◐ tab-naming"}')).toBe("◐ tab-naming")
+            expect(parseTitle('{"title":"• tab-naming"}')).toBe("• tab-naming")
         })
     })
 })
@@ -208,9 +208,9 @@ describe("readTabTitle (dispatch)", () => {
             const cap = makeReadDeps({
                 execs: [WEBSTORM],
                 filtered: [WEBSTORM],
-                result: '{"pid":"77","title":"◐ work"}'
+                result: '{"pid":"77","title":"• work"}'
             })
-            expect(await readTabTitle([77], cap.deps)).toBe("◐ work")
+            expect(await readTabTitle([77], cap.deps)).toBe("• work")
             expect(cap.calls.run).toBe(1)
         })
 
