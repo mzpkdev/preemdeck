@@ -6,6 +6,7 @@
     "description": "preemdeck — multi-harness agent overlay (TypeScript source, runs on a pinned Bun).",
     "scripts": {
         "test": "bun test",
+        "test:e2e": "bun test ./e2e/install.e2e.ts",
         "format": "biome format --write . && prettier --write .",
         "lint": "biome check .",
         "typecheck": "tsgo --noEmit",
