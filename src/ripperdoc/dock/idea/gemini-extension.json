@@ -3,6 +3,42 @@
   "version": "0.0.0",
   "description": "Auto-open specs, briefs, and plans in the correct JetBrains IDE",
   "hooks": {
+    "SessionStart": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "$HOME/.preemdeck/preemdeck-runtime \"$HOME/.preemdeck/src/ripperdoc/dock/idea/toolbox/tab-title.ts\" idle",
+            "timeout": 5
+          }
+        ]
+      }
+    ],
+    "BeforeAgent": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "$HOME/.preemdeck/preemdeck-runtime \"$HOME/.preemdeck/src/ripperdoc/dock/idea/toolbox/tab-title.ts\" busy",
+            "timeout": 5
+          }
+        ]
+      }
+    ],
+    "Notification": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "$HOME/.preemdeck/preemdeck-runtime \"$HOME/.preemdeck/src/ripperdoc/dock/idea/toolbox/tab-title.ts\" waiting",
+            "timeout": 5
+          }
+        ]
+      }
+    ],
     "AfterAgent": [
       {
         "matcher": "",
@@ -10,6 +46,28 @@
           {
             "type": "command",
             "command": "$HOME/.preemdeck/preemdeck-runtime \"$HOME/.preemdeck/src/ripperdoc/dock/idea/toolbox/turn-notify.ts\" Gemini",
+            "timeout": 5
+          }
+        ]
+      },
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "$HOME/.preemdeck/preemdeck-runtime \"$HOME/.preemdeck/src/ripperdoc/dock/idea/toolbox/tab-title.ts\" idle",
+            "timeout": 5
+          }
+        ]
+      }
+    ],
+    "SessionEnd": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "$HOME/.preemdeck/preemdeck-runtime \"$HOME/.preemdeck/src/ripperdoc/dock/idea/toolbox/tab-title.ts\" reset",
             "timeout": 5
           }
         ]

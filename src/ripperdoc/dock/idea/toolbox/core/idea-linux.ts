@@ -140,6 +140,19 @@ export const resolveExecPaths = async (list: ProcList = defaultProcList): Promis
 }
 
 /**
+ * Narrow running launchers to the launching product — a stub on Linux.
+ *
+ * The macOS sibling keys off `__CFBundleIdentifier`, which is a macOS-only env
+ * var; Linux has no equivalent, so there is nothing to filter on. Returns the
+ * full set (a fresh array copy), matching the macOS fall-back behavior, so
+ * `rename-tab`'s dispatch still reaches every running launcher. `bundleId` is
+ * accepted for signature parity and ignored.
+ */
+export const filterExecsForLaunchingProduct = (execPaths: Iterable<string>, _bundleId?: string): string[] => {
+    return [...execPaths]
+}
+
+/**
  * Log dir of the IDE this process is running inside — unimplemented on Linux.
  * Typed `Promise<string>` to match the async macOS surface, but throws
  * SYNCHRONOUSLY (before any promise is created).

@@ -137,6 +137,52 @@ export const filterIdeExecs = (exePaths: Iterable<string>): string[] => {
 }
 
 /**
+ * Map a JetBrains `__CFBundleIdentifier` to the launcher basename it runs as, or
+ * `null` when the id carries no product suffix.
+ *
+ * The suffix (after the last `.`) lowercased IS the basename for most products
+ * (`com.jetbrains.WebStorm` -> `webstorm`), with one rename: IntelliJ IDEA ships
+ * as `com.jetbrains.intellij` but launches `idea`. A dot-less / empty id yields
+ * `null` (no product to match) so the caller can fall back.
+ */
+export const bundleToBasename = (bundleId: string): string | null => {
+    const dot = bundleId.lastIndexOf(".")
+    if (dot < 0) {
+        return null
+    }
+    const suffix = bundleId.slice(dot + 1)
+    if (suffix.length === 0) {
+        return null
+    }
+    const lower = suffix.toLowerCase()
+    return lower === "intellij" ? "idea" : lower
+}
+
+/**
+ * Narrow `execPaths` (running JetBrains launchers) to just the product that
+ * launched THIS process — identified by `bundleId` (`__CFBundleIdentifier`, e.g.
+ * `com.jetbrains.WebStorm`) mapped to its launcher basename.
+ *
+ * Used to aim `rename-tab`'s broadcast dispatch at the one IDE that owns our tab
+ * instead of every running IDE. FALLS BACK to the full set (a fresh array copy)
+ * when the id maps to no basename, or when no launcher matches it — so the
+ * dispatch still reaches the IDE rather than no-op'ing on an unexpected id.
+ * `bundleId` defaults to the live env (empty when unset -> full set).
+ */
+export const filterExecsForLaunchingProduct = (
+    execPaths: Iterable<string>,
+    bundleId: string = process.env.__CFBundleIdentifier ?? ""
+): string[] => {
+    const all = [...execPaths]
+    const base = bundleToBasename(bundleId)
+    if (base === null) {
+        return all
+    }
+    const matched = all.filter((exe) => exe.slice(exe.lastIndexOf("/") + 1) === base)
+    return matched.length > 0 ? matched : all
+}
+
+/**
  * Lists the executable path of every running process. Injectable so tests can
  * feed a canned process table without spawning `ps` (mirrors {@link PsProbe}).
  */

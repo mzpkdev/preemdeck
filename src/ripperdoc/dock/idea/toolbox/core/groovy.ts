@@ -11,7 +11,7 @@
  * their templates on this bridge.
  */
 
-import { mkdtemp, writeFile } from "node:fs/promises"
+import { mkdtemp, readFile, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { IdeaError, NotImplementedError } from "./errors"
@@ -201,4 +201,146 @@ export const runGroovyOn = async (
     } finally {
         reapLater([script])
     }
+}
+
+/**
+ * Sentinel a result script writes SYNCHRONOUSLY at its top, before its async EDT
+ * body runs, so a compile failure is distinguishable from a slow launch.
+ *
+ * `webstorm ideScript` swallows a Groovy COMPILE error silently — no stderr, no
+ * exit code — so a result file that never appears is otherwise ambiguous between
+ * "didn't compile" and "still starting". A result script writes this marker up
+ * front, then OVERWRITES it with the real answer from a `finally` on the EDT;
+ * {@link runGroovyForResult} treats a file that still holds ONLY this marker as
+ * "not answered yet" and keeps polling. A file that never even reaches the marker
+ * (compile error / dead launcher) simply times out to null — the caller fails open.
+ */
+export const GROOVY_RESULT_PENDING = "__preemdeck_result_pending__"
+
+/** Seams for {@link runGroovyForResult}: the runGroovyOn dispatch seams plus the result round-trip. */
+export type RunGroovyForResultDeps = RunGroovyDeps & {
+    /** Allocate the result-file path injected into the script (default: a fresh temp `.json`). */
+    allocResultPath?: () => Promise<string>
+    /** Read the result file; resolve to its text, or null when absent/unreadable. */
+    readResult?: (path: string) => Promise<string | null>
+    /** Total poll budget in ms before giving up on a target (default 4000). */
+    timeoutMs?: number
+    /** Delay between polls in ms (default 100). */
+    pollIntervalMs?: number
+    /** Sleep primitive between polls; injectable so tests don't actually wait (default: setTimeout). */
+    delay?: (ms: number) => Promise<void>
+}
+
+const defaultAllocResultPath = async (): Promise<string> => {
+    const dir = await mkdtemp(join(tmpdir(), "idea-result-"))
+    return join(dir, `${crypto.randomUUID()}.json`)
+}
+
+/** Read a result file's text, or null on ANY failure (not yet written, ENOENT, race). */
+const defaultReadResult = async (path: string): Promise<string | null> => {
+    try {
+        return await readFile(path, "utf8")
+    } catch {
+        return null
+    }
+}
+
+const defaultDelay = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms))
+
+/**
+ * Poll `resultPath` until it holds a real answer or `timeoutMs` elapses.
+ *
+ * "Answered" means the file exists, is non-empty, and holds something OTHER than
+ * {@link GROOVY_RESULT_PENDING} — so a script that compiled and started (marker
+ * written) but hasn't finished its EDT write keeps the poll waiting rather than
+ * returning the marker. Reads once before the deadline check, so a tiny timeout
+ * still gives the file one chance; returns the trimmed answer or null on timeout.
+ */
+const pollResult = async (
+    resultPath: string,
+    timeoutMs: number,
+    pollIntervalMs: number,
+    delay: (ms: number) => Promise<void>,
+    readResult: (path: string) => Promise<string | null>
+): Promise<string | null> => {
+    const deadline = Date.now() + timeoutMs
+    for (;;) {
+        const text = await readResult(resultPath)
+        if (text !== null) {
+            const trimmed = text.trim()
+            if (trimmed.length > 0 && trimmed !== GROOVY_RESULT_PENDING) {
+                return trimmed
+            }
+        }
+        if (Date.now() >= deadline) {
+            return null
+        }
+        await delay(pollIntervalMs)
+    }
+}
+
+/**
+ * Run a result-producing script in the live IDE and round-trip its answer through
+ * a temp file; resolve to the trimmed answer string, or null on timeout/miss.
+ * NEVER rejects on a swallowable dispatch error.
+ *
+ * The READ sibling of {@link runGroovyOn} (which is fire-and-forget): a
+ * focus/state read needs the IDE's answer back, but `ideScript` forwards to the
+ * IDE asynchronously — it returns before the EDT body runs and swallows compile
+ * errors — so there is no in-band return value. Instead we allocate a result-file
+ * path, hand it to `buildGroovy(resultPath)` (the path is INJECTED into the
+ * script, which writes its answer there), dispatch the script, and POLL the file.
+ *
+ * Per exec path (the caller filters to the launching product like renameTab, so
+ * this is usually a single launcher): allocate a FRESH result path (so multiple
+ * IDEs never race on one file), build + dispatch the script blocking via
+ * `ideScript`, then {@link pollResult} up to `timeoutMs`. The FIRST path that
+ * yields a non-pending answer wins and is returned; every path's temp script AND
+ * result file are handed to the deferred reaper. A swallowable per-target dispatch
+ * error degrades to a `{note}` stderr line (matching runGroovyOn) and the loop
+ * continues; a non-swallowable error propagates. An empty `execPaths` returns null
+ * without dispatching.
+ *
+ * `buildGroovy` is a function of the result path (rather than a plain `groovy`
+ * string) precisely so the path can be injected type-safely — the script must
+ * reference exactly the path we allocate, poll, and reap.
+ */
+export const runGroovyForResult = async (
+    buildGroovy: (resultPath: string) => string,
+    note: string,
+    execPaths: readonly string[],
+    deps: RunGroovyForResultDeps = {}
+): Promise<string | null> => {
+    const launch = deps.launch ?? defaultLaunch
+    const reapLater = deps.reapLater ?? defaultReapLater
+    const writeTemp = deps.writeTemp ?? defaultWriteTemp
+    const warn = deps.warn ?? ((line: string) => process.stderr.write(line))
+    const allocResultPath = deps.allocResultPath ?? defaultAllocResultPath
+    const readResult = deps.readResult ?? defaultReadResult
+    const timeoutMs = deps.timeoutMs ?? 4000
+    const pollIntervalMs = deps.pollIntervalMs ?? 100
+    const delay = deps.delay ?? defaultDelay
+
+    for (const execPath of execPaths) {
+        const resultPath = await allocResultPath()
+        const script = await writeTemp(buildGroovy(resultPath))
+        try {
+            // Pin this launch to one product; ideScript returns before the EDT body runs.
+            await launch(["ideScript", script], { wait: true, resolveExec: () => execPath })
+            const answer = await pollResult(resultPath, timeoutMs, pollIntervalMs, delay, readResult)
+            if (answer !== null) {
+                return answer
+            }
+        } catch (err) {
+            if (isSwallowable(err)) {
+                const message = err instanceof Error ? err.message : String(err)
+                warn(`${note} (${message})\n`)
+            } else {
+                throw err
+            }
+        } finally {
+            reapLater([script, resultPath])
+        }
+    }
+    return null
 }

@@ -3,7 +3,16 @@ import { mkdir, mkdtemp, rm, utimes } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { IdeaError } from "./errors"
-import { inIdea, type PsList, type PsProbe, resolveExecPath, resolveExecPaths, resolveLogDir } from "./idea-mac"
+import {
+    bundleToBasename,
+    filterExecsForLaunchingProduct,
+    inIdea,
+    type PsList,
+    type PsProbe,
+    resolveExecPath,
+    resolveExecPaths,
+    resolveLogDir
+} from "./idea-mac"
 
 const context = describe
 
@@ -153,6 +162,70 @@ describe("idea (mac)", () => {
             const ij = join(base, "IntelliJIdea2025.2")
             await mkdir(ij, { recursive: true })
             expect(await resolveLogDir(() => "/x/IntelliJ IDEA.app/Contents/MacOS/idea")).toBe(ij)
+        })
+    })
+
+    context("bundleToBasename", () => {
+        it("lowercases the product suffix (WebStorm -> webstorm)", () => {
+            expect(bundleToBasename("com.jetbrains.WebStorm")).toBe("webstorm")
+        })
+
+        it("renames intellij -> idea (the one product whose bundle != launcher)", () => {
+            expect(bundleToBasename("com.jetbrains.intellij")).toBe("idea")
+        })
+
+        it("maps any other/unknown product to its lowercased suffix", () => {
+            expect(bundleToBasename("com.jetbrains.PyCharm")).toBe("pycharm")
+            expect(bundleToBasename("com.example.Foo")).toBe("foo")
+        })
+
+        it("is null for an empty, dot-less, or suffix-less id (the caller falls back)", () => {
+            expect(bundleToBasename("")).toBeNull()
+            expect(bundleToBasename("nodots")).toBeNull()
+            expect(bundleToBasename("com.jetbrains.")).toBeNull()
+        })
+    })
+
+    context("filterExecsForLaunchingProduct", () => {
+        const PYCHARM = "/Applications/PyCharm.app/Contents/MacOS/pycharm"
+        const IDEA = "/Applications/IntelliJ IDEA.app/Contents/MacOS/idea"
+
+        it("keeps only the launching product's launcher", () => {
+            expect(filterExecsForLaunchingProduct([WEBSTORM, PYCHARM], "com.jetbrains.WebStorm")).toEqual([WEBSTORM])
+        })
+
+        it("resolves the intellij bundle to the idea launcher", () => {
+            expect(filterExecsForLaunchingProduct([IDEA, WEBSTORM], "com.jetbrains.intellij")).toEqual([IDEA])
+        })
+
+        it("falls back to the full set when the bundle maps to no basename", () => {
+            expect(filterExecsForLaunchingProduct([WEBSTORM, PYCHARM], "")).toEqual([WEBSTORM, PYCHARM])
+            expect(filterExecsForLaunchingProduct([WEBSTORM, PYCHARM], "nodots")).toEqual([WEBSTORM, PYCHARM])
+        })
+
+        it("falls back to the full set when no running launcher matches the product", () => {
+            expect(filterExecsForLaunchingProduct([WEBSTORM, PYCHARM], "com.jetbrains.GoLand")).toEqual([
+                WEBSTORM,
+                PYCHARM
+            ])
+        })
+
+        it("returns a fresh array (a copy) on the fallback path, not the input reference", () => {
+            const input = [WEBSTORM, PYCHARM]
+            const out = filterExecsForLaunchingProduct(input, "com.jetbrains.GoLand")
+            expect(out).not.toBe(input)
+            expect(out).toEqual(input)
+        })
+
+        it("drives the bundle id from __CFBundleIdentifier when the arg is omitted", () => {
+            const saved = process.env.__CFBundleIdentifier
+            try {
+                process.env.__CFBundleIdentifier = "com.jetbrains.WebStorm"
+                expect(filterExecsForLaunchingProduct([WEBSTORM, PYCHARM])).toEqual([WEBSTORM])
+            } finally {
+                if (saved === undefined) delete process.env.__CFBundleIdentifier
+                else process.env.__CFBundleIdentifier = saved
+            }
         })
     })
 })

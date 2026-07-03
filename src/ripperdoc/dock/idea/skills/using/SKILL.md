@@ -8,7 +8,7 @@ description: |
   suggestion in the editor", "merge this in", "3-way merge"), or NOTIFY them in-IDE ("notify
   me", "pop a notification", "let me know when it's done", "toast/balloon"). Covers every
   CLI tool: open-file, open-url, open-inline, diff-file, diff-inline, merge-file, merge-inline,
-  read-logs, notify, in-idea.
+  read-logs, notify, rename-tab, in-idea.
 user-invocable: true
 allowed-tools: [Bash]
 ---
@@ -94,6 +94,7 @@ Pick the tool from what the user asked for:
 | "merge this suggestion in", "drop this proposed code into the file"        | `merge-inline.ts` |
 | "what's in the IDE log", "tail the IDE's log", "show recent IDE log lines" | `read-logs.ts`    |
 | "notify me", "pop a balloon", "let me know when X finishes", "toast me"    | `notify.ts`       |
+| "rename this terminal tab", "set/reset this tab's title", "label the tab"  | `rename-tab.ts`   |
 
 Rules of thumb:
 
@@ -355,6 +356,41 @@ optionally give them a one-click way to follow up.
 # two buttons + error severity:
 "$HOME/.preemdeck/preemdeck-runtime" "$TB/notify.ts" --action open-file=/tmp/build.log --action open-url=https://ci.example.com \
         --type error "build failed"
+```
+
+## rename-tab.ts — rename this terminal tab (by process id)
+
+```
+rename-tab [name] [--reset] [--verbose] [options]
+```
+
+Set a **sticky, user-defined title** on the JetBrains terminal tab **this shell runs in** — one that wins over shell/OSC
+auto-naming and persists — or clear it to restore auto-naming. Best-effort: once inside a live IDE it dispatches the
+rename and returns; it never raises (like the rest of the toolbox it exits `1` if there's no live IDE).
+
+- `name` — the new tab title. **Omit it, pass `""`, or use `--reset`** to clear the title and restore auto-naming.
+- `--reset` — clear the title (restore auto-naming); same as passing no name.
+- `--verbose` — echo the decision + the resolved pids on stderr.
+
+**Precise-or-noop targeting.** The tab is found by **process id**, not by name or position: the CLI lists the pids on
+this shell's tty (the login shell + any tmux client), and the IDE-side half renames only the terminal tab whose backend
+process pid is one of them. Pids are globally unique, so it hits **exactly this tab or nothing** — no other project's
+tab is ever touched, and an empty pid set (not in a terminal, or a failed probe) renames nothing rather than guessing.
+
+**Inside tmux.** Several WebStorm tabs can mirror one tmux session (each attaches its own client), so the rename targets
+**every** tab mirroring this session — they all get renamed together, keeping the mirror consistent.
+
+**Auto state titles.** When `notify.ideaTab` is enabled (default on) in `~/.preemdeck/preemdeck.json`, a state hook
+(`tab-title.ts`) auto-renames this tab on every turn to match the **tmux window** — `🤖`/`⚡`/`💬` + the project name
+(e.g. `⚡ preemdeck`) for idle / busy / waiting — and clears it on session end. A manual `rename-tab` overrides that
+until the next state event fires. Turn the auto-titles off with `notify: { ideaTab: false }`.
+
+**When to use:** label a long-running session's tab ("PR review", "deploy") or reset a tab back to auto-naming.
+
+```bash
+"$HOME/.preemdeck/preemdeck-runtime" "$TB/rename-tab.ts" "PR review"   # sticky-rename THIS tab
+"$HOME/.preemdeck/preemdeck-runtime" "$TB/rename-tab.ts" --reset       # restore auto-naming
+"$HOME/.preemdeck/preemdeck-runtime" "$TB/rename-tab.ts"              # bare / empty == --reset
 ```
 
 ## Notes

@@ -20,6 +20,7 @@ type PlatformModule = {
     resolveExecPath: () => Promise<string>
     resolveExecPaths: () => Promise<string[]>
     resolveLogDir: () => Promise<string>
+    filterExecsForLaunchingProduct: (execPaths: Iterable<string>, bundleId?: string) => string[]
 }
 
 const pickPlatform = (): PlatformModule => {
@@ -70,10 +71,27 @@ export const resolveLogDir = async (): Promise<string> => {
     return await platformModule.resolveLogDir()
 }
 
+/**
+ * Narrow running JetBrains launchers to the product that launched this process
+ * (per-OS): macOS keys off `__CFBundleIdentifier`; Linux has no equivalent and
+ * returns the full set. Falls back to the full set when the launching product
+ * can't be identified or matches nothing.
+ */
+export const filterExecsForLaunchingProduct = (execPaths: Iterable<string>, bundleId?: string): string[] => {
+    return platformModule.filterExecsForLaunchingProduct(execPaths, bundleId)
+}
+
 /** Shared error types callers `catch`/`instanceof` across the toolbox. */
 export { IdeaError } from "./errors"
-/** Shared ideScript bridge: escape a Groovy literal, target the terminal's window, run a one-shot script (against the ancestry IDE, or every running IDE via runGroovyOn). */
-export { escapeGroovy, groovyProjectByCwd, runGroovy, runGroovyOn } from "./groovy"
+/** Shared ideScript bridge: escape a Groovy literal, target the terminal's window, run a one-shot script (against the ancestry IDE, every running IDE via runGroovyOn, or a result round-trip via runGroovyForResult). */
+export {
+    escapeGroovy,
+    GROOVY_RESULT_PENDING,
+    groovyProjectByCwd,
+    runGroovy,
+    runGroovyForResult,
+    runGroovyOn
+} from "./groovy"
 /**
  * Cross-platform launch (resolves resolveExecPath lazily at call time — see
  * launch.ts — so the static import cycle with this module is import-safe).
@@ -83,3 +101,9 @@ export { launch } from "./launch"
 export { focusProjectWindow, openInProject, previewUrl, setPreview, webpreviewOpenBody } from "./preview"
 /** Deferred temp cleanup for the toolbox's fire-and-forget (no-wait) modes. */
 export { reapLater } from "./reap"
+/** Rename the terminal tab this shell runs in: the Groovy builder + the pid-matched dispatcher. */
+export { groovyRenameByPid, renameTab } from "./tab"
+/** Read whether this shell's terminal tab is focused in the IDE: the Groovy builder, the parser, and the fail-open reader. */
+export { groovyFocusByPid, isTabFocused, parseFocus, type TabFocus, UNDETERMINED } from "./tab-focus"
+/** Resolve the pid set on this tab's tty (the shell-side half of rename-tab). */
+export { resolveTabPids } from "./tab-pids"
