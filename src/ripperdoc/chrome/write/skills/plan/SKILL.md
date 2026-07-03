@@ -7,7 +7,7 @@ description: |
   debugging, or a pure explanation.
 argument-hint: "[spec, feature description, or requirements]"
 user-invocable: true
-allowed-tools: [Read, Glob, Grep, Agent, AskUserQuestion, Write, Skill]
+allowed-tools: [Read, Glob, Grep, Agent, AskUserQuestion, Skill, EnterPlanMode, ExitPlanMode]
 ---
 
 # write:plan
@@ -16,6 +16,9 @@ A method for turning a task into a reviewable implementation plan: research firs
 concrete, verifiable steps. The plan is a deliverable the user approves before any code changes land.
 
 ## Research before you plan
+
+Enter plan mode first (`EnterPlanMode`): the research below is read-only, and it sets up the `ExitPlanMode`
+presentation.
 
 Don't plan blind. A plan written from guesses misses conventions, duplicates existing abstractions, and creates
 integration pain.
@@ -80,16 +83,15 @@ subsystems, split it into one plan per subsystem, each producing working, testab
 
 ## Chaining
 
-When the **holo plugin is enabled** (its `/holo:using` skill is available), a plan renders as a live, editable page
-instead of static markdown, so use it to make the plan visually rich and interactive:
-
-- Invoke `/holo:using` (the Skill tool) for the planner round-trip and the exact `:::diagram` carrier and schema.
-- Embed an editable UML class diagram (`:::diagram`) when the plan describes a domain model or a type hierarchy. The
-  user can rename classes, edit members, and restructure it on the canvas, and the edits persist back into the plan
-  file.
-- Class-diagram structure only; `holo:using` carries the full constraints. Keep the prose plan complete either way.
-
-If the plugin isn't enabled, skip this and write a plain-markdown plan.
+1. Invoke `/holo:using` (the Skill tool) for the `:::diagram` carrier, the GraphSpec schema, and the round-trip rules.
+2. Embed a `:::diagram` for the structure the plan builds toward: the component, type, or class graph, with props or
+   fields as attributes and composition as edges. `holo:using` carries the schema and its constraints (class-diagram
+   structure only). The diagram sharpens the structure; it does not replace the written steps.
+3. Present the finished plan through `ExitPlanMode`. The host persists the plan file, so don't write it yourself. When
+   holo is enabled in a JetBrains terminal, the `idea` plugin's plan hook serves that file in the holo planner and opens
+   it in an IDE tab; the user edits the prose and the diagram on the canvas, and every edit persists back into the file.
+   Elsewhere `ExitPlanMode` shows a plain plan.
+4. After approval, re-read the plan file before implementing. The user's edits are the plan.
 
 ## Safety
 
