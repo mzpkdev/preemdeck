@@ -755,6 +755,20 @@ export async function installDeps(repoRoot: string, dryRun: boolean): Promise<[b
   return [false, result.stderr.trim() || result.stdout.trim() || "non-zero exit"];
 }
 
+/**
+ * A host counts as chromed iff EVERY marketplace registered cleanly AND all of its
+ * plugins slotted — the loop leaves `results[name]` at "ok" only in that case (a
+ * failed register, or any failed plugin, overwrites it with the error text). This is
+ * the exit-code contract installFor returns on, so a PARTIAL failure (1 of N
+ * marketplaces, or any single plugin) is a nonzero exit — not just red text in
+ * printSummary — and boot.sh's `set -e` plus the e2e's exit-0 assert both surface it.
+ * The prior return keyed off "did ANY marketplace register", which silently swallowed
+ * partial failures on a host that also had a success.
+ */
+export function allMarketplacesOk(results: Record<string, string>): boolean {
+  return MARKETPLACES.every(([name]) => results[name] === "ok");
+}
+
 export async function installFor(harness: string, dryRun: boolean): Promise<number> {
   section(`rig · ${harness}`);
   if (!(await onPath(harness))) {
@@ -777,7 +791,6 @@ export async function installFor(harness: string, dryRun: boolean): Promise<numb
 
   section("slotting chrome");
   const results: Record<string, string> = {};
-  let anySuccess = false;
   const registeredMarketplaces: string[] = [];
   const installedPlugins: Array<Record<string, unknown>> = [];
 
@@ -785,7 +798,6 @@ export async function installFor(harness: string, dryRun: boolean): Promise<numb
     const [mOk, mErr] = await registerMarketplace(harness, path, dryRun);
     if (mOk) {
       results[name] = "ok";
-      anySuccess = true;
       if (MARKETPLACE_HOSTS.has(harness)) {
         registeredMarketplaces.push(name);
       }
@@ -815,7 +827,7 @@ export async function installFor(harness: string, dryRun: boolean): Promise<numb
 
   printSummary(harness, results);
   writeManifest(REPO_ROOT, harness, overlay, registeredMarketplaces, installedPlugins, dryRun);
-  return anySuccess ? 0 : 1;
+  return allMarketplacesOk(results) ? 0 : 1;
 }
 
 export async function main(): Promise<number> {

@@ -14,6 +14,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync
 import { homedir, tmpdir } from "node:os"
 import { join } from "node:path"
 import {
+    allMarketplacesOk,
     backupPath,
     buildMirror,
     CHECK,
@@ -32,6 +33,7 @@ import {
     MANIFEST_FILE,
     MANIFEST_SCHEMA,
     manifestDir,
+    MARKETPLACES,
     type PluginSpec,
     parseInstallArgs,
     readPluginSpecs,
@@ -776,12 +778,36 @@ describe("install", () => {
             }
         })
 
-        // NOTE: the marketplace-failure path (-> rc 1) is NOT unit-tested here. With
-        // dryRun=false, installFor's copyOverlay writes the real overlay into $HOME and
-        // writeManifest writes the real repo's .install-manifest.json — destructive side
-        // effects with no clean seam to stub for install.ts's own self-calls. The path
-        // is covered by the golden-diff dry-run and the registerMarketplace unit tests
-        // above.
+        // NOTE: installFor's failure path (-> rc 1) is NOT driven end-to-end here. With
+        // dryRun=false, copyOverlay writes the real overlay into $HOME and writeManifest
+        // writes the real repo's .install-manifest.json — destructive side effects with no
+        // clean seam to stub for install.ts's own self-calls. installFor's exit DECISION is
+        // pure and covered directly by the allMarketplacesOk tests below; the register/plugin
+        // legs are covered by the registerMarketplace/installPlugin unit tests above.
+    })
+
+    // allMarketplacesOk — the installFor exit-code contract, isolated from the destructive
+    // copyOverlay/writeManifest side effects. A host is chromed iff EVERY marketplace is "ok"
+    // (registered clean AND every plugin slotted), so a partial failure is a nonzero exit.
+    context("allMarketplacesOk", () => {
+        const allOk = (): Record<string, string> => Object.fromEntries(MARKETPLACES.map(([name]) => [name, "ok"]))
+        const firstName = (): string => MARKETPLACES[0]![0]
+
+        it("true when every marketplace is 'ok'", () => {
+            expect(allMarketplacesOk(allOk())).toBe(true)
+        })
+
+        it("false when a marketplace failed to register", () => {
+            expect(allMarketplacesOk({ ...allOk(), [firstName()]: "clone failed" })).toBe(false)
+        })
+
+        it("false when a plugin failed to slot (results holds the plugin error, not 'ok')", () => {
+            expect(allMarketplacesOk({ ...allOk(), [firstName()]: "idea: non-zero exit" })).toBe(false)
+        })
+
+        it("false when a marketplace is missing from results entirely", () => {
+            expect(allMarketplacesOk({})).toBe(false)
+        })
     })
 
     // parseInstallArgs — exit-code behavior (process.exit seam)

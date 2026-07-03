@@ -19,11 +19,24 @@
  */
 
 import { afterEach, beforeEach, expect, test } from "bun:test"
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync } from "node:fs"
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 
 const REPO_ROOT = join(import.meta.dir, "..")
+
+// install.ts auto-detects targets by the presence of a host's config dir under
+// $HOME and aborts nonzero if a DETECTED host's CLI is missing from PATH. So the
+// set of hosts this test exercises is exactly the set whose CLIs the runner has
+// installed. Default to claude only, so a bare local `bun run test:e2e` needs just
+// the claude CLI on PATH; the CI e2e workflow installs all three CLIs and sets
+// PREEMDECK_E2E_HOSTS=claude,codex,gemini to exercise each. Unknown names are
+// dropped so a typo can't silently seed a bogus dir that detection ignores.
+const KNOWN_HOSTS = new Set(["claude", "codex", "gemini"])
+const E2E_HOSTS = (process.env.PREEMDECK_E2E_HOSTS ?? "claude")
+    .split(",")
+    .map((host) => host.trim())
+    .filter((host) => KNOWN_HOSTS.has(host))
 
 /**
  * Pull the stable install command out of README.md instead of hardcoding it, so
@@ -49,9 +62,11 @@ let home = ""
 
 beforeEach(() => {
     home = mkdtempSync(join(tmpdir(), "preemdeck-e2e-"))
-    // install.ts auto-detects hosts by config dir; seed one so it has a target.
-    // An empty $HOME detects no harness and aborts nonzero by design.
-    mkdirSync(join(home, ".claude"), { recursive: true })
+    // Seed each host's config dir so install.ts detects and targets it. An empty
+    // $HOME detects no harness and aborts nonzero by design.
+    for (const host of E2E_HOSTS) {
+        mkdirSync(join(home, `.${host}`), { recursive: true })
+    }
 })
 
 afterEach(() => {
@@ -81,8 +96,13 @@ test("README stable install one-liner completes cleanly", async () => {
         console.error(`install exited ${exitCode}\n--- stdout ---\n${stdout}\n--- stderr ---\n${stderr}`)
     }
     expect(exitCode).toBe(0)
-    // Proof the install actually ran, not merely exited 0: exit 0 means
-    // installFor(claude) succeeded (main returns nonzero if any target fails),
-    // and the stable clone landed in the isolated HOME.
+    // Proof the install actually ran, not merely exited 0: the stable clone
+    // landed in the isolated HOME, and — since main() returns nonzero if ANY
+    // detected host fails — exit 0 means every seeded host was chromed. Assert
+    // each host's overlay files landed in ~/.<host> so a silently-dropped host
+    // can't pass as a green run.
     expect(existsSync(join(home, ".preemdeck", "install.ts"))).toBe(true)
+    for (const host of E2E_HOSTS) {
+        expect(readdirSync(join(home, `.${host}`)).length).toBeGreaterThan(0)
+    }
 }, 600_000)
