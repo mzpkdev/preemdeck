@@ -7,7 +7,7 @@ description: |
   debugging, or a pure explanation.
 argument-hint: "[spec, feature description, or requirements]"
 user-invocable: true
-allowed-tools: [Read, Glob, Grep, Agent, AskUserQuestion, Skill, EnterPlanMode, ExitPlanMode]
+allowed-tools: [Read, Glob, Grep, Agent, AskUserQuestion, Write, Skill, EnterPlanMode, ExitPlanMode]
 ---
 
 # write:plan
@@ -16,9 +16,6 @@ A method for turning a task into a reviewable implementation plan: research firs
 concrete, verifiable steps. The plan is a deliverable the user approves before any code changes land.
 
 ## Research before you plan
-
-Enter plan mode first (`EnterPlanMode`): the research below is read-only, and it sets up the `ExitPlanMode`
-presentation.
 
 Don't plan blind. A plan written from guesses misses conventions, duplicates existing abstractions, and creates
 integration pain.
@@ -81,17 +78,21 @@ Self-review the draft:
 Keep the plan skimmable — detail lives in the steps, not in prose padding. If the task spans several independent
 subsystems, split it into one plan per subsystem, each producing working, testable software on its own.
 
-## Chaining
+## Present in plan mode
 
-1. Invoke `/holo:using` (the Skill tool) for the `:::diagram` carrier, the GraphSpec schema, and the round-trip rules.
-2. Embed a `:::diagram` for the structure the plan builds toward: the component, type, or class graph, with props or
-   fields as attributes and composition as edges. `holo:using` carries the schema and its constraints (class-diagram
-   structure only). The diagram sharpens the structure; it does not replace the written steps.
-3. Present the finished plan through `ExitPlanMode`. The host persists the plan file, so don't write it yourself. When
-   holo is enabled in a JetBrains terminal, the `idea` plugin's plan hook serves that file in the holo planner and opens
-   it in an IDE tab; the user edits the prose and the diagram on the canvas, and every edit persists back into the file.
-   Elsewhere `ExitPlanMode` shows a plain plan.
-4. After approval, re-read the plan file before implementing. The user's edits are the plan.
+Run the whole task through plan mode, so the review surface (and holo, when enabled) is the user's.
+
+1. **Call `EnterPlanMode`** before you research: scoping stays read-only, and the host names a plan file for you to
+   write.
+2. **Write the plan to that plan file** (the sections above), and embed a `:::diagram` for the structure it builds
+   toward. Invoke `/holo:using` (the Skill tool) for the carrier and the GraphSpec schema (class-diagram structure
+   only). The diagram sharpens the structure; it does not replace the written steps.
+3. **Call `ExitPlanMode`** to present it. The tool takes no plan content; it reads the plan file you wrote. When holo is
+   enabled in a JetBrains terminal, the `idea` plan hook serves that file in the planner and opens it in an IDE tab,
+   where the user edits the prose and the diagram; every edit persists back into the file. Elsewhere `ExitPlanMode`
+   shows a plain plan.
+4. **On accept, re-read the plan file** before you implement. Look for the user's changes: rewritten steps or a
+   restructured diagram in holo. Those edits are the plan, not your last draft.
 
 ## Safety
 
