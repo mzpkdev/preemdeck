@@ -10,90 +10,61 @@ user-invocable: true
 allowed-tools: [Read, Glob, Grep, Agent, AskUserQuestion, Write, Skill, EnterPlanMode, ExitPlanMode]
 ---
 
-# write:plan
+# Overview
 
-A method for turning a task into a reviewable implementation plan: research first, resolve the real forks, then lay out
-concrete, verifiable steps. The plan is a deliverable the user approves before any code changes land.
+Turn a task into a reviewable implementation plan: research, resolve the forks, lay out concrete verifiable steps. The
+user approves it before any code lands.
 
-## Research before you plan
+## Prerequisites
 
-Don't plan blind. A plan written from guesses misses conventions, duplicates existing abstractions, and creates
-integration pain.
+1. A spec or requirements to plan. If missing, ask via `AskUserQuestion` first.
+2. A plan-mode host (`EnterPlanMode` / `ExitPlanMode`); holo optional, for the editable diagram surface.
 
-- **Read the spec.** Pin every functional requirement, constraint, and acceptance criterion.
-- **Learn the project.** Read CLAUDE.md/README and the manifest (`package.json`, `pyproject.toml`, `Cargo.toml`, …);
-  scan the directory layout and naming conventions.
-- **Read the integration code.** Open the files new code will touch. Understand the interfaces and data flow already in
-  use, and the abstractions to reuse rather than reinvent. Use Grep/Glob or an Explore agent; don't guess where things
-  live.
-- **Find the quality toolchain.** The test framework (read one representative test), plus linters, formatters, and type
-  checkers. Record the exact commands; every step's verification references them.
+## Instructions
 
-## Resolve the forks
+1. **Enter plan mode.** Call `EnterPlanMode`.
+2. **Research**, in order:
+   - the spec: every requirement, constraint, acceptance criterion.
+   - the project: CLAUDE.md, README, manifest, layout, conventions.
+   - the integration code the new code will touch.
+   - the quality toolchain and its exact commands (test, lint, format, types).
+3. **Resolve the forks.** Adopt a default silently only when a file or pattern backs it, cite the path; send every other
+   fork to the user via `AskUserQuestion` before writing.
+4. **Write the plan** to that file, following the **Template** below.
+5. **Present via `ExitPlanMode`.** It reads the plan file. With holo, the user edits the prose and diagram in the IDE
+   and edits persist back.
+6. **On accept, re-read the file.** The user's edits are the plan, not your last draft.
 
-Where two or more reasonable approaches exist and the choice changes the plan's shape, that's a fork.
+## Template
 
-- **Adopt a default silently only when a file or pattern backs it** — cite the path. "`src/auth` uses Redis for
-  sessions" is evidence; interpreting a mockup or appealing to "standard practice" is not.
-- **Everything else goes to the user** via `AskUserQuestion` before you write the plan. Don't paper over a real fork
-  with a guess.
+```mdx
+# <plan title>
 
-## Right-size the steps
+## Goal
 
-Each step is one concrete action with a clear done state, scaled to the task's complexity.
+<what "done" looks like, in a sentence or two>
 
-- Good: "write the failing test for X", "implement the minimal code to pass it", "run `<cmd>`, confirm green", "commit".
-- Bad: "add validation" (what rules, where?), "set up the module" (what files, what interface?).
-- Simple CRUD needs less hand-holding than a tricky algorithm. Err toward more detail when unsure.
+## Approach
 
-## What every plan carries
+<the strategy and the key decisions, each with its reason>
 
-- **Goal** — what "done" looks like, in a sentence or two.
-- **Approach** — the high-level strategy and the key decisions, each with its reason.
-- **Steps** — ordered by dependency, each with:
-  - exact file paths (never "the appropriate directory") and a marker: `C` create, `M` modify, `D` delete, `R` rename.
-  - the actual code when a step writes code (not "add error handling" but the handling itself). Exception: for tests,
-    state the behavioral contract to verify, not the test body, so the implementer writes a test that exercises the code
-    rather than rubber-stamps a script.
-  - a **Verify** line — the exact commands that confirm the step, scoped to the relevant files. Run what CI would run
-    (tests + lint + types), not just the suite.
-- **Risks / assumptions** — the ambiguities you had to resolve and anything the reviewer should weigh.
+## Steps
 
-## Testing strategy
+<ordered by dependency; each step one concrete action>
 
-Match it to the task: test-first for well-defined logic and data transforms; test-after for exploratory or UI /
-integration work; none for pure config, docs, or static assets. Whatever you pick, every step has a way to know it's
-done, even if that's "run the app and confirm X."
+- [ ] `<C|M|D|R>` `path/to/file` — <what this step does> <the actual code; for a test, the behavioral contract to
+      verify> **Verify:** `<command that runs what CI runs: tests + lint + types>`
 
-## Before you present
+## Risks / assumptions
 
-Self-review the draft:
+- <what you resolved; what the reviewer should weigh>
 
-- no TODOs, placeholders, or half-written steps;
-- every step has a Verify line with real commands;
-- code is concrete, not a vague description;
-- dependency order holds (no step needs a later one);
-- the spec is fully covered, with no scope creep.
+:::diagram <class-diagram structure, via /holo:using> :::
+```
 
-Keep the plan skimmable — detail lives in the steps, not in prose padding. If the task spans several independent
-subsystems, split it into one plan per subsystem, each producing working, testable software on its own.
+## Checklist
 
-## Present in plan mode
-
-Run the whole task through plan mode, so the review surface (and holo, when enabled) is the user's.
-
-1. **Call `EnterPlanMode`** before you research: scoping stays read-only, and the host names a plan file for you to
-   write.
-2. **Write the plan to that plan file** (the sections above), and embed a `:::diagram` for the structure it builds
-   toward. Invoke `/holo:using` (the Skill tool) for the carrier and the GraphSpec schema (class-diagram structure
-   only). The diagram sharpens the structure; it does not replace the written steps.
-3. **Call `ExitPlanMode`** to present it. The tool takes no plan content; it reads the plan file you wrote. When holo is
-   enabled in a JetBrains terminal, the `idea` plan hook serves that file in the planner and opens it in an IDE tab,
-   where the user edits the prose and the diagram; every edit persists back into the file. Elsewhere `ExitPlanMode`
-   shows a plain plan.
-4. **On accept, re-read the plan file** before you implement. Look for the user's changes: rewritten steps or a
-   restructured diagram in holo. Those edits are the plan, not your last draft.
-
-## Safety
-
-This skill produces a plan. Don't modify source, tests, or config until the user approves the plan and asks to start.
+- [ ] No placeholders or half-written steps
+- [ ] Every step has exact paths, a marker, and a Verify line
+- [ ] Ordered by dependency; spec fully covered, no scope creep
+- [ ] Independent subsystems split into separate plans
