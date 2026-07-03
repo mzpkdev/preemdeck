@@ -40,12 +40,18 @@ import { $createTextNode, $getNodeByKey } from "lexical";
 import { HighlightStyle, syntaxHighlighting } from "@codemirror/language";
 import { EditorView } from "@codemirror/view";
 import { tags as t } from "@lezer/highlight";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import "@holo-style";
 // Loaded last so it wins the cascade: patches MDXEditor dark tokens (e.g. the
 // hardcoded `--basePageBg: white`) that its own .dark-theme leaves light.
 import "./editor-theme.css";
+// The diagram app's zod contract — light (no elk/react-flow), so importing it
+// eagerly to validate a spec costs nothing. The heavy canvas is lazy (see below).
+// Cross-app relative import: planner's Vite roots at planner/app but allow-lists
+// the repo root (serve.ts `server.fs.allow`), so `../../diagram/...` resolves and
+// Vite/esbuild transpiles the .ts on the fly.
+import { GraphSpec } from "../../diagram/app/kinds/schema";
 
 /** The endpoint holo's dev server mounts: GET seeds the editor, POST persists an edit. */
 const PLAN_ENDPOINT = "/__holo/plan";
@@ -327,6 +333,106 @@ const llmGuideDescriptor = {
   Editor: () => null,
 };
 
+// --- Embedded UML diagram --------------------------------------------------
+// An editable diagram rides IN the plan file as a `:::diagram` CONTAINER directive
+// wrapping ONE ```json fenced child that holds the pretty GraphSpec. Carrier choice
+// (code child, not a `spec` attribute): a directive node stores its mdast verbatim
+// and re-emits it verbatim on export (same as llm-guide), and mdast-util-directive
+// round-trips `:::diagram` + a ```json child byte-faithfully — whereas a container
+// directive's `{attr="…"}` block must be single-line, so pretty (multi-line) JSON in
+// an attribute breaks the directive syntax outright. So the spec lives in the code
+// child: read `code.value`, write it back on edit.
+const DIAGRAM = "diagram";
+
+// The canvas pulls react-flow + elkjs (heavy). Lazy-load it so a plan with NO
+// `:::diagram` never fetches that chunk; GraphSpec (above) stays eager + light.
+const DiagramCanvas = lazy(() =>
+  import("../../diagram/app/DiagramCanvas").then((module) => ({ default: module.DiagramCanvas })),
+);
+
+/** Rendered height of the embedded canvas — React Flow measures its parent, so the wrapper must be sized. */
+const DIAGRAM_HEIGHT = 460;
+
+/** Inline error style for a bad spec — legible on any `--css` (planner's sheet may not define `.holo-error`). */
+const DIAGRAM_ERROR_STYLE = {
+  display: "block",
+  padding: "8px 12px",
+  font: "12px ui-monospace, SFMono-Regular, Menlo, monospace",
+  color: "var(--code-error, #e5534b)",
+};
+
+/**
+ * Read + validate the graph spec from the directive's carrier: the first ```json
+ * (code) child's value, JSON-parsed then run through the zod contract. Returns a
+ * tagged result so the Editor renders either the canvas or an inline error.
+ */
+const parseDiagramSpec = (mdastNode) => {
+  const code = (mdastNode.children ?? []).find((child) => child.type === "code");
+  if (!code) {
+    return { ok: false, message: "no ```json spec inside :::diagram" };
+  }
+  let raw;
+  try {
+    raw = JSON.parse(code.value);
+  } catch (error) {
+    return { ok: false, message: `spec is not valid JSON — ${String(error)}` };
+  }
+  const parsed = GraphSpec.safeParse(raw);
+  return parsed.success ? { ok: true, spec: parsed.data } : { ok: false, message: parsed.error.message };
+};
+
+/**
+ * Renders a `:::diagram` directive as an embedded, editable DiagramCanvas. The spec
+ * is parsed ONCE from the carrier at mount (via useState initializer) so the `spec`
+ * prop keeps a stable identity across our own write-backs — otherwise every edit
+ * would re-seed and re-run the canvas's ELK layout. Edits flow out through
+ * `onChange`: serialize the rebuilt spec and write it back into the code child via
+ * useMdastNodeUpdater; MDXEditor's debounced onChange then POSTs the whole .md to
+ * planner's /__holo/plan (no POST here — same as llm-note).
+ */
+const DiagramEditor = ({ mdastNode }) => {
+  const updateMdastNode = useMdastNodeUpdater();
+  // Freshest updater behind a ref so `onChange` keeps a stable identity (won't
+  // re-trigger the canvas's emit effect); the updater merges over the node, so
+  // replacing `children` wholesale never disturbs `name`/`type`.
+  const updaterRef = useRef(updateMdastNode);
+  updaterRef.current = updateMdastNode;
+  const [parsed] = useState(() => parseDiagramSpec(mdastNode));
+
+  const onChange = useCallback((nextSpec) => {
+    updaterRef.current({
+      children: [{ type: "code", lang: "json", meta: null, value: JSON.stringify(nextSpec, null, 2) }],
+    });
+  }, []);
+
+  if (!parsed.ok) {
+    return (
+      <span className="holo-error" style={DIAGRAM_ERROR_STYLE}>
+        holo: {parsed.message}
+      </span>
+    );
+  }
+  return (
+    <Suspense fallback={<div style={DIAGRAM_ERROR_STYLE}>loading diagram…</div>}>
+      <div
+        className="holo-diagram"
+        style={{ height: DIAGRAM_HEIGHT, border: "1px solid var(--border)", borderRadius: "6px", overflow: "hidden" }}
+      >
+        <DiagramCanvas spec={parsed.spec} onChange={onChange} />
+      </div>
+    </Suspense>
+  );
+};
+
+/** Registers `:::diagram` so directivesPlugin preserves it on round-trip and renders the canvas. */
+const diagramDescriptor = {
+  name: DIAGRAM,
+  testNode: (node) => node.name === DIAGRAM,
+  attributes: [],
+  hasChildren: true,
+  Editor: DiagramEditor,
+};
+
 /**
  * Right-click-with-selection → new-note popover. A contextmenu inside the editable
  * content with a live text selection suppresses the native menu and opens a Radix
@@ -453,7 +559,7 @@ function Holo() {
         codeBlockPlugin({ defaultCodeBlockLanguage: "txt" }),
         codeMirrorPlugin({ codeBlockLanguages: CODE_LANGUAGES, codeMirrorExtensions }),
         markdownShortcutPlugin(),
-        directivesPlugin({ directiveDescriptors: [llmNoteDescriptor, llmGuideDescriptor] }),
+        directivesPlugin({ directiveDescriptors: [llmNoteDescriptor, llmGuideDescriptor, diagramDescriptor] }),
         toolbarPlugin({
           toolbarContents: () => (
             <>

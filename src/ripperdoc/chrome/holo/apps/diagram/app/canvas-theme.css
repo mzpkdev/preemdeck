@@ -1,0 +1,34 @@
+/* canvas-theme.css — React Flow theming for the diagram canvas, imported by
+   DiagramCanvas so it rides along wherever the canvas mounts: the standalone
+   diagram app AND planner's embedded :::diagram. It maps React Flow's --xy-* vars
+   onto the HOST page's palette vars (--bg/--fg/--code-bg/--border/--muted/--link/
+   --selection), so the canvas tracks whatever stylesheet the host loaded: diagram's
+   style.css, or planner's plan-preview.css (IntelliJ New UI Darcula) passed via
+   --css. Each palette var carries an IntelliJ-Darcula fallback so the theme still
+   reads if a host omits one. */
+.react-flow {
+  --xy-background-color: var(--bg, #1e1f22);
+  --xy-background-pattern-color: #2e3033; /* subtle dot, one step above --bg */
+
+  --xy-node-background-color: var(--code-bg, #303235);
+  --xy-node-color: var(--fg, #bcbec3);
+  --xy-node-border: 1px solid var(--border, #4f5153);
+  --xy-node-border-radius: 6px;
+
+  --xy-edge-stroke: var(--muted, #7a7e85);
+  --xy-edge-stroke-selected: var(--link, #287bde);
+
+  --xy-controls-button-background-color: var(--code-bg, #303235);
+  --xy-controls-button-background-color-hover: var(--scrollbar-hover, #5a5c5e);
+  --xy-controls-button-color: var(--fg, #bcbec3);
+  --xy-controls-button-color-hover: var(--fg, #bcbec3);
+  --xy-controls-button-border-color: var(--border, #4f5153);
+
+  --xy-minimap-background-color: var(--code-bg, #303235);
+
+  --xy-selection-background-color: color-mix(in srgb, var(--selection, #214283) 40%, transparent);
+  --xy-selection-border: 1px solid var(--link, #287bde);
+
+  --xy-handle-background-color: var(--muted, #7a7e85);
+  --xy-handle-border-color: var(--border, #4f5153);
+}

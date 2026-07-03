@@ -36,36 +36,8 @@ body {
   background: var(--selection);
 }
 
-/* Theme the React Flow canvas. Each --xy-* resolves as var(--xy-NAME, var(--xy-NAME-default))
-   (some with an extra -props layer first); React Flow only ever sets the -default/-props
-   layers, so overriding the base --xy-NAME here themes everything without a .dark class and
-   independent of stylesheet load order. */
-.react-flow {
-  --xy-background-color: var(--bg);
-  --xy-background-pattern-color: #2e3033; /* subtle dot, one step above --bg */
-
-  --xy-node-background-color: var(--code-bg);
-  --xy-node-color: var(--fg);
-  --xy-node-border: 1px solid var(--border);
-  --xy-node-border-radius: 6px;
-
-  --xy-edge-stroke: var(--muted);
-  --xy-edge-stroke-selected: var(--link);
-
-  --xy-controls-button-background-color: var(--code-bg);
-  --xy-controls-button-background-color-hover: var(--scrollbar-hover);
-  --xy-controls-button-color: var(--fg);
-  --xy-controls-button-color-hover: var(--fg);
-  --xy-controls-button-border-color: var(--border);
-
-  --xy-minimap-background-color: var(--code-bg);
-
-  --xy-selection-background-color: color-mix(in srgb, var(--selection) 40%, transparent);
-  --xy-selection-border: 1px solid var(--link);
-
-  --xy-handle-background-color: var(--muted);
-  --xy-handle-border-color: var(--border);
-}
+/* React Flow theming lives in canvas-theme.css (imported by DiagramCanvas) so the
+   embed themes to any host palette, e.g. planner's plan-preview.css. */
 
 /* Scrollbars — IntelliJ New UI: slim solid #4f5153 pill thumb (inset via a transparent
    border + padding-box clip), transparent track, no arrows. Ported from plan-preview.css. */
