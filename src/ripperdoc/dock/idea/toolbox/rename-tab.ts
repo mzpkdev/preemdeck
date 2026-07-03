@@ -1,7 +1,7 @@
 #!/usr/bin/env bun
 import { defineCommand, effect, execute } from "cmdore"
 // The glyph + name composition, shared with tab-title / tmux-title so a model
-// rename reads `◈ slug` exactly like the state hook's busy label.
+// rename reads `◐ slug` exactly like the state hook's busy label.
 import { windowName } from "../../tmux/toolbox/tmux-title"
 import { assertIdea } from "./assert-idea"
 import { renameTab, resolveTabPids } from "./core"
@@ -11,8 +11,8 @@ import { renameTab, resolveTabPids } from "./core"
  * user-defined title that wins over shell/OSC auto-naming, or clear it to
  * restore auto-naming. The entry point for main-thread tab naming: the name is
  * sanitized to a short slug and stamped with the busy glyph (windowName("busy",
- * slug) -> "◈ slug") since a model rename always lands during an active turn, so
- * the tab matches tab-title's ◈ instead of flashing glyph-less. No on-disk store:
+ * slug) -> "◐ slug") since a model rename always lands during an active turn, so
+ * the tab matches tab-title's ◐ instead of flashing glyph-less. No on-disk store:
  * the tab title itself is the source of truth, and tab-title reads it back
  * (glyph-stripped) so the name survives the idle/busy/waiting flips. See
  * {@link slugifyTabName} / core/tab-read.ts.
@@ -34,7 +34,7 @@ import { renameTab, resolveTabPids } from "./core"
  * @returns nothing; the side effect is the renamed tab.
  *
  * @example
- * await renameTabCli("PR review") // rename this tab to "◈ pr-review"
+ * await renameTabCli("PR review") // rename this tab to "◐ pr-review"
  * await renameTabCli(null) // restore auto-naming
  */
 export const renameTabCli = async (
@@ -63,7 +63,7 @@ export const renameTabCli = async (
         return // nothing usable in the given name — leave the tab as-is
     }
     // Stamp the busy glyph (a model rename always lands mid-turn) so the tab matches
-    // tab-title's ◈. The name lives in the tab title itself (no on-disk store);
+    // tab-title's ◐. The name lives in the tab title itself (no on-disk store);
     // tab-title reads it back, glyph-stripped, to survive the next state flip.
     await deps.renameTab(windowName("busy", slug), pids)
 }

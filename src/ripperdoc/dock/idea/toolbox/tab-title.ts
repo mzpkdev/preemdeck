@@ -3,18 +3,18 @@
  * tab-title.ts — rename the current JetBrains terminal TAB to reflect the agent's
  * state, so a glance across terminal tabs shows which session is idle, working, or
  * waiting on you. The IDE-side mirror of tmux-title.ts: it reuses that module's
- * glyph + name logic, so a tab reads `◈ preemdeck` exactly like the tmux window
+ * glyph + name logic, so a tab reads `◐ preemdeck` exactly like the tmux window
  * it mirrors.
  *
  * Wired on the host state events (see the three manifests): a prompt submit flips
- * the tab to ◈, a turn end / session start back to ◇, and a permission /
- * notification gate to ◆. On session end the user-defined title is cleared,
+ * the tab to ◐, a turn end / session start back to ○, and a permission /
+ * notification gate to ●. On session end the user-defined title is cleared,
  * handing the tab name back to the IDE's auto-naming.
  *
  * The Notification event is overloaded: besides a permission gate it also fires
  * Claude's idle "waiting for your input" ping (~60s after a turn ends), which lands
- * AFTER Stop's ◇ and would strand an idle tab on ◆. effectiveState reads the
- * payload and downgrades that ping back to idle, so only a real gate shows ◆.
+ * AFTER Stop's ○ and would strand an idle tab on ●. effectiveState reads the
+ * payload and downgrades that ping back to idle, so only a real gate shows ●.
  *
  *     Claude  SessionStart→idle  UserPromptSubmit→busy  Notification→waiting  Stop→idle  SessionEnd→reset
  *     Codex   SessionStart→idle  UserPromptSubmit→busy  PermissionRequest→waiting  Stop→idle  (no SessionEnd/Notification)
@@ -39,7 +39,7 @@
 import { defineCommand, effect, execute } from "cmdore"
 import { isNotifyEnabled } from "../../../../common/preemdeck"
 // Reuse the glyph + name logic from tmux-title so the tab label matches the tmux
-// window verbatim (e.g. `◈ preemdeck`) — the glyph/name logic is NOT duplicated here.
+// window verbatim (e.g. `◐ preemdeck`) — the glyph/name logic is NOT duplicated here.
 import { GLYPH, projectLabel, stripGlyph, windowName } from "../../tmux/toolbox/tmux-title"
 import { inIdea, readTabTitle, renameTab, resolveTabPids } from "./core"
 // The Notification event is overloaded: it fires for real permission gates AND for
@@ -105,7 +105,7 @@ export const DEFAULT_DEPS: TabTitleDeps = {
  * The label BASE is the tab's OWN current title read back from the IDE
  * (readTabTitle), glyph-stripped, else the project label — so a glyph flip (idle/
  * busy/waiting) preserves a name set by rename-tab OR from the IDE's own tab menu
- * (`◈ tab-naming` -> `◇ tab-naming`) instead of reverting to the bare project. No
+ * (`◐ tab-naming` -> `○ tab-naming`) instead of reverting to the bare project. No
  * on-disk store: the tab itself is the source of truth. The `reset` state clears
  * the user-defined title, restoring the IDE's auto-naming.
  */
@@ -137,7 +137,7 @@ export const applyTitle = async (
  * The state to actually apply for the manifest-passed `state`. Only "waiting" is
  * conditional: the Notification event that carries it ALSO fires Claude's idle
  * "waiting for your input" ping, which means the tab is IDLE, not gated — so read
- * the payload and downgrade that ping to "idle" (else an idle tab sticks on ◆).
+ * the payload and downgrade that ping to "idle" (else an idle tab sticks on ●).
  * Every other state passes through untouched and never reads stdin. A real
  * permission gate (isIdleNotification false) stays "waiting".
  *

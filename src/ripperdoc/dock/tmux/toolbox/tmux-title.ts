@@ -4,8 +4,8 @@
  * glance across tmux windows shows which session is idle, working, or waiting on you.
  *
  * Wired on the host state events (see the three manifests): a prompt submit flips the
- * window to ◈, a turn end / session start back to ◇, and a permission / notification
- * gate to ◆. On session end the window's automatic-rename is restored, handing the
+ * window to ◐, a turn end / session start back to ○, and a permission / notification
+ * gate to ●. On session end the window's automatic-rename is restored, handing the
  * name back to tmux.
  *
  *     Claude  SessionStart→idle  UserPromptSubmit→busy  Notification→waiting  Stop→idle  SessionEnd→reset
@@ -32,13 +32,13 @@ import { PIPED, type Reaped, reap } from "../../../../common/process"
 
 /**
  * The glyph that heads the window name for each non-reset state. Minimalist
- * monochrome diamonds by fill (empty idle, split busy, solid = needs you) — single
+ * monochrome circles by fill (empty idle, half busy, solid = needs you): single
  * cell and text-presentation, so they dodge the color-emoji width/render variance.
  */
 export const GLYPH: Record<string, string> = {
-    idle: "◇",
-    busy: "◈",
-    waiting: "◆"
+    idle: "○",
+    busy: "◐",
+    waiting: "●"
 }
 
 /** The project label: the basename of the host's project dir / cwd, or "" when unknown. */

@@ -16,7 +16,7 @@
  * window, resolve each Content's view and backend pid — is the SHARED chain from
  * core/tab-groovy.ts ({@link GROOVY_TAB_HELPERS}: `viewOf` + `pidOf`), so it never
  * drifts from the rename path. The title read is `Content.getDisplayName()` — the
- * text the tab actually shows (our `◈ base`, an IDE-menu rename, or the auto-name).
+ * text the tab actually shows (our `◐ base`, an IDE-menu rename, or the auto-name).
  *
  * FAIL-OPEN, NEVER THROWS. No pid on this tty, no live IDE, no matching tab, a
  * dispatch/timeout/parse miss — every undetermined case resolves to null, and the
