@@ -1,12 +1,17 @@
 /**
  * install.e2e.ts — end-to-end check of the PUBLIC install one-liner.
  *
- * Runs the exact `curl … | bash` command documented in README.md's "## Install"
- * section (the STABLE channel default) against a throwaway $HOME and asserts a
- * clean exit. This is a REAL install: it curls main/boot.sh off GitHub, which
- * clones the `stable` branch into $HOME/.preemdeck, vendors the pinned Bun, runs
- * `bun install`, and copies the overlay into the seeded ~/.claude. Network- and
- * time-heavy by nature.
+ * Runs the exact `curl … | bash` one-liner documented in README.md's "## Install"
+ * section against a throwaway $HOME and asserts a clean exit. This is a REAL
+ * install: it curls main/boot.sh off GitHub, which clones the channel's branch into
+ * $HOME/.preemdeck, vendors the pinned Bun, runs `bun install`, and copies the
+ * overlay into the seeded ~/.claude. Network- and time-heavy by nature.
+ *
+ * PREEMDECK_E2E_CHANNEL (default "stable") picks the one-liner + branch: stable
+ * clones `stable` (the deployed release), edge clones `main`. CI sets it from the
+ * triggering branch (main push -> edge, so a push validates its own install.ts;
+ * stable push -> stable), so the E2E tests the branch it fired on, not always
+ * stable.
  *
  * Not part of `bun test` (CI) on purpose: the `.e2e.ts` suffix doesn't match
  * Bun's discovery glob (*.test / *.spec), so bare `bun test` skips it. Run it
@@ -38,22 +43,29 @@ const E2E_HOSTS = (process.env.PREEMDECK_E2E_HOSTS ?? "claude")
     .map((host) => host.trim())
     .filter((host) => KNOWN_HOSTS.has(host))
 
+type Channel = "stable" | "edge"
+// The channel to install. CI sets PREEMDECK_E2E_CHANNEL from the triggering branch
+// (main -> edge, stable -> stable); a bare local run defaults to stable.
+const E2E_CHANNEL: Channel = process.env.PREEMDECK_E2E_CHANNEL === "edge" ? "edge" : "stable"
+
 /**
- * Pull the stable install command out of README.md instead of hardcoding it, so
- * this test breaks the moment the documented one-liner drifts. Reads the first
- * ```bash fence under "## Install" (the stable block; the edge block is a later
- * fence) and returns its `curl … boot.sh` line.
+ * Pull the install one-liner for `channel` out of README.md instead of hardcoding
+ * it, so this test breaks the moment the documented command drifts. Scans the bash
+ * fences in the "## Install" section for the `curl … boot.sh` line and picks by
+ * channel: edge is the line that sets `PREEMDECK_CHANNEL=edge`, stable is the plain
+ * one. Bounded to the section (stops at the next `##` heading) so the later
+ * re-bootstrap block can't match.
  */
-function stableInstallCommand(): string {
+function installCommand(channel: Channel): string {
     const readme = readFileSync(join(REPO_ROOT, "README.md"), "utf8")
-    const afterHeading = readme.split(/^##\s+Install\b.*$/m)[1] ?? ""
-    const firstFence = afterHeading.match(/```bash\n([\s\S]*?)```/)
-    const command = firstFence?.[1]
-        ?.split("\n")
+    const section = readme.split(/^##\s+Install\b.*$/m)[1]?.split(/^##\s+/m)[0] ?? ""
+    const curlLines = [...section.matchAll(/```bash\n([\s\S]*?)```/g)]
+        .flatMap((fence) => (fence[1] ?? "").split("\n"))
         .map((line) => line.trim())
-        .find((line) => line.startsWith("curl") && line.includes("boot.sh"))
+        .filter((line) => line.startsWith("curl") && line.includes("boot.sh"))
+    const command = curlLines.find((line) => line.includes("PREEMDECK_CHANNEL=edge") === (channel === "edge"))
     if (!command) {
-        throw new Error("README.md '## Install' has no `curl … boot.sh` command — did the docs change?")
+        throw new Error(`README.md '## Install' has no ${channel} \`curl … boot.sh\` command — did the docs change?`)
     }
     return command
 }
@@ -75,15 +87,15 @@ afterEach(() => {
     }
 })
 
-test("README stable install one-liner completes cleanly", async () => {
-    const command = stableInstallCommand()
+test(`README ${E2E_CHANNEL} install one-liner completes cleanly`, async () => {
+    const command = installCommand(E2E_CHANNEL)
     // `-o pipefail` so a curl failure fails the pipeline instead of being
     // masked by a happy `bash` reading empty stdin. The command text itself is
     // verbatim from the README.
     const proc = Bun.spawn(["bash", "-o", "pipefail", "-c", command], {
-        // Redirect every install write into the throwaway HOME; pin the channel
-        // so an inherited PREEMDECK_CHANNEL can't switch us to edge.
-        env: { ...process.env, HOME: home, PREEMDECK_CHANNEL: "stable" },
+        // Redirect every install write into the throwaway HOME; pin the channel so
+        // an inherited PREEMDECK_CHANNEL can't override the one under test.
+        env: { ...process.env, HOME: home, PREEMDECK_CHANNEL: E2E_CHANNEL },
         stdout: "pipe",
         stderr: "pipe"
     })

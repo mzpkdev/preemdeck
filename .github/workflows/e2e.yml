@@ -4,8 +4,11 @@ name: E2E (install one-liner)
 # a throwaway $HOME, exercising all three hosts. install.ts detects a host by its
 # config dir and then shells out to that host's CLI (claude/codex/gemini) to register
 # marketplaces + plugins, so the CLIs must be on PATH — hence the install step below.
-# The one-liner clones the STABLE branch, so this is a smoke test of the DEPLOYED
-# stable install, not of a PR's checked-out code.
+# The one-liner's channel follows the triggering branch: a push to main tests edge
+# (clones main, so the run validates the just-pushed install.ts), while a stable
+# push, PR, manual dispatch, or nightly tests the DEPLOYED stable release. boot.sh
+# clones the channel's branch, so this exercises a real deployed install, not a PR's
+# checked-out code.
 
 on:
   push:
@@ -52,11 +55,15 @@ jobs:
           codex --version || true
           gemini --version || true
 
-      - name: E2E — README stable one-liner, all three hosts
+      - name: E2E — README one-liner (channel by branch), all three hosts
         env:
           # Read by the e2e to seed ~/.claude, ~/.codex, ~/.gemini so install.ts
           # detects and targets each. install.ts aborts nonzero if a detected host's
           # CLI is missing, so this asserts all three CLIs installed + registered clean.
           PREEMDECK_E2E_HOSTS: claude,codex,gemini
           DISABLE_AUTOUPDATER: "1"
+          # Channel by triggering branch: a push to main -> edge (clones main, so the
+          # E2E validates the just-pushed install.ts); every other trigger (stable
+          # push, PR, dispatch, nightly) -> stable, testing the deployed release.
+          PREEMDECK_E2E_CHANNEL: ${{ github.event_name == 'push' && github.ref_name == 'main' && 'edge' || 'stable' }}
         run: bun run test:e2e
