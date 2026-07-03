@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, spyOn } from "bun:test"
-import { mkdtemp, rm, writeFile } from "node:fs/promises"
+import { mkdtemp, readdir, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { REAP_DELAY_MS, reapLater } from "./reap"
@@ -44,9 +44,18 @@ const armed = (paths: Iterable<string>, delayMs?: number): { delay: number; fire
         delay,
         fire: async () => {
             cb?.()
-            // The callback's unlink loop is async; let microtasks drain.
-            await Promise.resolve()
-            await new Promise<void>((r) => setTimeout(r, 0))
+            // reap() unlinks its targets sequentially (one fs round-trip each), so a
+            // single event-loop turn can leave the last file on disk under load. Poll
+            // until the per-test temp dir drains (every "timer fires" case reaps all it
+            // created) or a deadline, so the post-condition is deterministic, not a race.
+            const deadline = Date.now() + 2000
+            while (Date.now() < deadline) {
+                const remaining = await readdir(dir).catch(() => [] as string[])
+                if (remaining.length === 0) {
+                    break
+                }
+                await new Promise<void>((r) => setTimeout(r, 5))
+            }
         }
     }
 }

@@ -32,7 +32,12 @@ const run = async (
         stdin: "ignore",
         stdout: "pipe",
         stderr: "pipe",
-        env: { ...process.env, WIRE_STATE_DIR: stateDir }
+        // Scrub ambient WIRE_* so a knob exported in the dev/CI environment (e.g.
+        // WIRE_IDLE_TIMEOUT) can't leak into the child and flip an env-sensitive case.
+        env: {
+            ...Object.fromEntries(Object.entries(process.env).filter(([k]) => !k.startsWith("WIRE_"))),
+            WIRE_STATE_DIR: stateDir
+        }
     })
     const [stdout, stderr] = await Promise.all([
         new Response(subprocess.stdout).text(),

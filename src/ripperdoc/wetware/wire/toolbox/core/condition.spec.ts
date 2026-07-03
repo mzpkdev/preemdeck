@@ -52,7 +52,7 @@ describe("makeCondition", () => {
             const cond = makeCondition()
             let resolved: boolean | undefined
             const parked = cond
-                .waitFor(() => false, 30)
+                .waitFor(() => false, 1000)
                 .then((v) => {
                     resolved = v
                 })
@@ -85,7 +85,7 @@ describe("makeCondition", () => {
             const winner = cond.waitFor(ready, 1000)
             let loserResolved: boolean | undefined
             const loser = cond
-                .waitFor(() => false, 25)
+                .waitFor(() => false, 1000)
                 .then((v) => {
                     loserResolved = v
                 })

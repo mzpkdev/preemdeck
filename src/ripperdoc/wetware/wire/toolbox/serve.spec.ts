@@ -29,7 +29,12 @@ const run = async (
         stdin: "ignore",
         stdout: "pipe",
         stderr: "pipe",
-        env: { ...process.env, ...environment }
+        // Scrub ambient WIRE_* so a knob exported in the environment can't leak into the
+        // child and flip an env-sensitive case; callers pass what a case needs explicitly.
+        env: {
+            ...Object.fromEntries(Object.entries(process.env).filter(([k]) => !k.startsWith("WIRE_"))),
+            ...environment
+        }
     })
     const [stdout, stderr] = await Promise.all([
         new Response(subprocess.stdout).text(),
@@ -95,10 +100,15 @@ describe("serve", () => {
                 )
                 expect(code).toBe(0)
                 // the banner shape is load-bearing (skills grep it) — pin it exactly,
-                // only the live pid varying. Nothing else may print to stdout.
+                // only the live pid and resolved port varying. Nothing else may print to
+                // stdout. --dry-run still runs a real free-port scan, so the requested
+                // 5599 advances when occupied; read the reported port back instead of
+                // pinning the literal (a pinned 5599 flakes if the port is taken).
                 const pid = stdout.match(/pid=(\d+)/)?.[1]
                 expect(pid).toBeDefined()
-                expect(stdout).toBe(`wire: ready host=127.0.0.1 port=5599 pid=${pid} secret=abc123\n`)
+                const port = stdout.match(/port=(\d+)/)?.[1]
+                expect(port).toBeDefined()
+                expect(stdout).toBe(`wire: ready host=127.0.0.1 port=${port} pid=${pid} secret=abc123\n`)
             } finally {
                 await fs.rm(dir, { recursive: true, force: true })
             }
