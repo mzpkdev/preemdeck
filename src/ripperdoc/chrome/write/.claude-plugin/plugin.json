@@ -1,0 +1,9 @@
+{
+  "name": "write",
+  "description": "Authoring skills: plans, specs, and briefs.",
+  "version": "0.0.0",
+  "author": {
+    "name": "preemdeck"
+  },
+  "keywords": ["chrome", "write", "plan", "spec", "brief"]
+}

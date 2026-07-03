@@ -12,6 +12,13 @@
       "source": "./holo",
       "version": "0.0.0",
       "category": "chrome"
+    },
+    {
+      "name": "write",
+      "description": "Authoring skills: plans, specs, and briefs.",
+      "source": "./write",
+      "version": "0.0.0",
+      "category": "chrome"
     }
   ]
 }

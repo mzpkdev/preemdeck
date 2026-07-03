@@ -8,6 +8,11 @@
       "name": "holo",
       "source": "./holo",
       "category": "chrome"
+    },
+    {
+      "name": "write",
+      "source": "./write",
+      "category": "chrome"
     }
   ]
 }
