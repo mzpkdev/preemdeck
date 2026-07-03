@@ -24,20 +24,27 @@ const context = describe
 
 const env = (extra: Record<string, string>): NodeJS.ProcessEnv => extra as NodeJS.ProcessEnv
 
-// A fake seam set: canned inIdea + pids, and a renameTab that records its calls.
+// A fake seam set: canned inIdea/pids/key/saved-name, a renameTab that records its
+// calls, and a clearSavedName recorder (for the reset path).
 const fakeDeps = (
-    over: { inIdea?: boolean; pids?: number[] } = {}
-): { deps: TabTitleDeps; calls: { name: string | null; pids: number[] }[] } => {
+    over: { inIdea?: boolean; pids?: number[]; saved?: string; key?: string } = {}
+): { deps: TabTitleDeps; calls: { name: string | null; pids: number[] }[]; cleared: string[] } => {
     const calls: { name: string | null; pids: number[] }[] = []
+    const cleared: string[] = []
     const deps: TabTitleDeps = {
         inIdea: () => over.inIdea ?? true,
         resolveTabPids: () => Promise.resolve(over.pids ?? [111, 222]),
         renameTab: (name, pids) => {
             calls.push({ name, pids: [...pids] })
             return Promise.resolve()
+        },
+        tabKey: () => Promise.resolve(over.key ?? "ttys006"),
+        getSavedName: () => over.saved,
+        clearSavedName: (key) => {
+            cleared.push(key)
         }
     }
-    return { deps, calls }
+    return { deps, calls, cleared }
 }
 
 // Spawn the CLI as a real subprocess. --dry-run makes effect() skip the real IDE write.
@@ -103,6 +110,34 @@ describe("tab-title", () => {
             const { deps, calls } = fakeDeps({ pids: [] })
             expect(await applyTitle("idle", env({ CLAUDE_PROJECT_DIR: "/a/proj" }), deps)).toBe(false)
             expect(calls.length).toBe(0)
+        })
+    })
+
+    context("the saved name (the model's chosen tab name) as the label base", () => {
+        it("prefers the saved name over the project label for a glyph flip", async () => {
+            const { deps, calls } = fakeDeps({ pids: [9], saved: "tab-naming" })
+            expect(await applyTitle("busy", env({ CLAUDE_PROJECT_DIR: "/a/proj" }), deps)).toBe(true)
+            // ⚡ tab-naming, NOT ⚡ proj — the model's name survives the state flip.
+            expect(calls).toEqual([{ name: windowName("busy", "tab-naming"), pids: [9] }])
+        })
+
+        it("falls back to the project label when nothing is saved", async () => {
+            const { deps, calls } = fakeDeps({ pids: [9] })
+            await applyTitle("idle", env({ CLAUDE_PROJECT_DIR: "/a/proj" }), deps)
+            expect(calls).toEqual([{ name: windowName("idle", "proj"), pids: [9] }])
+        })
+
+        it("clears the saved name for this tab's key on reset (then restores auto-naming)", async () => {
+            const { deps, calls, cleared } = fakeDeps({ pids: [7], key: "work", saved: "tab-naming" })
+            expect(await applyTitle("reset", env({ CLAUDE_PROJECT_DIR: "/a/proj" }), deps)).toBe(true)
+            expect(cleared).toEqual(["work"])
+            expect(calls).toEqual([{ name: null, pids: [7] }])
+        })
+
+        it("does NOT clear the saved name on a non-reset state", async () => {
+            const { deps, cleared } = fakeDeps({ saved: "tab-naming" })
+            await applyTitle("busy", env({ CLAUDE_PROJECT_DIR: "/a/proj" }), deps)
+            expect(cleared).toEqual([])
         })
     })
 

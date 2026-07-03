@@ -1,12 +1,15 @@
 #!/usr/bin/env bun
 import { defineCommand, effect, execute } from "cmdore"
 import { assertIdea } from "./assert-idea"
-import { renameTab, resolveTabPids } from "./core"
+import { clearSavedName, renameTab, resolveTabPids, setSavedName, tabKey } from "./core"
 
 /**
  * Rename the WebStorm terminal tab THIS shell runs in — set a sticky
  * user-defined title that wins over shell/OSC auto-naming, or clear it to
- * restore auto-naming.
+ * restore auto-naming. Also the PERSISTENCE entry point for main-thread tab
+ * naming: the name is sanitized to a short slug and SAVED (keyed by the tab's
+ * stable id) so tab-title's glyph flips (idle/busy/waiting) keep showing it; a
+ * reset clears the saved name too. See {@link slugifyTabName} / core/tab-names.ts.
  *
  * The target tab is found by process id, not by name or position: `resolveTabPids`
  * lists the pids on our tty (login shell + any tmux client), and the Groovy
@@ -16,26 +19,104 @@ import { renameTab, resolveTabPids } from "./core"
  * nothing.
  *
  * Reset (restore auto-naming) when `--reset` is passed, or when no non-empty
- * name is given (`rename-tab` / `rename-tab ""`). The real dispatch rides
- * `effect()` so `--dry-run` resolves pids but skips the IDE write; it is
- * best-effort and never throws (a missing IDE / spawn error degrades to a
- * stderr note inside runGroovyOn).
+ * name is given (`rename-tab` / `rename-tab ""`). The real IDE dispatch rides
+ * `effect()` so `--dry-run` resolves pids but skips the IDE write; the saved-name
+ * write is a local bookkeeping write, done through the injected `deps` (defaulting
+ * to the real store) rather than the effect() gate.
  *
- * @param name - the new tab title, or `null` to clear it (restore auto-naming).
+ * @param name - the raw new tab title, or `null` to clear it (restore auto-naming).
  * @param verbose - echo the decision + resolved pids on stderr.
- * @returns nothing; the side effect is the renamed tab.
+ * @param deps - injectable key/pids/store/rename seams for hermetic tests.
+ * @returns nothing; the side effects are the renamed tab and the saved name.
  *
  * @example
- * await renameTabCli("PR review") // sticky-rename this tab
- * await renameTabCli(null) // restore auto-naming
+ * await renameTabCli("PR review") // sticky-rename this tab to "pr-review" + save it
+ * await renameTabCli(null) // restore auto-naming + clear the saved name
  */
-export const renameTabCli = async (name: string | null, verbose = false): Promise<void> => {
-    const pids = await resolveTabPids()
+export const renameTabCli = async (
+    name: string | null,
+    verbose = false,
+    deps: RenameTabCliDeps = DEFAULT_DEPS
+): Promise<void> => {
+    const key = await deps.tabKey()
+    // slug is null iff name is null (slugifyTabName always returns a string), so
+    // branching on `slug` below both reads as the reset check AND narrows it to string.
+    const slug = name === null ? null : slugifyTabName(name)
+    const pids = await deps.resolveTabPids()
     if (verbose) {
-        const what = name === null ? "reset (restore auto-naming)" : `name=${name}`
+        const what =
+            slug === null
+                ? "reset (restore auto-naming)"
+                : slug.length > 0
+                  ? `name=${slug}`
+                  : "no-op (name sanitized to empty)"
         process.stderr.write(`rename-tab: ${what}, pids=[${pids.join(",")}]\n`)
     }
+    if (slug === null) {
+        deps.clearSavedName(key)
+        await deps.renameTab(null, pids)
+        return
+    }
+    if (slug.length === 0) {
+        return // nothing usable in the given name — leave the tab (and any saved name) as-is
+    }
+    deps.setSavedName(key, slug)
+    await deps.renameTab(slug, pids)
+}
+
+/**
+ * Reduce a (model- or human-) chosen tab name to a safe, short slug: take the
+ * FIRST line, strip control chars, trim, drop any surrounding quotes/backticks,
+ * lowercase, collapse every run of non-`[a-z0-9]` into a single hyphen, trim edge
+ * hyphens, and cap at 24 chars. Returns "" when nothing usable remains (the caller
+ * treats "" as a no-op). Pure — no IDE or fs contact.
+ */
+export const slugifyTabName = (raw: string): string => {
+    const firstLine = raw.split("\n")[0] ?? ""
+    return (
+        firstLine
+            // biome-ignore lint/suspicious/noControlCharactersInRegex: intentionally stripping C0/DEL control chars from a tab title
+            .replace(/[\u0000-\u001f\u007f]/g, "") // strip control chars
+            .trim()
+            .replace(/^['"`]+|['"`]+$/g, "") // strip surrounding quotes / backticks
+            .toLowerCase()
+            .replace(/[^a-z0-9]+/g, "-") // non-alphanumeric runs -> single hyphen
+            .replace(/^-+|-+$/g, "") // trim leading / trailing hyphens
+            .slice(0, 24) // cap length
+            .replace(/-+$/g, "")
+    ) // re-trim a hyphen the slice may have exposed
+}
+
+/** Injectable seams for {@link renameTabCli}; production uses the real key/pid/store/IDE dispatch. */
+export type RenameTabCliDeps = {
+    /** Resolve this tab's stable name key (default: core `tabKey` — tmux session or tty). */
+    tabKey: () => Promise<string>
+    /** Resolve the pid set on this tab's tty (default: core `resolveTabPids`). */
+    resolveTabPids: () => Promise<number[]>
+    /** Persist `slug` under `key` (default: core `setSavedName`). */
+    setSavedName: (key: string, slug: string) => void
+    /** Drop the saved name for `key` (default: core `clearSavedName`). */
+    clearSavedName: (key: string) => void
+    /** Rename the pid-matched tab(s) to `name`, or clear when null (default: {@link runRename}). */
+    renameTab: (name: string | null, pids: readonly number[]) => Promise<void>
+}
+
+/**
+ * The real IDE dispatch seam: rename this tab's terminal Content by pid, riding
+ * cmdore effect() so --dry-run resolves pids but SKIPS the IDE write (mirrors
+ * tab-title.ts). renameTab is itself best-effort and never throws.
+ */
+export const runRename = async (name: string | null, pids: readonly number[]): Promise<void> => {
     await effect(() => renameTab(name, pids))
+}
+
+/** Production seam set: the real key resolver, pid resolver, saved-name store, and effect()-gated rename. */
+export const DEFAULT_DEPS: RenameTabCliDeps = {
+    tabKey,
+    resolveTabPids,
+    setSavedName,
+    clearSavedName,
+    renameTab: runRename
 }
 
 const command = defineCommand({
@@ -48,7 +129,7 @@ const command = defineCommand({
         }
     ],
     options: [
-        { name: "reset", arity: 0, description: "clear the tab title, restoring auto-naming" },
+        { name: "reset", arity: 0, description: "clear the tab title (and saved name), restoring auto-naming" },
         { name: "verbose", arity: 0, description: "report diagnostic detail on stderr" }
     ],
     run: async ({ name, reset, verbose }) => {

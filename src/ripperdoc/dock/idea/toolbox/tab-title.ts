@@ -36,7 +36,7 @@ import { isNotifyEnabled } from "../../../../common/preemdeck"
 // Reuse the glyph + name logic from tmux-title so the tab label matches the tmux
 // window verbatim (e.g. `⚡ preemdeck`) — the glyph/name logic is NOT duplicated here.
 import { GLYPH, projectLabel, windowName } from "../../tmux/toolbox/tmux-title"
-import { inIdea, renameTab, resolveTabPids } from "./core"
+import { clearSavedName, getSavedName, inIdea, renameTab, resolveTabPids, tabKey } from "./core"
 
 /**
  * The rename target for `state`, or null when the state is unknown (the caller
@@ -64,6 +64,12 @@ export type TabTitleDeps = {
     resolveTabPids: () => Promise<number[]>
     /** Rename the pid-matched tab(s) to `name`, or clear when null (default: {@link runRename}). */
     renameTab: (name: string | null, pids: readonly number[]) => Promise<void>
+    /** Resolve this tab's stable name key (default: core tabKey — tmux session or tty). */
+    tabKey: () => Promise<string>
+    /** The name the main model chose for this tab, or undefined (default: core getSavedName). */
+    getSavedName: (key: string) => string | undefined
+    /** Drop the saved name for `key` — called on the reset state (default: core clearSavedName). */
+    clearSavedName: (key: string) => void
 }
 
 /**
@@ -76,14 +82,26 @@ export const runRename = async (name: string | null, pids: readonly number[]): P
     await effect(() => renameTab(name, pids))
 }
 
-/** Production seam set: the real IDE gate, pid resolver, and effect()-gated rename. */
-export const DEFAULT_DEPS: TabTitleDeps = { inIdea, resolveTabPids, renameTab: runRename }
+/** Production seam set: the real IDE gate, pid resolver, effect()-gated rename, and saved-name store. */
+export const DEFAULT_DEPS: TabTitleDeps = {
+    inIdea,
+    resolveTabPids,
+    renameTab: runRename,
+    tabKey,
+    getSavedName,
+    clearSavedName
+}
 
 /**
  * Apply the tab title for `state`. No-op (false) outside a JetBrains terminal, for
  * an unknown state, or when no pid resolves on this tab's tty; otherwise renames
  * the pid-matched tab(s) to windowName() (or clears it on reset) and returns true.
- * `deps` injects the IDE gate / pid / rename seams for hermetic tests.
+ * `deps` injects the IDE gate / pid / rename / saved-name seams for hermetic tests.
+ *
+ * The label BASE is the name the main model chose for this tab (getSavedName, keyed
+ * by tabKey) when present, else the project label — so a glyph flip (idle/busy/
+ * waiting) preserves the model's name (`⚡ tab-naming`) instead of reverting to the
+ * bare project. The `reset` state clears that saved name before restoring auto-naming.
  */
 export const applyTitle = async (
     state: string,
@@ -93,7 +111,12 @@ export const applyTitle = async (
     if (!deps.inIdea()) {
         return false // not inside a JetBrains terminal — nothing to rename
     }
-    const target = tabName(state, projectLabel(env))
+    const key = await deps.tabKey()
+    if (state === "reset") {
+        deps.clearSavedName(key) // session ending — the model's chosen name should not outlive it
+    }
+    const base = deps.getSavedName(key) ?? projectLabel(env)
+    const target = tabName(state, base)
     if (target === null) {
         return false // unknown state
     }

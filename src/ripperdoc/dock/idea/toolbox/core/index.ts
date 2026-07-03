@@ -105,5 +105,7 @@ export { reapLater } from "./reap"
 export { groovyRenameByPid, renameTab } from "./tab"
 /** Read whether this shell's terminal tab is focused in the IDE: the Groovy builder, the parser, and the fail-open reader. */
 export { groovyFocusByPid, isTabFocused, parseFocus, type TabFocus, UNDETERMINED } from "./tab-focus"
-/** Resolve the pid set on this tab's tty (the shell-side half of rename-tab). */
-export { resolveTabPids } from "./tab-pids"
+/** The persisted stable-tab-id -> chosen-name-slug store backing main-thread tab naming. */
+export { clearSavedName, getSavedName, savedNamesPath, setSavedName } from "./tab-names"
+/** Resolve the pid set on this tab's tty (the shell-side half of rename-tab), and the stable per-tab name key. */
+export { resolveTabPids, tabKey } from "./tab-pids"

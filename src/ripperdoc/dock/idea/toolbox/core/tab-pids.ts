@@ -97,3 +97,29 @@ export const resolveTabPids = async (run: RunText = defaultRunText): Promise<num
     }
     return [...pids]
 }
+
+/**
+ * A STABLE identifier for the tab this shell runs in — the key under which a
+ * chosen tab name is persisted (see core/tab-names.ts). Not the pid set: pids
+ * turn over every process, so they can't key a name that must outlive them.
+ *
+ * - tmux (`$TMUX` set): the tmux session name (`display-message #{session_name}`).
+ *   Several WebStorm tabs can mirror one session; they SHOULD share one saved
+ *   name, so the session — not a per-client tty — is the right key.
+ * - no tmux: this process's own controlling tty (`ps -o tty= -p <pid>`), the same
+ *   probe {@link resolveTabPids} uses for the non-tmux tab, bare-formed. Each plain
+ *   login-shell tab has its own tty, so each keys independently.
+ *
+ * Returns "" when neither resolves (a failed probe, or macOS's `??` "no tty") —
+ * callers treat "" as "no stable key" and skip persistence rather than colliding
+ * every unkeyed tab onto one shared name.
+ *
+ * `run` is the same injectable seam as {@link resolveTabPids} for hermetic tests.
+ */
+export const tabKey = async (run: RunText = defaultRunText): Promise<string> => {
+    if (process.env.TMUX) {
+        return (await run(["tmux", "display-message", "-p", "#{session_name}"])).trim()
+    }
+    const own = (await run(["ps", "-o", "tty=", "-p", String(process.pid)])).trim()
+    return own.length > 0 && own !== "??" ? bareTty(own) : ""
+}
