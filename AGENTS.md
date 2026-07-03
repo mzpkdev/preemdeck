@@ -25,8 +25,8 @@ Full-repo format pass: `bun run format`.
 ## Tests
 
 - `bun test` — what CI runs. The `bun:test` API; specs are colocated as `*.spec.ts` next to their source.
-- The `wire:start`/`wire:stop` runtime path runs the TS toolbox via
-  `"$HOME/.preemdeck/preemdeck-runtime" "${CLAUDE_PLUGIN_ROOT}/toolbox/start.ts"` (and `stop.ts`).
+- The `wire:start`/`wire:stop` runtime path runs the TS app via
+  `"$HOME/.preemdeck/preemdeck-runtime" "${CLAUDE_PLUGIN_ROOT}/apps/wire/start.ts"` (and `stop.ts`).
 
 ## Applying changes to a running harness
 

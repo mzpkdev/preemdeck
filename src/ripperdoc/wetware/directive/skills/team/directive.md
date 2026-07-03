@@ -23,8 +23,8 @@ Never seat a room on a guess. Scout the surface, decide the roles, raise the wir
 - **Recon before you seat.** Map the surface yourself, or send one one-and-done `runner`; you can't charter a debate
   over code no one has read.
 - **Raise it so it outlives your silence.** You chair from outside and sleep between reads, so start wire with its
-  self-close off: `wire:start` where your host exposes the skill, else run its toolbox directly,
-  `"$HOME/.preemdeck/preemdeck-runtime" "$HOME/.preemdeck/src/ripperdoc/wetware/wire/toolbox/start.ts" --topic '<charter>' --idle-timeout=0 --empty-grace=0`.
+  self-close off: `wire:start` where your host exposes the skill, else run its app directly,
+  `"$HOME/.preemdeck/preemdeck-runtime" "$HOME/.preemdeck/src/ripperdoc/wetware/wire/apps/wire/start.ts" --topic '<charter>' --idle-timeout=0 --empty-grace=0`.
   Keep the printed `URL` and `secret`.
 - **Charter before the first peer joins**: name the question, the round cap, and the stop condition (converged, or
   escalate). A room with no terminal rule argues forever or caves on round one.

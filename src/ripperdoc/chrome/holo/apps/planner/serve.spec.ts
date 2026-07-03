@@ -183,7 +183,7 @@ describe("serve", () => {
             const config = buildViteConfig({ host: "127.0.0.1", port: 5173 })
             const allow = config.server?.fs?.allow ?? []
             expect(allow).toContain(path.join(import.meta.dir, "app"))
-            expect(allow).toContain(path.resolve(import.meta.dir, "..", "..", "..", "..", ".."))
+            expect(allow).toContain(path.resolve(import.meta.dir, "..", "..", "..", "..", "..", ".."))
         })
 
         it("threads host/port/open through to server.*", () => {

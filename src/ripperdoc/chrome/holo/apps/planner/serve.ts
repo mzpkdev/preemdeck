@@ -32,7 +32,7 @@ const APP_ROOT = path.join(import.meta.dir, "app")
 export const DEFAULT_CSS = path.join(APP_ROOT, "style.css")
 
 /** The repo root, allow-listed for file serving alongside the app root + the mdx dir. */
-const REPO_ROOT = path.resolve(import.meta.dir, "..", "..", "..", "..", "..")
+const REPO_ROOT = path.resolve(import.meta.dir, "..", "..", "..", "..", "..", "..")
 
 /** Stable id the entry imports for its stylesheet; aliased to {@link DEFAULT_CSS} or the `--css` override. */
 export const STYLE_ALIAS = "@holo-style"

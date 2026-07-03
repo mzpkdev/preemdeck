@@ -64,9 +64,9 @@ const resolvePlanPath = (toolInput: HookData): string | null => {
 /**
  * Absolute path to holo's `serve.ts`, resolved relative to THIS file so it works
  * from the plugin cache regardless of cwd: toolbox → idea → dock → ripperdoc,
- * then down into `chrome/holo/toolbox`.
+ * then down into `chrome/holo/apps/planner`.
  */
-const HOLO_SERVE = path.resolve(import.meta.dir, "..", "..", "..", "chrome", "holo", "toolbox", "serve.ts")
+const HOLO_SERVE = path.resolve(import.meta.dir, "..", "..", "..", "chrome", "holo", "apps", "planner", "serve.ts")
 
 /** dock/idea's own copy of the holo stylesheet, passed to every interactive spawn via `--css`. */
 const PLAN_CSS = path.resolve(import.meta.dir, "plan-preview.css")

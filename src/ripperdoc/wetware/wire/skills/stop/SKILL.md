@@ -7,5 +7,5 @@ allowed-tools: [Bash]
 
 # wire:stop
 
-Run `"$HOME/.preemdeck/preemdeck-runtime" "$HOME/.preemdeck/src/ripperdoc/wetware/wire/toolbox/stop.ts"` and relay its
+Run `"$HOME/.preemdeck/preemdeck-runtime" "$HOME/.preemdeck/src/ripperdoc/wetware/wire/apps/wire/stop.ts"` and relay its
 output to the operator.

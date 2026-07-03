@@ -326,7 +326,17 @@ describe("openInteractive", () => {
         // Bun.spawn call — proves the temp + port + self-reap flag land in the argv
         // the CLI builds. --kill-on-disconnect makes the fresh-per-plan server exit
         // when its IDE tab closes so no Vite process is orphaned.
-        const holoServe = path.resolve(import.meta.dir, "..", "..", "..", "chrome", "holo", "toolbox", "serve.ts")
+        const holoServe = path.resolve(
+            import.meta.dir,
+            "..",
+            "..",
+            "..",
+            "chrome",
+            "holo",
+            "apps",
+            "planner",
+            "serve.ts"
+        )
         const planCss = path.resolve(import.meta.dir, "plan-preview.css")
         let argv: string[] = []
         const { deps } = makeDeps({
@@ -347,7 +357,7 @@ describe("openInteractive", () => {
         await openInteractive({ plan: "# Plan" }, deps)
         expect(argv[0]).toBe(process.execPath)
         expect(argv[1]).toBe(holoServe)
-        expect(argv[1]?.endsWith(path.join("chrome", "holo", "toolbox", "serve.ts"))).toBe(true)
+        expect(argv[1]?.endsWith(path.join("chrome", "holo", "apps", "planner", "serve.ts"))).toBe(true)
         expect(argv[2]?.endsWith(".mdx")).toBe(true)
         expect(argv.slice(3)).toEqual(["--port", "47777", "--kill-on-disconnect", "--css", planCss])
     })
