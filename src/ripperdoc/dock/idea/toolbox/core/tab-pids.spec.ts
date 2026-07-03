@@ -15,7 +15,7 @@
  */
 
 import { afterEach, describe, expect, it } from "bun:test"
-import { type RunText, resolveTabPids, tabKey } from "./tab-pids"
+import { type RunText, resolveTabPids } from "./tab-pids"
 
 const context = describe
 
@@ -183,74 +183,6 @@ describe("resolveTabPids", () => {
                 expect(Number.isInteger(pid)).toBe(true)
                 expect(pid).toBeGreaterThan(0)
             }
-        })
-    })
-})
-
-describe("tabKey (the stable per-tab name key)", () => {
-    const savedTmux = process.env.TMUX
-    afterEach(() => {
-        if (savedTmux === undefined) delete process.env.TMUX
-        else process.env.TMUX = savedTmux
-    })
-
-    context("inside tmux ($TMUX set)", () => {
-        it("keys on the tmux session name and never probes ps", async () => {
-            process.env.TMUX = TMUX
-            const f = runWith((argv) => (argv[1] === "display-message" ? "work\n" : "SHOULD-NOT-RUN"))
-            expect(await tabKey(f.run)).toBe("work")
-            expect(f.calls).toEqual([["tmux", "display-message", "-p", "#{session_name}"]])
-        })
-
-        it('is "" when the session name is blank', async () => {
-            process.env.TMUX = TMUX
-            const f = runWith(() => "  \n")
-            expect(await tabKey(f.run)).toBe("")
-        })
-    })
-
-    context("outside tmux ($TMUX unset)", () => {
-        it("keys on the own tty resolved on the first hop", async () => {
-            delete process.env.TMUX
-            const f = runWith((argv) =>
-                isAncestryProbe(argv) && argv[4] === SELF ? "1234 ttys006\n" : "SHOULD-NOT-RUN"
-            )
-            expect(await tabKey(f.run)).toBe("ttys006")
-            expect(f.calls).toEqual([["ps", "-o", "ppid=,tty=", "-p", SELF]])
-        })
-
-        it("walks to an ancestor tty when our own is ttyless (agent-run)", async () => {
-            delete process.env.TMUX
-            const anc: Record<string, string> = { [SELF]: "80108 ??\n", "80108": "77290 ttys013\n" }
-            const f = runWith((argv) => (isAncestryProbe(argv) ? (anc[argv[4] ?? ""] ?? "") : "SHOULD-NOT-RUN"))
-            expect(await tabKey(f.run)).toBe("ttys013")
-            expect(f.calls).toEqual([
-                ["ps", "-o", "ppid=,tty=", "-p", SELF],
-                ["ps", "-o", "ppid=,tty=", "-p", "80108"]
-            ])
-        })
-
-        it("strips a leading /dev/ from the resolved tty", async () => {
-            delete process.env.TMUX
-            const f = runWith((argv) => (isAncestryProbe(argv) && argv[4] === SELF ? "1234 /dev/ttys009\n" : ""))
-            expect(await tabKey(f.run)).toBe("ttys009")
-        })
-
-        it('is "" when no ancestor has a tty (headless)', async () => {
-            delete process.env.TMUX
-            const f = runWith((argv) => (isAncestryProbe(argv) && argv[4] === SELF ? "1 ??\n" : ""))
-            expect(await tabKey(f.run)).toBe("")
-        })
-
-        it('treats a Linux `?` no-tty like `??` (returns "" at chain end)', async () => {
-            delete process.env.TMUX
-            const f = runWith((argv) => (isAncestryProbe(argv) && argv[4] === SELF ? "1 ?\n" : ""))
-            expect(await tabKey(f.run)).toBe("")
-        })
-
-        it('is "" when the probe degrades to an empty string', async () => {
-            delete process.env.TMUX
-            expect(await tabKey(async () => "")).toBe("")
         })
     })
 })

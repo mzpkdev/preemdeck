@@ -18,19 +18,18 @@
 import { describe, expect, it } from "bun:test"
 import * as path from "node:path"
 import { GLYPH, windowName } from "../../tmux/toolbox/tmux-title"
-import { applyTitle, runRename, type TabTitleDeps, tabName } from "./tab-title"
+import { applyTitle, effectiveState, runRename, type TabTitleDeps, tabName } from "./tab-title"
 
 const context = describe
 
 const env = (extra: Record<string, string>): NodeJS.ProcessEnv => extra as NodeJS.ProcessEnv
 
-// A fake seam set: canned inIdea/pids/key/saved-name, a renameTab that records its
-// calls, and a clearSavedName recorder (for the reset path).
+// A fake seam set: canned inIdea/pids and the tab's current title (what readTabTitle
+// returns), plus a renameTab that records its calls.
 const fakeDeps = (
-    over: { inIdea?: boolean; pids?: number[]; saved?: string; key?: string } = {}
-): { deps: TabTitleDeps; calls: { name: string | null; pids: number[] }[]; cleared: string[] } => {
+    over: { inIdea?: boolean; pids?: number[]; current?: string | null } = {}
+): { deps: TabTitleDeps; calls: { name: string | null; pids: number[] }[] } => {
     const calls: { name: string | null; pids: number[] }[] = []
-    const cleared: string[] = []
     const deps: TabTitleDeps = {
         inIdea: () => over.inIdea ?? true,
         resolveTabPids: () => Promise.resolve(over.pids ?? [111, 222]),
@@ -38,13 +37,9 @@ const fakeDeps = (
             calls.push({ name, pids: [...pids] })
             return Promise.resolve()
         },
-        tabKey: () => Promise.resolve(over.key ?? "ttys006"),
-        getSavedName: () => over.saved,
-        clearSavedName: (key) => {
-            cleared.push(key)
-        }
+        readTabTitle: () => Promise.resolve(over.current ?? null)
     }
-    return { deps, calls, cleared }
+    return { deps, calls }
 }
 
 // Spawn the CLI as a real subprocess. --dry-run makes effect() skip the real IDE write.
@@ -113,38 +108,75 @@ describe("tab-title", () => {
         })
     })
 
-    context("the saved name (the model's chosen tab name) as the label base", () => {
-        it("prefers the saved name over the project label for a glyph flip", async () => {
-            const { deps, calls } = fakeDeps({ pids: [9], saved: "tab-naming" })
+    context("the tab's own current title (read back) as the label base", () => {
+        it("recovers the base from the current glyph'd title so the name survives the flip", async () => {
+            const { deps, calls } = fakeDeps({ pids: [9], current: windowName("idle", "tab-naming") })
             expect(await applyTitle("busy", env({ CLAUDE_PROJECT_DIR: "/a/proj" }), deps)).toBe(true)
-            // ⚡ tab-naming, NOT ⚡ proj — the model's name survives the state flip.
+            // ◇ tab-naming read back, stripped to "tab-naming", re-flipped to ◈ tab-naming (NOT ◈ proj).
             expect(calls).toEqual([{ name: windowName("busy", "tab-naming"), pids: [9] }])
         })
 
-        it("falls back to the project label when nothing is saved", async () => {
-            const { deps, calls } = fakeDeps({ pids: [9] })
+        it("preserves an IDE-menu name that has no glyph (just adds the glyph)", async () => {
+            const { deps, calls } = fakeDeps({ pids: [9], current: "hand-named" })
+            await applyTitle("busy", env({ CLAUDE_PROJECT_DIR: "/a/proj" }), deps)
+            expect(calls).toEqual([{ name: windowName("busy", "hand-named"), pids: [9] }])
+        })
+
+        it("falls back to the project label when the current title is null/unreadable", async () => {
+            const { deps, calls } = fakeDeps({ pids: [9], current: null })
             await applyTitle("idle", env({ CLAUDE_PROJECT_DIR: "/a/proj" }), deps)
             expect(calls).toEqual([{ name: windowName("idle", "proj"), pids: [9] }])
         })
 
-        it("clears the saved name for this tab's key on reset (then restores auto-naming)", async () => {
-            const { deps, calls, cleared } = fakeDeps({ pids: [7], key: "work", saved: "tab-naming" })
+        it("does NOT read the title on reset (just clears, restoring auto-naming)", async () => {
+            let reads = 0
+            const base = fakeDeps({ pids: [7], current: "whatever" })
+            const deps = {
+                ...base.deps,
+                readTabTitle: () => {
+                    reads++
+                    return Promise.resolve("whatever")
+                }
+            }
             expect(await applyTitle("reset", env({ CLAUDE_PROJECT_DIR: "/a/proj" }), deps)).toBe(true)
-            expect(cleared).toEqual(["work"])
-            expect(calls).toEqual([{ name: null, pids: [7] }])
-        })
-
-        it("does NOT clear the saved name on a non-reset state", async () => {
-            const { deps, cleared } = fakeDeps({ saved: "tab-naming" })
-            await applyTitle("busy", env({ CLAUDE_PROJECT_DIR: "/a/proj" }), deps)
-            expect(cleared).toEqual([])
+            expect(base.calls).toEqual([{ name: null, pids: [7] }])
+            expect(reads).toBe(0)
         })
     })
 
     context("runRename — the real effect()-gated dispatch seam", () => {
         it("is a no-op that never throws for empty pids (core short-circuits before any IDE contact)", async () => {
             await expect(runRename(null, [])).resolves.toBeUndefined()
-            await expect(runRename("⚡ proj", [])).resolves.toBeUndefined()
+            await expect(runRename(windowName("busy", "proj"), [])).resolves.toBeUndefined()
+        })
+    })
+
+    context("effectiveState — downgrades the idle Notification ping to idle", () => {
+        const idle = (): Promise<Record<string, unknown>> =>
+            Promise.resolve({ message: "Claude is waiting for your input" })
+        const gate = (): Promise<Record<string, unknown>> =>
+            Promise.resolve({ message: "Claude needs your permission to use Bash" })
+
+        it.each(["idle", "busy", "reset", "bogus"])("passes %p through without reading stdin", async (state) => {
+            let reads = 0
+            const out = await effectiveState(state, () => {
+                reads++
+                return Promise.resolve({})
+            })
+            expect(out).toBe(state)
+            expect(reads).toBe(0) // only "waiting" inspects the payload
+        })
+
+        it('downgrades "waiting" to "idle" for the idle "waiting for your input" ping', async () => {
+            expect(await effectiveState("waiting", idle)).toBe("idle")
+        })
+
+        it('keeps "waiting" for a real permission gate', async () => {
+            expect(await effectiveState("waiting", gate)).toBe("waiting")
+        })
+
+        it('keeps "waiting" when the payload is empty / unreadable', async () => {
+            expect(await effectiveState("waiting", () => Promise.resolve({}))).toBe("waiting")
         })
     })
 

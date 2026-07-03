@@ -28,7 +28,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "$HOME/.preemdeck/preemdeck-runtime \"$HOME/.preemdeck/src/ripperdoc/dock/idea/toolbox/inject-tab-name.ts\" TAB-NAME.md --event UserPromptSubmit --every 1",
+            "command": "$HOME/.preemdeck/preemdeck-runtime \"$HOME/.preemdeck/src/ripperdoc/dock/idea/toolbox/inject-tab-name.ts\" TAB-NAME.md --event UserPromptSubmit --every 3",
             "timeout": 5
           }
         ]

@@ -16,7 +16,7 @@ import { join } from "node:path"
 import { runInjectionHook } from "../../../../common/hook-inject"
 import { throttle } from "../../../../common/hooks"
 import { ENV } from "../../../../common/preemdeck"
-import { extractArgs, renderTemplate } from "./inject-tab-name"
+import { appendTabName, type CurrentTabNameDeps, currentTabName, extractArgs, renderTemplate } from "./inject-tab-name"
 
 const context = describe
 
@@ -153,6 +153,62 @@ describe("inject-tab-name", () => {
 
         it("stays a {} no-op on a cadence hit when the template is empty", async () => {
             expect(await runGated(null, 1, "empty")).toBe("{}")
+        })
+    })
+
+    context("appendTabName", () => {
+        it("appends the current-name line to the directive", () => {
+            expect(appendTabName("DIRECTIVE", "auth-retry")).toBe(
+                "DIRECTIVE\n\nThis tab is currently named `auth-retry`."
+            )
+        })
+        it("leaves the directive untouched for a null name", () => {
+            expect(appendTabName("DIRECTIVE", null)).toBe("DIRECTIVE")
+        })
+    })
+
+    context("currentTabName (read back from the IDE, glyph-stripped)", () => {
+        const tabDeps = (
+            over: { inIdea?: boolean; pids?: number[]; title?: string | null } = {}
+        ): CurrentTabNameDeps => ({
+            inIdea: () => over.inIdea ?? true,
+            resolveTabPids: () => Promise.resolve(over.pids ?? [111]),
+            readTabTitle: () => Promise.resolve(over.title ?? null)
+        })
+
+        it("strips our glyph off the read-back title", async () => {
+            expect(await currentTabName(tabDeps({ title: "◈ tab-read-util" }))).toBe("tab-read-util")
+        })
+        it("preserves a glyph-less (IDE-menu / auto) name", async () => {
+            expect(await currentTabName(tabDeps({ title: "hand-named" }))).toBe("hand-named")
+        })
+        it("is null outside a JetBrains terminal, never resolving pids", async () => {
+            let pidReads = 0
+            const deps: CurrentTabNameDeps = {
+                ...tabDeps({ inIdea: false }),
+                resolveTabPids: () => {
+                    pidReads++
+                    return Promise.resolve([1])
+                }
+            }
+            expect(await currentTabName(deps)).toBeNull()
+            expect(pidReads).toBe(0)
+        })
+        it("is null when no pid resolves", async () => {
+            expect(await currentTabName(tabDeps({ pids: [] }))).toBeNull()
+        })
+        it("is null when the title can't be read", async () => {
+            expect(await currentTabName(tabDeps({ title: null }))).toBeNull()
+        })
+        it("is null when the title strips to empty (a bare glyph)", async () => {
+            expect(await currentTabName(tabDeps({ title: "◇" }))).toBeNull()
+        })
+        it("is null (never throws) when the read seam rejects", async () => {
+            const deps: CurrentTabNameDeps = {
+                ...tabDeps(),
+                readTabTitle: () => Promise.reject(new Error("boom"))
+            }
+            expect(await currentTabName(deps)).toBeNull()
         })
     })
 })

@@ -5,12 +5,14 @@
  * Mirrors the imprint's inject-hook.ts, but self-contained in dock/idea for plugin
  * independence and with no `{{host_tools}}` substitution. On the prompt-submit event
  * (Claude/Codex UserPromptSubmit, Gemini BeforeAgent) it reads a directive template
- * (TAB-NAME.md, positional) from the plugin root, strips it, and emits it as an
- * `additionalContext` envelope via the shared runInjectionHook — the host folds it
- * into the MAIN model's context for that turn. The model (which already holds full
- * session context) picks a 1-2 word slug and runs rename-tab.ts itself; our code
- * only injects the directive. The directive is CONDITIONAL (rename only when the
- * current name no longer fits), so injecting every turn does not churn the tab.
+ * (TAB-NAME.md, positional) from the plugin root, strips it, appends the tab's
+ * CURRENT name (read back from the IDE, glyph-stripped, so the model can judge
+ * whether it still fits), and emits it as an `additionalContext` envelope via the
+ * shared runInjectionHook — the host folds it into the MAIN model's context for that
+ * turn. The model (which already holds full session context) picks a 1-2 word slug
+ * and runs rename-tab.ts itself; our code only injects the directive. The directive
+ * is CONDITIONAL (rename only when the current name no longer fits), so injecting
+ * does not churn the tab.
  *
  * Cadence: default every turn (`--every 1`), gated through the shared per-session
  * {@link throttle}; a missing/empty template or a stdin/throttle miss is a silent
@@ -29,6 +31,8 @@ import argvex from "argvex"
 import { runInjectionHook } from "../../../../common/hook-inject"
 import { throttle } from "../../../../common/hooks"
 import { ENV, markdown } from "../../../../common/preemdeck"
+import { stripGlyph } from "../../tmux/toolbox/tmux-title"
+import { inIdea, readTabTitle, resolveTabPids } from "./core"
 
 /** Default cadence: inject on every turn. The directive is conditional, so per-turn is cheap. Overridable via `--every`. */
 const DEFAULT_EVERY = 1
@@ -80,6 +84,43 @@ export const renderTemplate = async (argv: string[], pluginRoot: string = ENV.PL
     return text || null
 }
 
+/** Injectable IDE seams for {@link currentTabName}; production uses core inIdea / pid / title read. */
+export type CurrentTabNameDeps = {
+    inIdea: () => boolean
+    resolveTabPids: () => Promise<number[]>
+    readTabTitle: (pids: readonly number[]) => Promise<string | null>
+}
+
+const DEFAULT_TAB_DEPS: CurrentTabNameDeps = { inIdea, resolveTabPids, readTabTitle }
+
+/**
+ * The tab's current base name: its displayed title read back from the IDE,
+ * glyph-stripped. null when not in a JetBrains terminal, no pid resolves, the title
+ * can't be read, or it strips to empty. NEVER throws — every failure is a null so
+ * the injector simply omits the "current name" line. `deps` injects the IDE seams
+ * for hermetic tests.
+ */
+export const currentTabName = async (deps: CurrentTabNameDeps = DEFAULT_TAB_DEPS): Promise<string | null> => {
+    try {
+        if (!deps.inIdea()) return null
+        const pids = await deps.resolveTabPids()
+        if (pids.length === 0) return null
+        const title = await deps.readTabTitle(pids)
+        const base = title ? stripGlyph(title) : ""
+        return base.length > 0 ? base : null
+    } catch {
+        return null
+    }
+}
+
+/**
+ * Append a line naming the tab's current title to the directive so the model can
+ * judge whether it still fits before renaming. A null name (unreadable, or the tab
+ * is auto-named to nothing usable) leaves the directive untouched.
+ */
+export const appendTabName = (text: string, name: string | null): string =>
+    name ? `${text}\n\nThis tab is currently named \`${name}\`.` : text
+
 if (import.meta.main) {
     const { event, every, positionals } = extractArgs(Bun.argv.slice(2))
     if (event === null || event.length === 0) {
@@ -90,7 +131,10 @@ if (import.meta.main) {
     const cadence = every ?? DEFAULT_EVERY
     await runInjectionHook({
         event,
-        render: (payload) => (text && throttle(payload, cadence) ? text : null)
+        // Resolve the current name only when the throttle fires (an IDE round-trip),
+        // so no-op turns stay cheap; a null name just omits the extra line.
+        render: async (payload) =>
+            text && throttle(payload, cadence) ? appendTabName(text, await currentTabName()) : null
     })
     process.exit(0)
 }

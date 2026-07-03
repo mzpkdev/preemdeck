@@ -16,8 +16,8 @@
 export type RunInjectionOptions = {
     /** Host event, always supplied by the caller/manifest; stdin's hook_event_name overrides it. */
     event: string
-    /** Produce additionalContext; non-empty string injects, null/"" is a no-op. */
-    render: (payload: Record<string, unknown>) => string | null
+    /** Produce additionalContext; non-empty string injects, null/"" is a no-op. May be async (e.g. an IDE read). */
+    render: (payload: Record<string, unknown>) => string | null | Promise<string | null>
     /** Stdin source. Defaults to Bun.stdin. Override in tests. */
     stdin?: { text(): Promise<string> }
     /** Sink for the JSON line. Defaults to console.log. Override in tests. */
@@ -34,7 +34,7 @@ export const runInjectionHook = async (options: RunInjectionOptions): Promise<vo
     const fromPayload = payload.hook_event_name
     const eventName = typeof fromPayload === "string" && fromPayload.length > 0 ? fromPayload : event
 
-    const text = tryRender(render, payload)
+    const text = await tryRender(render, payload)
     if (!text) {
         write("{}")
         return
@@ -54,10 +54,13 @@ const parsePayload = (raw: string): Record<string, unknown> => {
     }
 }
 
-/** Run the render callback; a throw becomes `null` (a silent no-op upstream). */
-const tryRender = (render: RunInjectionOptions["render"], payload: Record<string, unknown>): string | null => {
+/** Run the render callback (sync or async); a throw/rejection becomes `null` (a silent no-op upstream). */
+const tryRender = async (
+    render: RunInjectionOptions["render"],
+    payload: Record<string, unknown>
+): Promise<string | null> => {
     try {
-        return render(payload)
+        return await render(payload)
     } catch {
         return null
     }

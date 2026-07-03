@@ -3,13 +3,18 @@
  * tab-title.ts — rename the current JetBrains terminal TAB to reflect the agent's
  * state, so a glance across terminal tabs shows which session is idle, working, or
  * waiting on you. The IDE-side mirror of tmux-title.ts: it reuses that module's
- * glyph + name logic, so a tab reads `⚡ preemdeck` exactly like the tmux window
+ * glyph + name logic, so a tab reads `◈ preemdeck` exactly like the tmux window
  * it mirrors.
  *
  * Wired on the host state events (see the three manifests): a prompt submit flips
- * the tab to ⚡, a turn end / session start back to 🤖, and a permission /
- * notification gate to 💬. On session end the user-defined title is cleared,
+ * the tab to ◈, a turn end / session start back to ◇, and a permission /
+ * notification gate to ◆. On session end the user-defined title is cleared,
  * handing the tab name back to the IDE's auto-naming.
+ *
+ * The Notification event is overloaded: besides a permission gate it also fires
+ * Claude's idle "waiting for your input" ping (~60s after a turn ends), which lands
+ * AFTER Stop's ◇ and would strand an idle tab on ◆. effectiveState reads the
+ * payload and downgrades that ping back to idle, so only a real gate shows ◆.
  *
  *     Claude  SessionStart→idle  UserPromptSubmit→busy  Notification→waiting  Stop→idle  SessionEnd→reset
  *     Codex   SessionStart→idle  UserPromptSubmit→busy  PermissionRequest→waiting  Stop→idle  (no SessionEnd/Notification)
@@ -34,9 +39,14 @@
 import { defineCommand, effect, execute } from "cmdore"
 import { isNotifyEnabled } from "../../../../common/preemdeck"
 // Reuse the glyph + name logic from tmux-title so the tab label matches the tmux
-// window verbatim (e.g. `⚡ preemdeck`) — the glyph/name logic is NOT duplicated here.
-import { GLYPH, projectLabel, windowName } from "../../tmux/toolbox/tmux-title"
-import { clearSavedName, getSavedName, inIdea, renameTab, resolveTabPids, tabKey } from "./core"
+// window verbatim (e.g. `◈ preemdeck`) — the glyph/name logic is NOT duplicated here.
+import { GLYPH, projectLabel, stripGlyph, windowName } from "../../tmux/toolbox/tmux-title"
+import { inIdea, readTabTitle, renameTab, resolveTabPids } from "./core"
+// The Notification event is overloaded: it fires for real permission gates AND for
+// Claude's idle "waiting for your input" ping. isIdleNotification tells them apart
+// (shared with permission-notify); readHookInput is the fail-safe stdin parser.
+import { isIdleNotification } from "./permission-notify"
+import { readHookInput } from "./turn-notify"
 
 /**
  * The rename target for `state`, or null when the state is unknown (the caller
@@ -64,12 +74,8 @@ export type TabTitleDeps = {
     resolveTabPids: () => Promise<number[]>
     /** Rename the pid-matched tab(s) to `name`, or clear when null (default: {@link runRename}). */
     renameTab: (name: string | null, pids: readonly number[]) => Promise<void>
-    /** Resolve this tab's stable name key (default: core tabKey — tmux session or tty). */
-    tabKey: () => Promise<string>
-    /** The name the main model chose for this tab, or undefined (default: core getSavedName). */
-    getSavedName: (key: string) => string | undefined
-    /** Drop the saved name for `key` — called on the reset state (default: core clearSavedName). */
-    clearSavedName: (key: string) => void
+    /** Read the pid-matched tab's current displayed title, or null (default: core readTabTitle). */
+    readTabTitle: (pids: readonly number[]) => Promise<string | null>
 }
 
 /**
@@ -82,26 +88,26 @@ export const runRename = async (name: string | null, pids: readonly number[]): P
     await effect(() => renameTab(name, pids))
 }
 
-/** Production seam set: the real IDE gate, pid resolver, effect()-gated rename, and saved-name store. */
+/** Production seam set: the real IDE gate, pid resolver, effect()-gated rename, and title read-back. */
 export const DEFAULT_DEPS: TabTitleDeps = {
     inIdea,
     resolveTabPids,
     renameTab: runRename,
-    tabKey,
-    getSavedName,
-    clearSavedName
+    readTabTitle
 }
 
 /**
  * Apply the tab title for `state`. No-op (false) outside a JetBrains terminal, for
  * an unknown state, or when no pid resolves on this tab's tty; otherwise renames
  * the pid-matched tab(s) to windowName() (or clears it on reset) and returns true.
- * `deps` injects the IDE gate / pid / rename / saved-name seams for hermetic tests.
+ * `deps` injects the IDE gate / pid / rename / title-read seams for hermetic tests.
  *
- * The label BASE is the name the main model chose for this tab (getSavedName, keyed
- * by tabKey) when present, else the project label — so a glyph flip (idle/busy/
- * waiting) preserves the model's name (`⚡ tab-naming`) instead of reverting to the
- * bare project. The `reset` state clears that saved name before restoring auto-naming.
+ * The label BASE is the tab's OWN current title read back from the IDE
+ * (readTabTitle), glyph-stripped, else the project label — so a glyph flip (idle/
+ * busy/waiting) preserves a name set by rename-tab OR from the IDE's own tab menu
+ * (`◈ tab-naming` -> `◇ tab-naming`) instead of reverting to the bare project. No
+ * on-disk store: the tab itself is the source of truth. The `reset` state clears
+ * the user-defined title, restoring the IDE's auto-naming.
  */
 export const applyTitle = async (
     state: string,
@@ -111,21 +117,41 @@ export const applyTitle = async (
     if (!deps.inIdea()) {
         return false // not inside a JetBrains terminal — nothing to rename
     }
-    const key = await deps.tabKey()
-    if (state === "reset") {
-        deps.clearSavedName(key) // session ending — the model's chosen name should not outlive it
-    }
-    const base = deps.getSavedName(key) ?? projectLabel(env)
-    const target = tabName(state, base)
-    if (target === null) {
-        return false // unknown state
-    }
     const pids = await deps.resolveTabPids()
     if (pids.length === 0) {
         return false // no pid on this tab's tty — rename nothing rather than guess
     }
+    // Recover the base from the tab's current title (glyph-stripped) so a rename-tab
+    // or IDE-menu name survives the flip; fall back to the project label. Only a glyph
+    // state reads the title — reset just clears, an unknown state no-ops.
+    const base = state in GLYPH ? stripGlyph((await deps.readTabTitle(pids)) ?? "") || projectLabel(env) : ""
+    const target = tabName(state, base)
+    if (target === null) {
+        return false // unknown state
+    }
     await deps.renameTab(target.name, pids)
     return true
+}
+
+/**
+ * The state to actually apply for the manifest-passed `state`. Only "waiting" is
+ * conditional: the Notification event that carries it ALSO fires Claude's idle
+ * "waiting for your input" ping, which means the tab is IDLE, not gated — so read
+ * the payload and downgrade that ping to "idle" (else an idle tab sticks on ◆).
+ * Every other state passes through untouched and never reads stdin. A real
+ * permission gate (isIdleNotification false) stays "waiting".
+ *
+ * `read` is the injectable payload seam (default {@link readHookInput}, which is
+ * fail-safe: a TTY / empty / malformed stdin reads as `{}`) for hermetic tests.
+ */
+export const effectiveState = async (
+    state: string,
+    read: () => Promise<Record<string, unknown>> = readHookInput
+): Promise<string> => {
+    if (state !== "waiting") {
+        return state
+    }
+    return isIdleNotification(await read()) ? "idle" : "waiting"
 }
 
 const command = defineCommand({
@@ -140,7 +166,7 @@ const command = defineCommand({
             if (!(await isNotifyEnabled("ideaTab"))) {
                 return // user disabled WebStorm tab titles via preemdeck.json notify.ideaTab
             }
-            await applyTitle(typeof state === "string" ? state : "")
+            await applyTitle(await effectiveState(typeof state === "string" ? state : ""))
         } catch {
             // swallow: no IDE, a foreign env, or a dispatch error must not disrupt the host
         }

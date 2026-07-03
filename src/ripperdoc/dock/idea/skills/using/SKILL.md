@@ -381,9 +381,11 @@ tab is ever touched, and an empty pid set (not in a terminal, or a failed probe)
 **every** tab mirroring this session — they all get renamed together, keeping the mirror consistent.
 
 **Auto state titles.** When `notify.ideaTab` is enabled (default on) in `~/.preemdeck/preemdeck.json`, a state hook
-(`tab-title.ts`) auto-renames this tab on every turn to match the **tmux window** — `🤖`/`⚡`/`💬` + the project name
-(e.g. `⚡ preemdeck`) for idle / busy / waiting — and clears it on session end. A manual `rename-tab` overrides that
-until the next state event fires. Turn the auto-titles off with `notify: { ideaTab: false }`.
+(`tab-title.ts`) auto-renames this tab on every turn to match the **tmux window** — `◇`/`◈`/`◆` + the project name (e.g.
+`◈ preemdeck`) for idle / busy / waiting — and clears it on session end. The base name is read back from the tab itself
+each flip (glyph-stripped), so a name set via `rename-tab` OR from the IDE's own tab menu survives the flips (only the
+glyph changes); with none set it falls back to the project label. Turn the auto-titles off with
+`notify: { ideaTab: false }`.
 
 **When to use:** label a long-running session's tab ("PR review", "deploy") or reset a tab back to auto-naming.
 

@@ -2,50 +2,35 @@
  * rename-tab.spec.ts — the CLI at two layers.
  *
  * UNIT (hermetic): slugifyTabName is checked directly, and renameTabCli is driven
- * with a fake key/pids/store/rename seam (DI) so NO real IDE dispatch or fs write
- * happens — asserting the sanitize -> setSavedName -> rename wiring, the reset path
- * (clearSavedName + clear title), and the empty-after-sanitize no-op.
+ * with a fake pids/rename seam (DI) so NO real IDE dispatch happens — asserting the
+ * sanitize -> busy-glyph rename wiring, the reset path (clear the title), and the
+ * empty-after-sanitize no-op. There is no on-disk store: the tab title is the store.
  *
  * E2E (subprocess): every case runs under --dry-run so effect() resolves the tab's
- * pids but SKIPS the real IDE dispatch, and against a throwaway $HOME so the
- * un-gated saved-name write can never touch the real ~/.preemdeck. We assert the
- * exit code, clean stdout, and the --verbose decision line (now the sanitized slug)
- * for each name mode, plus the assertIdea gate. Mirrors tab-title.spec's harness.
+ * pids but SKIPS the real IDE dispatch. We assert the exit code, clean stdout, and
+ * the --verbose decision line (the sanitized slug) for each name mode, plus the
+ * assertIdea gate. Mirrors tab-title.spec's harness.
  */
 
 import { afterEach, beforeEach, describe, expect, it } from "bun:test"
 import { mkdtemp, rm } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import * as path from "node:path"
+import { windowName } from "../../tmux/toolbox/tmux-title"
 import { type RenameTabCliDeps, renameTabCli, slugifyTabName } from "./rename-tab"
 
 const context = describe
 
-// A fake seam set: canned key + pids, and recorders for the store + rename calls.
+// A fake seam set: canned pids and a recorder for the rename calls.
 const fakeDeps = (
-    over: { key?: string; pids?: number[] } = {}
+    over: { pids?: number[] } = {}
 ): {
     deps: RenameTabCliDeps
-    calls: {
-        set: { key: string; slug: string }[]
-        clear: string[]
-        rename: { name: string | null; pids: number[] }[]
-    }
+    calls: { rename: { name: string | null; pids: number[] }[] }
 } => {
-    const calls = {
-        set: [] as { key: string; slug: string }[],
-        clear: [] as string[],
-        rename: [] as { name: string | null; pids: number[] }[]
-    }
+    const calls = { rename: [] as { name: string | null; pids: number[] }[] }
     const deps: RenameTabCliDeps = {
-        tabKey: () => Promise.resolve(over.key ?? "ttys006"),
         resolveTabPids: () => Promise.resolve(over.pids ?? [111, 222]),
-        setSavedName: (key, slug) => {
-            calls.set.push({ key, slug })
-        },
-        clearSavedName: (key) => {
-            calls.clear.push(key)
-        },
         renameTab: (name, pids) => {
             calls.rename.push({ name, pids: [...pids] })
             return Promise.resolve()
@@ -63,7 +48,7 @@ afterEach(async () => {
 })
 
 // Spawn the CLI. PREEMDECK_FORCE_IN_IDEA=1 lets assertIdea() pass in CI; --dry-run
-// makes effect() skip the IDE write; HOME=<throwaway> quarantines the saved-name write.
+// makes effect() skip the IDE write. HOME=<throwaway> keeps the run hermetic.
 const run = async (
     args: string[],
     environment: Record<string, string> = {}
@@ -116,35 +101,29 @@ describe("slugifyTabName", () => {
 })
 
 describe("renameTabCli (unit, DI seams)", () => {
-    it("sanitizes the name, persists the slug, and renames to it", async () => {
-        const { deps, calls } = fakeDeps({ key: "ttys006", pids: [42] })
+    it("sanitizes the name and renames to the busy-glyph title", async () => {
+        const { deps, calls } = fakeDeps({ pids: [42] })
         await renameTabCli("PR Review!", false, deps)
-        expect(calls.set).toEqual([{ key: "ttys006", slug: "pr-review" }])
-        expect(calls.rename).toEqual([{ name: "pr-review", pids: [42] }])
-        expect(calls.clear).toEqual([])
+        // the tab title itself is the store; displayed with the busy glyph via windowName
+        expect(calls.rename).toEqual([{ name: windowName("busy", "pr-review"), pids: [42] }])
     })
 
-    it("still persists the slug when no pid resolves, so a later tab-title picks it up", async () => {
-        const { deps, calls } = fakeDeps({ key: "work", pids: [] })
+    it("still dispatches the rename when no pid resolves (the real renameTab no-ops on [])", async () => {
+        const { deps, calls } = fakeDeps({ pids: [] })
         await renameTabCli("Tab Naming", false, deps)
-        expect(calls.set).toEqual([{ key: "work", slug: "tab-naming" }])
-        expect(calls.rename).toEqual([{ name: "tab-naming", pids: [] }])
+        expect(calls.rename).toEqual([{ name: windowName("busy", "tab-naming"), pids: [] }])
     })
 
-    it("reset (null) clears the saved name and clears the title", async () => {
-        const { deps, calls } = fakeDeps({ key: "work", pids: [7] })
+    it("reset (null) clears the title (restores auto-naming)", async () => {
+        const { deps, calls } = fakeDeps({ pids: [7] })
         await renameTabCli(null, false, deps)
-        expect(calls.clear).toEqual(["work"])
         expect(calls.rename).toEqual([{ name: null, pids: [7] }])
-        expect(calls.set).toEqual([])
     })
 
-    it("is a full no-op for a name that sanitizes to empty (no persist, no rename)", async () => {
+    it("is a full no-op for a name that sanitizes to empty (no rename)", async () => {
         const { deps, calls } = fakeDeps()
         await renameTabCli("!!! ???", false, deps)
-        expect(calls.set).toEqual([])
         expect(calls.rename).toEqual([])
-        expect(calls.clear).toEqual([])
     })
 })
 
