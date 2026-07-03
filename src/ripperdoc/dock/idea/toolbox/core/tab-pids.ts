@@ -13,8 +13,10 @@
  *   client). So target EVERY client tty attached to our session
  *   (`tmux list-clients -t <session>`), not just one — every mirroring tab
  *   should get renamed together.
- * - no tmux: the tab is a plain login shell, so target this process's own
- *   controlling tty.
+ * - no tmux: the tab is a plain login shell. Target the controlling tty of the
+ *   nearest ancestor that has one — our own when a human runs the CLI in the tab,
+ *   or an ancestor's (the `claude`/agent process, or the login shell JediTerm
+ *   spawned) when an agent runs it in a ttyless child. See {@link ownTabTty}.
  *
  * For each target tty, `ps -t <bareTty> -o pid=` lists the pids on it (the login
  * shell + any tmux client + this CLI). Their union is returned; an empty result
@@ -42,6 +44,50 @@ const defaultRunText: RunText = async (argv) => {
 /** Strip a leading `/dev/` so the tty is in the bare form `ps -t` expects (`ttys006`). */
 const bareTty = (tty: string): string => tty.trim().replace(/^\/dev\//, "")
 
+/** True when a `ps -o tty=` value denotes NO controlling tty: macOS `??`, Linux `?`, or empty. */
+const noTty = (tty: string): boolean => tty.length === 0 || tty === "??" || tty === "?"
+
+/**
+ * This tab's controlling tty: the tty of the nearest ancestor that HAS one,
+ * bare-formed (no `/dev/`), or "" when none resolves.
+ *
+ * When the CLI runs directly in the tab's interactive shell, that shell's own tty
+ * IS the tab's tty — resolved on the first hop. But when an AGENT (Claude Code,
+ * etc.) runs it, the command lands in a detached child with NO controlling tty
+ * (macOS reports `??`, Linux `?`), while the tab's tty still belongs to an
+ * ancestor: the `claude`/agent process and the login shell JediTerm spawned both
+ * sit on it. So walk the PPID chain from this process up and return the FIRST real
+ * tty found — that is our tab's tty either way, and the pids on it still include
+ * the login shell that backs the IDE terminal Content, so the Groovy match stays
+ * exact.
+ *
+ * Bounded so a probe miss or a cycle can't loop: a hop cap plus a stop on an
+ * absent probe line or a `ppid <= 1` / non-integer parent. A fully headless run
+ * (no ancestor has a tty) yields "". Uses the same `ps -o ppid=,tty=` shape as
+ * idea-mac's ancestry probe (VERIFIED under the pinned Bun); `run` is the shared
+ * injectable seam for hermetic tests.
+ */
+const ownTabTty = async (run: RunText): Promise<string> => {
+    let pid = process.pid
+    for (let hops = 0; hops < 40 && pid > 1; hops++) {
+        const line = (await run(["ps", "-o", "ppid=,tty=", "-p", String(pid)])).trim()
+        if (line.length === 0) {
+            return ""
+        }
+        const [ppidRaw, ttyRaw = ""] = line.split(/\s+/)
+        const tty = ttyRaw.trim()
+        if (!noTty(tty)) {
+            return bareTty(tty)
+        }
+        const ppid = Number.parseInt(ppidRaw ?? "", 10)
+        if (!Number.isInteger(ppid) || ppid <= 1) {
+            return ""
+        }
+        pid = ppid
+    }
+    return ""
+}
+
 /**
  * The set of ttys whose processes belong to this tab.
  *
@@ -62,9 +108,11 @@ const targetTtys = async (run: RunText): Promise<string[]> => {
             .map((line) => line.trim())
             .filter((line) => line.length > 0)
     }
-    // Not tmux: this CLI's own controlling tty (macOS reports "no tty" as "??").
-    const own = (await run(["ps", "-o", "tty=", "-p", String(process.pid)])).trim()
-    return own.length > 0 && own !== "??" ? [own] : []
+    // Not tmux: the tab's tty is the nearest ancestor's controlling tty — our own
+    // when a human runs the CLI in the tab, or an ancestor's (claude / the login
+    // shell) when an agent runs it in a ttyless child. See ownTabTty.
+    const own = await ownTabTty(run)
+    return own.length > 0 ? [own] : []
 }
 
 /**
@@ -106,9 +154,10 @@ export const resolveTabPids = async (run: RunText = defaultRunText): Promise<num
  * - tmux (`$TMUX` set): the tmux session name (`display-message #{session_name}`).
  *   Several WebStorm tabs can mirror one session; they SHOULD share one saved
  *   name, so the session — not a per-client tty — is the right key.
- * - no tmux: this process's own controlling tty (`ps -o tty= -p <pid>`), the same
- *   probe {@link resolveTabPids} uses for the non-tmux tab, bare-formed. Each plain
- *   login-shell tab has its own tty, so each keys independently.
+ * - no tmux: the nearest ancestor's controlling tty ({@link ownTabTty}) — our own
+ *   when a human runs the CLI, or an ancestor's when an agent runs it in a ttyless
+ *   child, the same tty {@link resolveTabPids} targets. Each plain login-shell tab
+ *   has its own tty, so each keys independently.
  *
  * Returns "" when neither resolves (a failed probe, or macOS's `??` "no tty") —
  * callers treat "" as "no stable key" and skip persistence rather than colliding
@@ -120,6 +169,5 @@ export const tabKey = async (run: RunText = defaultRunText): Promise<string> => 
     if (process.env.TMUX) {
         return (await run(["tmux", "display-message", "-p", "#{session_name}"])).trim()
     }
-    const own = (await run(["ps", "-o", "tty=", "-p", String(process.pid)])).trim()
-    return own.length > 0 && own !== "??" ? bareTty(own) : ""
+    return await ownTabTty(run)
 }
