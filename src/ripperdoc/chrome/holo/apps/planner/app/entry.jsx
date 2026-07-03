@@ -504,6 +504,12 @@ function Holo() {
   // the <html> class that reaches its body-portaled dropdowns/popovers.
   const [dark, setDark] = useState(false);
   const saveTimer = useRef(undefined);
+  // The latest edit not yet confirmed by a completed POST. Held so a teardown can
+  // persist it synchronously instead of dropping it: the JCEF preview tab reloads
+  // itself mid-edit (focus/repaint), and a reload inside the debounce window would
+  // otherwise cancel the pending POST AND re-seed the editor from the stale file,
+  // silently reverting the edit. `null` means nothing outstanding.
+  const pending = useRef(null);
 
   useEffect(() => {
     const isDark = readPaletteIsDark();
@@ -521,9 +527,37 @@ function Holo() {
           setMarkdown(text);
         }
       });
+
+    // Persist the outstanding edit NOW, synchronously. sendBeacon survives page
+    // teardown and isn't throttled in a hidden page (a plain fetch is cancelled on
+    // unload); keepalive fetch is the fallback if the beacon is refused (e.g. an
+    // over-large payload). Runs on the events that precede a JCEF reload/tab-hide and
+    // on unmount, so an in-flight edit is flushed rather than lost to the reload race.
+    const flush = () => {
+      clearTimeout(saveTimer.current);
+      const text = pending.current;
+      if (text === null) {
+        return;
+      }
+      pending.current = null;
+      const sent = navigator.sendBeacon?.(PLAN_ENDPOINT, text);
+      if (!sent) {
+        void fetch(PLAN_ENDPOINT, { method: "POST", body: text, keepalive: true });
+      }
+    };
+    const onVisibility = () => {
+      if (document.visibilityState === "hidden") {
+        flush();
+      }
+    };
+    window.addEventListener("pagehide", flush);
+    document.addEventListener("visibilitychange", onVisibility);
+
     return () => {
       live = false;
-      clearTimeout(saveTimer.current);
+      window.removeEventListener("pagehide", flush);
+      document.removeEventListener("visibilitychange", onVisibility);
+      flush();
     };
   }, []);
 
@@ -535,9 +569,16 @@ function Holo() {
 
   // Debounce the write-back so a burst of keystrokes collapses to one POST.
   const save = (next) => {
+    // Track the outstanding text so a teardown flush can persist it; keep it set until
+    // the POST resolves, so a reload between timer-fire and completion still re-sends it.
+    pending.current = next;
     clearTimeout(saveTimer.current);
     saveTimer.current = setTimeout(() => {
-      void fetch(PLAN_ENDPOINT, { method: "POST", body: next });
+      void fetch(PLAN_ENDPOINT, { method: "POST", body: next }).then(() => {
+        if (pending.current === next) {
+          pending.current = null;
+        }
+      });
     }, SAVE_DEBOUNCE_MS);
   };
 
