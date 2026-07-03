@@ -559,6 +559,18 @@ describe("install", () => {
             ])
         })
 
+        it("gemini sets GEMINI_CLI_TRUST_WORKSPACE to skip 0.49's folder-trust prompt", async () => {
+            await installPlugin("gemini", spec, "chrome", false)
+            const opts = spawnSpy.mock.calls[0]?.[1] as { env?: Record<string, string> } | undefined
+            expect(opts?.env?.GEMINI_CLI_TRUST_WORKSPACE).toBe("true")
+        })
+
+        it("claude/codex installs get no env override (trust flag is gemini-only)", async () => {
+            await installPlugin("claude", spec, "chrome", false)
+            const opts = spawnSpy.mock.calls[0]?.[1] as { env?: unknown } | undefined
+            expect(opts?.env).toBeUndefined()
+        })
+
         it("gemini falls back to `extensions update` when already installed", async () => {
             spawnSpy.mockImplementation(() => fakeChild("", 1, "extension already installed"))
             await installPlugin("gemini", spec, "chrome", false)

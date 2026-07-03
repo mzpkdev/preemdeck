@@ -227,13 +227,22 @@ export function readPluginSpecs(rackPath: string): PluginSpec[] {
 // timeoutMs is injectable (default 10_000) so tests can drive the timeout path with
 // a real fast-firing reap timer; the default keeps the "timed out after 10s"
 // message on the production path (10_000 / 1000 = 10).
-export async function runCli(cmd: string[], dryRun: boolean, timeoutMs = 10_000): Promise<[boolean, string]> {
+export async function runCli(
+  cmd: string[],
+  dryRun: boolean,
+  timeoutMs = 10_000,
+  env?: Record<string, string>,
+): Promise<[boolean, string]> {
   if (dryRun) {
     return [true, ""];
   }
   let result: Reaped;
   try {
-    result = await reap(Bun.spawn(cmd, PIPED), timeoutMs);
+    // `env` is merged OVER the inherited environment (Bun.spawn's `env` REPLACES it
+    // otherwise, dropping PATH/HOME), so a caller can add one var (e.g. gemini's
+    // workspace-trust flag) without losing the rest.
+    const opts = env === undefined ? PIPED : { ...PIPED, env: { ...process.env, ...env } };
+    result = await reap(Bun.spawn(cmd, opts), timeoutMs);
   } catch (err) {
     // Bun.spawn throws (ENOENT) when cmd[0] is not on PATH, before reap ever sees
     // the child — reap does not swallow it. Treat a missing executable as not-found.
@@ -304,19 +313,27 @@ export async function installPlugin(
 /**
  * Install (or refresh) a Gemini extension from its local source. The source is a
  * POSITIONAL — `extensions install <path>` (there is no `--path` flag on 0.49). `--consent`
- * skips the security confirmation prompt (required for a non-interactive install) and
- * `--skip-settings` skips the on-install configuration step. The install creates the
- * extension on first run but no-ops once present — so on "already installed" fall back to
- * `extensions update <name>` to re-sync from the local source. Takes effect next CLI start.
+ * skips the third-party-extension security block and `--skip-settings` skips the on-install
+ * configuration step. The install creates the extension on first run but no-ops once present
+ * — so on "already installed" fall back to `extensions update <name>` to re-sync from the
+ * local source. Takes effect next CLI start.
+ *
+ * gemini 0.49 ALSO gates the install on a separate folder-trust prompt ("Do you trust this
+ * folder? [y/N]") that `--consent` does NOT answer. With no TTY that prompt blocks and the
+ * install hangs until the reap timeout. `GEMINI_CLI_TRUST_WORKSPACE=true` (exactly what
+ * gemini's own `--skip-trust` sets) marks the workspace trusted, so `isWorkspaceTrusted`
+ * short-circuits and NO prompt is shown. Scoped to this spawn's env — no global setting, no
+ * persisted trust entry, so gemini's folder-trust stays on for every other folder.
  */
 async function installGeminiExtension(spec: PluginSpec, dryRun: boolean): Promise<[boolean, string]> {
+  const trustEnv = { GEMINI_CLI_TRUST_WORKSPACE: "true" }; // skip 0.49's folder-trust prompt (see above)
   const cmd = ["gemini", "extensions", "install", spec.sourcePath, "--consent", "--skip-settings"];
-  const [ok, err] = await runCli(cmd, dryRun);
+  const [ok, err] = await runCli(cmd, dryRun, undefined, trustEnv);
   if (ok) {
     return [ok, err];
   }
   if (/already|exists/i.test(err)) {
-    return runCli(["gemini", "extensions", "update", spec.name], dryRun);
+    return runCli(["gemini", "extensions", "update", spec.name], dryRun, undefined, trustEnv);
   }
   return [ok, err];
 }
