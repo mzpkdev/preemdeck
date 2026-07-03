@@ -15,6 +15,7 @@
 
 import { afterEach, describe, expect, it } from "bun:test"
 import { IdeaError, NotImplementedError } from "./errors"
+import { filterExecsForLaunchingProduct } from "./idea-mac"
 import { groovyRenameByPid, type RenameTabDeps, renameTab } from "./tab"
 
 const context = describe
@@ -130,6 +131,11 @@ const makeDeps = (
             counts.resolve++
             return [...(opts.execs ?? [])]
         },
+        // Pin the macOS product filter (which these tests target via __CFBundleIdentifier)
+        // so the dispatch cases are platform-independent: renameTab otherwise picks the
+        // filter by process.platform, and Linux's is a no-op that broadcasts to every
+        // launcher — green on macOS, red on Linux CI.
+        filterExecsForLaunchingProduct,
         writeTemp: async (groovy) => {
             scripts.push(groovy)
             return "/fake/rename.groovy"

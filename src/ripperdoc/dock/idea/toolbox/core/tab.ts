@@ -111,10 +111,12 @@ ApplicationManager.getApplication().invokeLater({
 `
 }
 
-/** Seams for {@link renameTab}: the runGroovyOn deps, plus the launcher-scan seam. */
+/** Seams for {@link renameTab}: the runGroovyOn deps, plus the launcher-scan + product-filter seams. */
 export type RenameTabDeps = RunGroovyDeps & {
     /** Resolve every running JetBrains launcher (default: platform `resolveExecPaths`). */
     resolveExecPaths?: () => Promise<string[]>
+    /** Narrow launchers to the launching product (default: platform `filterExecsForLaunchingProduct`). */
+    filterExecsForLaunchingProduct?: (execPaths: Iterable<string>, bundleId?: string) => string[]
 }
 
 /**
@@ -144,9 +146,10 @@ export const renameTab = async (
     if (pids.length === 0) {
         return
     }
-    const { resolveExecPaths: resolveExecPathsDep, ...runDeps } = deps
+    const { resolveExecPaths: resolveExecPathsDep, filterExecsForLaunchingProduct: filterExecsDep, ...runDeps } = deps
     const resolve = resolveExecPathsDep ?? resolveExecPaths
+    const filterExecs = filterExecsDep ?? filterExecsForLaunchingProduct
     const groovy = groovyRenameByPid(pids, name)
-    const execPaths = filterExecsForLaunchingProduct(await resolve())
+    const execPaths = filterExecs(await resolve())
     await runGroovyOn(groovy, "rename-tab: could not rename tab", execPaths, runDeps)
 }

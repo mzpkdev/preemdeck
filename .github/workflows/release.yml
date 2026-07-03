@@ -15,6 +15,7 @@ on:
 
 permissions:
   contents: write
+  checks: read
 
 concurrency:
   group: release-stable
@@ -29,6 +30,32 @@ jobs:
         with:
           ref: ${{ inputs.ref }}
           fetch-depth: 0
+
+      - name: Guard — the commit being promoted passed all its checks
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          sha="$(git rev-parse HEAD)"
+          echo "Promoting $sha — verifying its recorded check runs are all green."
+          # Every check run for the commit EXCEPT this Release job's own in-flight run.
+          checks="$(gh api "repos/${{ github.repository }}/commits/$sha/check-runs" \
+            --paginate --jq '.check_runs[] | select(.name | test("promote|Release") | not)
+              | {name, status, conclusion}')"
+          if [ -z "$checks" ]; then
+            echo "::error::no check runs found for $sha — refusing to promote an unverified commit (has CI run on it?)"
+            exit 1
+          fi
+          printf '%s\n' "$checks" | jq -r '"  \(.status)/\(.conclusion // "pending")  \(.name)"'
+          # A check blocks promotion unless it completed with success/skipped/neutral.
+          bad="$(printf '%s\n' "$checks" | jq -s '[.[] | . as $x
+            | select($x.status != "completed" or ((["success","skipped","neutral"] | index($x.conclusion)) | not))]')"
+          if [ "$(printf '%s' "$bad" | jq 'length')" -ne 0 ]; then
+            echo "::error::commit $sha has checks that did not pass — not promoting to stable:"
+            printf '%s' "$bad" | jq -r '.[] | "::error::  \(.name): \(.status)/\(.conclusion // "pending")"'
+            exit 1
+          fi
+          echo "All checks green for $sha — clear to promote."
 
       - name: Set up Bun
         uses: oven-sh/setup-bun@v2
