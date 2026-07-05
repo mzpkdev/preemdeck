@@ -478,9 +478,18 @@ const NoteAnnotator = () => {
     close();
   };
 
+  // This component's DOM home is the toolbar, whose slide-away `transform` makes it
+  // the containing block for `position: fixed` children — a fixed Anchor element here
+  // lands scrollTop pixels above the cursor. A virtual anchor is only measured, never
+  // laid out, so no ancestor transform can displace it.
+  const anchorRef = useMemo(
+    () => ({ current: { getBoundingClientRect: () => new DOMRect(target?.x ?? 0, target?.y ?? 0, 0, 0) } }),
+    [target],
+  );
+
   return (
     <Popover.Root open={target !== null} onOpenChange={(open) => !open && close()}>
-      <Popover.Anchor style={{ position: "fixed", left: target?.x ?? 0, top: target?.y ?? 0, width: 0, height: 0 }} />
+      <Popover.Anchor virtualRef={anchorRef} />
       <Popover.Portal>
         <Popover.Content
           side="bottom"
