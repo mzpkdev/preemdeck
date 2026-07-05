@@ -59,7 +59,7 @@ user approves it before any code lands.
 
 - <what you resolved; what the reviewer should weigh>
 
-:::diagram <class-diagram structure, via /holo:using> :::
+:::diagram <diagram structure — class or component/architecture, via /holo:using> :::
 ```
 
 ## Checklist

@@ -4,7 +4,10 @@
 // via `onChange` — it knows nothing about WHERE the spec came from or where edits
 // go. holo's standalone client (entry.jsx) fetches/POSTs the spec around it;
 // planner reuses the same component against its own source. So this file has NO
-// fetch, NO POST, NO debounce, NO JSON — pure spec-in / onChange-out.
+// fetch, NO POST, NO debounce, NO JSON — pure spec-in / onChange-out. The
+// deterministic pieces live in pure modules: spec ⇄ React Flow conversions in
+// spec-sync.ts, the ELK graph builders in layout/elk-graph.ts; this file is the
+// orchestration and the React state.
 //
 // Layout is TWO-PASS + MEASURED (ELK does no text measurement, and UML boxes
 // size to their content): pass 1 mounts every node hidden (opacity 0) at the
@@ -13,13 +16,16 @@
 // applies the returned positions, and reveals + fits the graph.
 //
 // Inline edits (rename a class or a member — see ClassNode.jsx) call
-// updateNodeData, which updates a node's `data`; an effect keyed on `nodes`
-// rebuilds the spec from live node data and — only when that data actually
-// changed (position, selection, and the pass-2 reveal touch node fields but never
-// `node.data`) — calls `onChange` with the rebuilt spec. Edges aren't editable,
-// so they ride through from the incoming spec verbatim (carrying their `kind`).
+// updateNodeData, which updates a node's `data`; edges live in React Flow
+// state as the custom `holo` type (kind + label in `data`, markers/dash/colour
+// from the edge registry in edges/visuals.ts). One effect keyed on
+// `[nodes, edges]` rebuilds the spec from live state and emits only when
+// something REAL changed — node `data` by reference, edges by
+// endpoints/handles + `data` reference — so position, selection, and the
+// pass-2 reveal never rewrite the plan file (see spec-sync.ts for the guards).
 import {
   Background,
+  ConnectionMode,
   Controls,
   ReactFlow,
   ReactFlowProvider,
@@ -30,49 +36,32 @@ import {
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
 import "./canvas-theme.css";
+import "./theme/tokens.css";
 import ELK from "elkjs/lib/elk.bundled.js";
-import { useEffect, useRef } from "react";
+import { useCallback, useEffect, useRef } from "react";
+import { applyConnect, connectCtx, isValidConnection } from "./edges/edge-ops";
+import { HoloEdge } from "./edges/HoloEdge";
+import { MarkerDefs } from "./edges/MarkerDefs";
 import { nodeTypes } from "./kinds";
+import { applyElkPositions, buildElkGraph } from "./layout/elk-graph";
+import {
+  changedSinceBaseline,
+  edgesChangedSinceBaseline,
+  projectEdges,
+  reparentChildren,
+  seedEdges,
+  seedNodes,
+} from "./spec-sync";
+
+/** The one custom edge component; every seeded/drawn edge is `type: "holo"`. */
+const edgeTypes = { holo: HoloEdge };
 
 /** One ELK instance, reused across layouts (runs on the main thread). */
 const elk = new ELK();
 
-/** ELK layered layout knobs — top-down, spaced for a class-diagram feel. */
-const LAYOUT_OPTIONS = {
-  "elk.algorithm": "layered",
-  "elk.direction": "DOWN",
-  "elk.layered.spacing.nodeNodeBetweenLayers": "80",
-  "elk.spacing.nodeNode": "60",
-};
-
-/** Used only if a node somehow reports no measured size (it always should by pass 2). */
-const FALLBACK = { width: 180, height: 80 };
-
-/**
- * Pass 2: build the ELK graph from MEASURED React Flow nodes, run the layout,
- * and return the same nodes repositioned and revealed (opacity 1). Each node's
- * measured width/height (React Flow populates `node.measured` after mount) is fed
- * to ELK; the x/y ELK returns becomes the node `position`.
- */
-const layout = async (measuredNodes, edges) => {
-  const graph = {
-    id: "root",
-    layoutOptions: LAYOUT_OPTIONS,
-    children: measuredNodes.map((n) => ({
-      id: n.id,
-      width: n.measured?.width ?? FALLBACK.width,
-      height: n.measured?.height ?? FALLBACK.height,
-    })),
-    edges: edges.map((e) => ({ id: e.id, sources: [e.source], targets: [e.target] })),
-  };
-  const laid = await elk.layout(graph);
-  const pos = new Map((laid.children ?? []).map((c) => [c.id, { x: c.x ?? 0, y: c.y ?? 0 }]));
-  return measuredNodes.map((n) => ({
-    ...n,
-    position: pos.get(n.id) ?? n.position,
-    style: { ...n.style, opacity: 1 },
-  }));
-};
+/** Pass 2: run ELK over the MEASURED nodes (nested when groups exist), then reposition + reveal them. */
+const layout = async (measuredNodes, edges, hints) =>
+  applyElkPositions(await elk.layout(buildElkGraph(measuredNodes, edges, hints)), measuredNodes);
 
 function Flow({ spec, onChange }) {
   const [nodes, setNodes, onNodesChange] = useNodesState([]);
@@ -80,60 +69,96 @@ function Flow({ spec, onChange }) {
   const { getNodes, fitView } = useReactFlow();
   const nodesInitialized = useNodesInitialized();
   const laidOut = useRef(false);
-  // The loaded spec — its edges carry `kind` and never enter edges-state, so every
-  // emit reuses them verbatim. `lastEmitted` baselines change-detection against the
-  // loaded node data (the exact objects seeded below) so nothing emits until a real
-  // data edit.
-  const specRef = useRef(spec);
-  const lastEmitted = useRef(spec.nodes);
+  // Emission baselines, seeded from the exact objects handed to React Flow
+  // below, so nothing emits until a real edit swaps something out.
+  const lastEmittedNodes = useRef(spec.nodes);
+  const lastEmittedEdges = useRef([]);
 
   // Pass 1: seed unpositioned + hidden from the spec so React Flow can measure.
+  // Baselines take the SEEDED arrays (seeding sorts parents first, so the
+  // author's node order may differ — baselining the sorted data keeps the
+  // mount silent either way).
   useEffect(() => {
     laidOut.current = false;
-    specRef.current = spec;
-    lastEmitted.current = spec.nodes;
-    setNodes(
-      spec.nodes.map((n) => ({ id: n.id, type: n.kind, data: n, position: { x: 0, y: 0 }, style: { opacity: 0 } })),
-    );
-    setEdges(spec.edges.map((e, i) => ({ id: e.id ?? `e${i}`, source: e.source, target: e.target })));
+    const seededNodes = seedNodes(spec.nodes);
+    const seededEdges = seedEdges(spec.edges);
+    lastEmittedNodes.current = seededNodes.map((n) => n.data);
+    lastEmittedEdges.current = seededEdges;
+    setNodes(seededNodes);
+    setEdges(seededEdges);
   }, [spec, setNodes, setEdges]);
 
   // Pass 2: once measured, run ELK, then reveal + fit (guarded to run once per spec).
   useEffect(() => {
     if (!nodesInitialized || laidOut.current) return;
     laidOut.current = true;
-    layout(getNodes(), edges).then((positioned) => {
+    layout(getNodes(), edges, spec.layout).then((positioned) => {
       setNodes(positioned);
       requestAnimationFrame(() => fitView({ padding: 0.2 }));
     });
-  }, [nodesInitialized, getNodes, edges, setNodes, fitView]);
+  }, [nodesInitialized, getNodes, edges, spec, setNodes, fitView]);
 
-  // Emit-back: an inline rename calls updateNodeData, which (in this controlled
-  // flow) updates `nodes`, firing this effect. Rebuild the spec from live node DATA
-  // only and emit when that data differs by reference from the last-emitted set —
-  // so position, selection, and the pass-2 reveal (which change node fields but
-  // never `node.data`) don't emit, and no relayout runs. Edges come from specRef so
-  // their `kind` survives. The sink (entry.jsx) debounces + persists; we don't.
+  // Deleting a group keeps its children: reparent them to the nearest
+  // surviving ancestor (their `data.group` rewrite emits the membership
+  // change) before React Flow removes the frame.
+  const onBeforeDelete = useCallback(
+    async ({ nodes: doomed }) => {
+      const goneGroups = new Set(doomed.filter((n) => n.type === "group").map((n) => n.id));
+      if (goneGroups.size > 0) setNodes((nds) => reparentChildren(nds, goneGroups));
+      return true;
+    },
+    [setNodes],
+  );
+
+  // Edge drawing: Loose mode lets any handle start a connection (the ops
+  // normalize direction); validity and the applied edge are pure edge-ops.
+  const onConnect = useCallback(
+    (connection) => setEdges((eds) => applyConnect(eds, connection, connectCtx(getNodes()))),
+    [setEdges, getNodes],
+  );
+  const validConnection = useCallback(
+    (connection) => isValidConnection(connection, connectCtx(getNodes())),
+    [getNodes],
+  );
+
+  // Emit-back: inline edits (updateNodeData) and edge mutations both land in
+  // React Flow state and fire this effect. Rebuild the spec from live state and
+  // emit only when the guards trip — node `data` by reference, edges by
+  // endpoints/handles + `data` reference — so position, selection, and the
+  // pass-2 reveal don't emit, and no relayout runs. The sink (entry.jsx)
+  // debounces + persists; we don't.
   useEffect(() => {
     const data = getNodes().map((n) => n.data);
-    const prev = lastEmitted.current;
-    const changed = data.length !== prev.length || data.some((d, i) => d !== prev[i]);
-    if (!changed) return;
-    lastEmitted.current = data;
-    onChange({ nodes: data, edges: specRef.current.edges });
-  }, [nodes, getNodes, onChange]);
+    const nodesDirty = changedSinceBaseline(data, lastEmittedNodes.current);
+    const edgesDirty = edgesChangedSinceBaseline(edges, lastEmittedEdges.current);
+    if (!nodesDirty && !edgesDirty) return;
+    lastEmittedNodes.current = data;
+    lastEmittedEdges.current = edges;
+    onChange({
+      nodes: data,
+      edges: projectEdges(edges),
+      ...(spec.layout === undefined ? {} : { layout: spec.layout }),
+    });
+  }, [nodes, edges, getNodes, spec, onChange]);
 
   return (
     <ReactFlow
       nodes={nodes}
       edges={edges}
       nodeTypes={nodeTypes}
+      edgeTypes={edgeTypes}
       onNodesChange={onNodesChange}
       onEdgesChange={onEdgesChange}
+      onConnect={onConnect}
+      isValidConnection={validConnection}
+      onBeforeDelete={onBeforeDelete}
+      connectionMode={ConnectionMode.Loose}
+      deleteKeyCode={["Backspace", "Delete"]}
       minZoom={0.2}
       proOptions={{ hideAttribution: true }}
     >
-      <Background />
+      <MarkerDefs />
+      <Background gap={20} size={1} />
       <Controls />
     </ReactFlow>
   );

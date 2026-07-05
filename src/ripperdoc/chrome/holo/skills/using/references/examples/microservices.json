@@ -1,0 +1,189 @@
+{
+  "nodes": [
+    {
+      "id": "core",
+      "kind": "group",
+      "name": "Orders",
+      "stereotype": "boundary"
+    },
+    {
+      "id": "gateway",
+      "border": "distinct",
+      "kind": "io",
+      "name": "API Gateway",
+      "stereotype": "gateway",
+      "inputs": [],
+      "outputs": []
+    },
+    {
+      "id": "orderservice",
+      "group": "core",
+      "kind": "io",
+      "name": "OrderService",
+      "stereotype": "service",
+      "inputs": [
+        {
+          "id": "post-orders",
+          "label": "POST /orders",
+          "binding": "http"
+        }
+      ],
+      "outputs": [
+        {
+          "id": "pay",
+          "label": "Payment",
+          "binding": "grpc"
+        },
+        {
+          "id": "created",
+          "label": "OrderCreated",
+          "binding": "event"
+        }
+      ]
+    },
+    {
+      "id": "paymentservice",
+      "group": "core",
+      "kind": "io",
+      "name": "PaymentService",
+      "stereotype": "service",
+      "inputs": [
+        {
+          "id": "post-charges",
+          "label": "POST /charges",
+          "binding": "http"
+        },
+        {
+          "id": "on-created",
+          "label": "OrderCreated",
+          "binding": "event"
+        }
+      ],
+      "outputs": [
+        {
+          "id": "pay-ok",
+          "label": "PaymentOK",
+          "binding": "event"
+        }
+      ]
+    },
+    {
+      "id": "notificationservice",
+      "group": "core",
+      "kind": "io",
+      "name": "NotificationService",
+      "stereotype": "service",
+      "inputs": [
+        {
+          "id": "notif-created",
+          "label": "OrderCreated",
+          "binding": "event"
+        }
+      ],
+      "outputs": [
+        {
+          "id": "email",
+          "label": "Email",
+          "binding": "http"
+        }
+      ]
+    },
+    {
+      "id": "orderdb",
+      "group": "core",
+      "kind": "db",
+      "name": "OrderDB",
+      "engine": "postgres"
+    },
+    {
+      "id": "paymentdb",
+      "group": "core",
+      "kind": "db",
+      "name": "PaymentDB",
+      "engine": "postgres"
+    },
+    {
+      "id": "broker",
+      "group": "core",
+      "kind": "channel",
+      "name": "OrderCreated",
+      "transport": "topic"
+    },
+    {
+      "id": "emailapi",
+      "kind": "external",
+      "name": "Email API"
+    }
+  ],
+  "edges": [
+    {
+      "id": "g1",
+      "source": "gateway",
+      "target": "orderservice",
+      "kind": "call",
+      "label": "HTTP",
+      "targetPort": "post-orders"
+    },
+    {
+      "id": "g2",
+      "source": "gateway",
+      "target": "paymentservice",
+      "kind": "call",
+      "label": "HTTP",
+      "targetPort": "post-charges"
+    },
+    {
+      "id": "s1",
+      "source": "orderservice",
+      "target": "paymentservice",
+      "kind": "call",
+      "label": "gRPC",
+      "sourcePort": "pay"
+    },
+    {
+      "id": "s2",
+      "source": "orderservice",
+      "target": "orderdb",
+      "kind": "composition"
+    },
+    {
+      "id": "s3",
+      "source": "paymentservice",
+      "target": "paymentdb",
+      "kind": "composition"
+    },
+    {
+      "id": "b1",
+      "source": "orderservice",
+      "target": "broker",
+      "kind": "event",
+      "label": "OrderCreated",
+      "sourcePort": "created"
+    },
+    {
+      "id": "b2",
+      "source": "broker",
+      "target": "paymentservice",
+      "kind": "event",
+      "targetPort": "on-created"
+    },
+    {
+      "id": "b3",
+      "source": "broker",
+      "target": "notificationservice",
+      "kind": "event",
+      "targetPort": "notif-created"
+    },
+    {
+      "id": "n1",
+      "source": "notificationservice",
+      "target": "emailapi",
+      "kind": "call",
+      "label": "HTTP",
+      "sourcePort": "email"
+    }
+  ],
+  "layout": {
+    "direction": "RIGHT"
+  }
+}

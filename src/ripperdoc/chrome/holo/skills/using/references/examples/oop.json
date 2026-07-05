@@ -1,0 +1,223 @@
+{
+  "nodes": [
+    {
+      "id": "drawable",
+      "kind": "class",
+      "name": "Drawable",
+      "stereotype": "interface",
+      "attributes": [],
+      "methods": [
+        {
+          "vis": "+",
+          "name": "draw",
+          "params": "",
+          "type": "void"
+        }
+      ]
+    },
+    {
+      "id": "shape",
+      "kind": "class",
+      "name": "Shape",
+      "stereotype": "abstract",
+      "attributes": [
+        {
+          "vis": "#",
+          "name": "x",
+          "type": "number"
+        },
+        {
+          "vis": "#",
+          "name": "y",
+          "type": "number"
+        }
+      ],
+      "methods": [
+        {
+          "vis": "+",
+          "name": "area",
+          "type": "number"
+        }
+      ]
+    },
+    {
+      "id": "circle",
+      "kind": "class",
+      "name": "Circle",
+      "attributes": [
+        {
+          "vis": "-",
+          "name": "r",
+          "type": "number"
+        }
+      ],
+      "methods": [
+        {
+          "vis": "+",
+          "name": "area",
+          "type": "number"
+        }
+      ]
+    },
+    {
+      "id": "rectangle",
+      "kind": "class",
+      "name": "Rectangle",
+      "attributes": [
+        {
+          "vis": "-",
+          "name": "w",
+          "type": "number"
+        }
+      ],
+      "methods": [
+        {
+          "vis": "+",
+          "name": "area",
+          "type": "number"
+        }
+      ]
+    },
+    {
+      "id": "editor",
+      "kind": "class",
+      "name": "Editor",
+      "attributes": [],
+      "methods": [
+        {
+          "vis": "+",
+          "name": "addShape",
+          "params": "k"
+        },
+        {
+          "vis": "+",
+          "name": "save",
+          "params": ""
+        }
+      ]
+    },
+    {
+      "id": "factory",
+      "border": "distinct",
+      "kind": "class",
+      "name": "ShapeFactory",
+      "stereotype": "singleton",
+      "attributes": [],
+      "methods": [
+        {
+          "vis": "+",
+          "name": "instance",
+          "params": ""
+        },
+        {
+          "vis": "+",
+          "name": "create",
+          "params": "k",
+          "type": "Shape"
+        }
+      ]
+    },
+    {
+      "id": "shapekind",
+      "kind": "enum",
+      "name": "ShapeKind",
+      "values": [
+        "CIRCLE",
+        "RECTANGLE",
+        "TRIANGLE"
+      ]
+    },
+    {
+      "id": "collab-ws",
+      "kind": "channel",
+      "name": "shape:update",
+      "transport": "ws"
+    },
+    {
+      "id": "collab-server",
+      "kind": "external",
+      "name": "Collab Server"
+    },
+    {
+      "id": "shapesdb",
+      "kind": "db",
+      "name": "ShapesDB",
+      "engine": "sqlite"
+    }
+  ],
+  "edges": [
+    {
+      "id": "e1",
+      "source": "drawable",
+      "target": "shape",
+      "kind": "realization"
+    },
+    {
+      "id": "e2",
+      "source": "shape",
+      "target": "circle",
+      "kind": "inheritance"
+    },
+    {
+      "id": "e3",
+      "source": "shape",
+      "target": "rectangle",
+      "kind": "inheritance"
+    },
+    {
+      "id": "e4",
+      "source": "factory",
+      "target": "shape",
+      "kind": "dependency",
+      "label": "creates"
+    },
+    {
+      "id": "e5",
+      "source": "factory",
+      "target": "shapekind",
+      "kind": "dependency",
+      "label": "uses"
+    },
+    {
+      "id": "e6",
+      "source": "editor",
+      "target": "factory",
+      "kind": "dependency",
+      "label": "uses"
+    },
+    {
+      "id": "e7",
+      "source": "collab-server",
+      "target": "collab-ws",
+      "kind": "event"
+    },
+    {
+      "id": "e8",
+      "source": "collab-ws",
+      "target": "editor",
+      "kind": "event",
+      "label": "collab"
+    },
+    {
+      "id": "e9",
+      "source": "factory",
+      "target": "shapesdb",
+      "kind": "composition",
+      "label": "owns"
+    },
+    {
+      "id": "e10",
+      "source": "editor",
+      "target": "shape",
+      "kind": "aggregation",
+      "label": "has"
+    },
+    {
+      "id": "e11",
+      "source": "shape",
+      "target": "shapekind",
+      "kind": "association",
+      "label": "kind"
+    }
+  ]
+}

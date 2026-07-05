@@ -1,0 +1,230 @@
+{
+  "nodes": [
+    {
+      "id": "app",
+      "kind": "io",
+      "name": "App",
+      "stereotype": "component",
+      "inputs": [
+        {
+          "label": "route: string"
+        }
+      ],
+      "outputs": [
+        {
+          "label": "navigate()"
+        }
+      ]
+    },
+    {
+      "id": "header",
+      "kind": "io",
+      "name": "Header",
+      "stereotype": "component",
+      "inputs": [
+        {
+          "label": "title: string"
+        }
+      ],
+      "outputs": [
+        {
+          "label": "onMenu()"
+        }
+      ]
+    },
+    {
+      "id": "todolist",
+      "kind": "io",
+      "name": "TodoList",
+      "stereotype": "component",
+      "inputs": [
+        {
+          "id": "items",
+          "label": "items: Todo[]"
+        }
+      ],
+      "outputs": [
+        {
+          "label": "toggle(id)"
+        }
+      ]
+    },
+    {
+      "id": "todoitem",
+      "kind": "io",
+      "name": "TodoItem",
+      "stereotype": "component",
+      "inputs": [
+        {
+          "label": "todo: Todo"
+        }
+      ],
+      "outputs": [
+        {
+          "id": "on-toggle",
+          "label": "onToggle(id)"
+        },
+        {
+          "id": "on-edit",
+          "label": "onEdit(id)"
+        }
+      ]
+    },
+    {
+      "id": "todostore",
+      "border": "distinct",
+      "kind": "class",
+      "name": "TodoStore",
+      "stereotype": "store",
+      "attributes": [
+        {
+          "vis": "+",
+          "name": "todos",
+          "type": "Todo[]"
+        }
+      ],
+      "methods": [
+        {
+          "vis": "+",
+          "name": "add",
+          "params": "text"
+        }
+      ]
+    },
+    {
+      "id": "authcontext",
+      "border": "distinct",
+      "kind": "class",
+      "name": "AuthContext",
+      "stereotype": "context",
+      "attributes": [
+        {
+          "vis": "+",
+          "name": "user",
+          "type": "User"
+        }
+      ],
+      "methods": []
+    },
+    {
+      "id": "useauth",
+      "kind": "fn",
+      "name": "useAuth()"
+    },
+    {
+      "id": "realtime",
+      "kind": "external",
+      "name": "Realtime API"
+    },
+    {
+      "id": "authapi",
+      "kind": "external",
+      "name": "AuthAPI"
+    },
+    {
+      "id": "todo-ws",
+      "kind": "channel",
+      "name": "todo:update",
+      "transport": "ws"
+    },
+    {
+      "id": "localstorage",
+      "kind": "db",
+      "name": "localStorage",
+      "engine": "browser"
+    }
+  ],
+  "edges": [
+    {
+      "id": "r1",
+      "source": "app",
+      "target": "header",
+      "kind": "call",
+      "label": "renders"
+    },
+    {
+      "id": "r2",
+      "source": "app",
+      "target": "todolist",
+      "kind": "call",
+      "label": "renders"
+    },
+    {
+      "id": "r3",
+      "source": "todolist",
+      "target": "todoitem",
+      "kind": "call",
+      "label": "renders"
+    },
+    {
+      "id": "c1",
+      "source": "header",
+      "target": "app",
+      "kind": "dependency",
+      "label": "onMenu"
+    },
+    {
+      "id": "c2",
+      "source": "todolist",
+      "target": "app",
+      "kind": "dependency",
+      "label": "toggle"
+    },
+    {
+      "id": "c3",
+      "source": "todoitem",
+      "target": "todolist",
+      "kind": "dependency",
+      "label": "onToggle, onEdit",
+      "sourcePort": "on-toggle"
+    },
+    {
+      "id": "a1",
+      "source": "todolist",
+      "target": "useauth",
+      "kind": "dependency",
+      "label": "uses"
+    },
+    {
+      "id": "a2",
+      "source": "useauth",
+      "target": "authcontext",
+      "kind": "dependency",
+      "label": "consumes"
+    },
+    {
+      "id": "a3",
+      "source": "useauth",
+      "target": "authapi",
+      "kind": "call",
+      "label": "HTTP"
+    },
+    {
+      "id": "s1",
+      "source": "todostore",
+      "target": "todolist",
+      "kind": "event",
+      "label": "todos",
+      "targetPort": "items"
+    },
+    {
+      "id": "s2",
+      "source": "todostore",
+      "target": "localstorage",
+      "kind": "composition",
+      "label": "persists"
+    },
+    {
+      "id": "w1",
+      "source": "realtime",
+      "target": "todo-ws",
+      "kind": "event"
+    },
+    {
+      "id": "w2",
+      "source": "todo-ws",
+      "target": "todostore",
+      "kind": "event"
+    }
+  ]
+}

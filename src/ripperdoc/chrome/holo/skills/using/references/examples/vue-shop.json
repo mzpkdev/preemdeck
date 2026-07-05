@@ -1,0 +1,230 @@
+{
+  "nodes": [
+    {
+      "id": "app",
+      "kind": "io",
+      "name": "App",
+      "stereotype": "component",
+      "inputs": [
+        {
+          "label": "route: Route"
+        }
+      ],
+      "outputs": [
+        {
+          "label": "push()"
+        }
+      ]
+    },
+    {
+      "id": "nav",
+      "kind": "io",
+      "name": "Nav",
+      "stereotype": "component",
+      "inputs": [
+        {
+          "label": "links: Link[]"
+        }
+      ],
+      "outputs": [
+        {
+          "label": "@search"
+        }
+      ]
+    },
+    {
+      "id": "productlist",
+      "kind": "io",
+      "name": "ProductList",
+      "stereotype": "component",
+      "inputs": [
+        {
+          "id": "products",
+          "label": "products: Product[]"
+        }
+      ],
+      "outputs": [
+        {
+          "label": "@add"
+        }
+      ]
+    },
+    {
+      "id": "productcard",
+      "kind": "io",
+      "name": "ProductCard",
+      "stereotype": "component",
+      "inputs": [
+        {
+          "label": "product: Product"
+        }
+      ],
+      "outputs": [
+        {
+          "id": "at-add",
+          "label": "@add"
+        },
+        {
+          "id": "at-favorite",
+          "label": "@favorite"
+        }
+      ]
+    },
+    {
+      "id": "cart",
+      "border": "distinct",
+      "kind": "class",
+      "name": "cart",
+      "stereotype": "store",
+      "attributes": [
+        {
+          "vis": "+",
+          "name": "items",
+          "type": "Item[]"
+        }
+      ],
+      "methods": [
+        {
+          "vis": "+",
+          "name": "add",
+          "params": "p"
+        }
+      ]
+    },
+    {
+      "id": "auth",
+      "border": "distinct",
+      "kind": "class",
+      "name": "Auth",
+      "stereotype": "context",
+      "attributes": [
+        {
+          "vis": "+",
+          "name": "user",
+          "type": "User"
+        }
+      ],
+      "methods": []
+    },
+    {
+      "id": "usecart",
+      "kind": "fn",
+      "name": "useCart()"
+    },
+    {
+      "id": "pricingserver",
+      "kind": "external",
+      "name": "Pricing Server"
+    },
+    {
+      "id": "shopapi",
+      "kind": "external",
+      "name": "Shop API"
+    },
+    {
+      "id": "price-ws",
+      "kind": "channel",
+      "name": "price:update",
+      "transport": "ws"
+    },
+    {
+      "id": "localstorage",
+      "kind": "db",
+      "name": "localStorage",
+      "engine": "persist"
+    }
+  ],
+  "edges": [
+    {
+      "id": "r1",
+      "source": "app",
+      "target": "nav",
+      "kind": "call",
+      "label": "renders"
+    },
+    {
+      "id": "r2",
+      "source": "app",
+      "target": "productlist",
+      "kind": "call",
+      "label": "renders"
+    },
+    {
+      "id": "r3",
+      "source": "productlist",
+      "target": "productcard",
+      "kind": "call",
+      "label": "renders"
+    },
+    {
+      "id": "c1",
+      "source": "nav",
+      "target": "app",
+      "kind": "dependency",
+      "label": "@search"
+    },
+    {
+      "id": "c2",
+      "source": "productlist",
+      "target": "app",
+      "kind": "dependency",
+      "label": "@add"
+    },
+    {
+      "id": "c3",
+      "source": "productcard",
+      "target": "productlist",
+      "kind": "dependency",
+      "label": "@add, @favorite",
+      "sourcePort": "at-add"
+    },
+    {
+      "id": "a1",
+      "source": "productlist",
+      "target": "usecart",
+      "kind": "dependency",
+      "label": "uses"
+    },
+    {
+      "id": "a2",
+      "source": "usecart",
+      "target": "auth",
+      "kind": "dependency",
+      "label": "inject"
+    },
+    {
+      "id": "a3",
+      "source": "usecart",
+      "target": "shopapi",
+      "kind": "call",
+      "label": "HTTP"
+    },
+    {
+      "id": "s1",
+      "source": "cart",
+      "target": "productlist",
+      "kind": "event",
+      "label": "reactive",
+      "targetPort": "products"
+    },
+    {
+      "id": "s2",
+      "source": "cart",
+      "target": "localstorage",
+      "kind": "composition",
+      "label": "persists"
+    },
+    {
+      "id": "w1",
+      "source": "pricingserver",
+      "target": "price-ws",
+      "kind": "event"
+    },
+    {
+      "id": "w2",
+      "source": "price-ws",
+      "target": "cart",
+      "kind": "event"
+    }
+  ]
+}

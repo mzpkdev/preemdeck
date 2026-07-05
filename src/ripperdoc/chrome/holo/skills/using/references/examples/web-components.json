@@ -1,0 +1,223 @@
+{
+  "nodes": [
+    {
+      "id": "x-app",
+      "kind": "io",
+      "name": "x-app",
+      "stereotype": "element",
+      "inputs": [
+        {
+          "label": "route: string"
+        }
+      ],
+      "outputs": [
+        {
+          "label": "navigate"
+        }
+      ]
+    },
+    {
+      "id": "x-nav",
+      "kind": "io",
+      "name": "x-nav",
+      "stereotype": "element",
+      "inputs": [
+        {
+          "label": "items: Item[]"
+        }
+      ],
+      "outputs": [
+        {
+          "label": "search"
+        }
+      ]
+    },
+    {
+      "id": "x-library",
+      "kind": "io",
+      "name": "x-library",
+      "stereotype": "element",
+      "inputs": [
+        {
+          "id": "tracks",
+          "label": "tracks: Track[]"
+        }
+      ],
+      "outputs": [
+        {
+          "label": "select"
+        }
+      ]
+    },
+    {
+      "id": "x-track",
+      "kind": "io",
+      "name": "x-track",
+      "stereotype": "element",
+      "inputs": [
+        {
+          "label": "track: Track"
+        }
+      ],
+      "outputs": [
+        {
+          "id": "play",
+          "label": "play"
+        },
+        {
+          "id": "queue",
+          "label": "queue"
+        }
+      ]
+    },
+    {
+      "id": "playerstate",
+      "border": "distinct",
+      "kind": "class",
+      "name": "playerState",
+      "stereotype": "store",
+      "attributes": [
+        {
+          "vis": "+",
+          "name": "now",
+          "type": "Track"
+        }
+      ],
+      "methods": [
+        {
+          "vis": "+",
+          "name": "play",
+          "params": "t"
+        }
+      ]
+    },
+    {
+      "id": "theme",
+      "border": "distinct",
+      "kind": "class",
+      "name": "Theme",
+      "stereotype": "context",
+      "attributes": [
+        {
+          "vis": "+",
+          "name": "mode",
+          "type": "string"
+        }
+      ],
+      "methods": []
+    },
+    {
+      "id": "fetchtracks",
+      "kind": "fn",
+      "name": "fetchTracks()"
+    },
+    {
+      "id": "mediaserver",
+      "kind": "external",
+      "name": "Media Server"
+    },
+    {
+      "id": "mediaapi",
+      "kind": "external",
+      "name": "Media API"
+    },
+    {
+      "id": "track-ws",
+      "kind": "channel",
+      "name": "track:progress",
+      "transport": "ws"
+    },
+    {
+      "id": "localstorage",
+      "kind": "db",
+      "name": "localStorage",
+      "engine": "persist"
+    }
+  ],
+  "edges": [
+    {
+      "id": "r1",
+      "source": "x-app",
+      "target": "x-nav",
+      "kind": "call",
+      "label": "renders"
+    },
+    {
+      "id": "r2",
+      "source": "x-app",
+      "target": "x-library",
+      "kind": "call",
+      "label": "renders"
+    },
+    {
+      "id": "r3",
+      "source": "x-library",
+      "target": "x-track",
+      "kind": "call",
+      "label": "renders"
+    },
+    {
+      "id": "c1",
+      "source": "x-nav",
+      "target": "x-app",
+      "kind": "dependency",
+      "label": "search"
+    },
+    {
+      "id": "bubble",
+      "source": "x-track",
+      "target": "x-app",
+      "kind": "dependency",
+      "label": "play ↑",
+      "sourcePort": "play"
+    },
+    {
+      "id": "a1",
+      "source": "x-library",
+      "target": "fetchtracks",
+      "kind": "dependency",
+      "label": "uses"
+    },
+    {
+      "id": "a2",
+      "source": "fetchtracks",
+      "target": "theme",
+      "kind": "dependency",
+      "label": "context-request"
+    },
+    {
+      "id": "a3",
+      "source": "fetchtracks",
+      "target": "mediaapi",
+      "kind": "call",
+      "label": "HTTP"
+    },
+    {
+      "id": "s1",
+      "source": "playerstate",
+      "target": "x-library",
+      "kind": "event",
+      "label": "effect",
+      "targetPort": "tracks"
+    },
+    {
+      "id": "s2",
+      "source": "playerstate",
+      "target": "localstorage",
+      "kind": "composition",
+      "label": "persists"
+    },
+    {
+      "id": "w1",
+      "source": "mediaserver",
+      "target": "track-ws",
+      "kind": "event"
+    },
+    {
+      "id": "w2",
+      "source": "track-ws",
+      "target": "playerstate",
+      "kind": "event"
+    }
+  ]
+}

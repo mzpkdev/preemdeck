@@ -333,7 +333,7 @@ const llmGuideDescriptor = {
   Editor: () => null,
 };
 
-// --- Embedded UML diagram --------------------------------------------------
+// --- Embedded diagram (class + component/architecture) ----------------------
 // An editable diagram rides IN the plan file as a `:::diagram` CONTAINER directive
 // wrapping ONE ```json fenced child that holds the pretty GraphSpec. Carrier choice
 // (code child, not a `spec` attribute): a directive node stores its mdast verbatim

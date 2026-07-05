@@ -1,9 +1,9 @@
 // entry.jsx — the holo diagram client: the HTTP wiring around DiagramCanvas.
 //
-// Fetches an agent-authored graph spec (a UML class diagram:
-// `{ nodes: [ClassNodeSpec], edges: [EdgeSpec] }`) from holo's dev server,
-// validates it with the zod contract, and hands it to DiagramCanvas — the
-// source-agnostic renderer that lays out + draws the graph and emits edits back.
+// Fetches an agent-authored graph spec (`{ nodes, edges, layout? }` — class
+// and component/architecture diagrams, see kinds/schema.ts) from holo's dev
+// server, validates it with the zod contract, and hands it to DiagramCanvas —
+// the source-agnostic renderer that lays out + draws the graph and emits edits back.
 //
 // DiagramCanvas knows nothing about transport; this shell is the sink. Its
 // `onChange` (an edit rebuilt the spec) debounces a POST that persists the file.

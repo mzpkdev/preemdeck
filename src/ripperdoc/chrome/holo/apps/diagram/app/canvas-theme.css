@@ -8,7 +8,7 @@
    reads if a host omits one. */
 .react-flow {
   --xy-background-color: var(--bg, #1e1f22);
-  --xy-background-pattern-color: #2e3033; /* subtle dot, one step above --bg */
+  --xy-background-pattern-color: var(--dot, #2e3033); /* subtle dot grid; --dot lives in theme/tokens.css */
 
   --xy-node-background-color: var(--code-bg, #303235);
   --xy-node-color: var(--fg, #bcbec3);
@@ -31,4 +31,39 @@
 
   --xy-handle-background-color: var(--muted, #7a7e85);
   --xy-handle-border-color: var(--border, #4f5153);
+}
+
+/* Side anchor dots (NodeShell.jsx) — drawing affordances only. Hidden until
+   the node invites them: hover or selection reveals. */
+.react-flow .holo-anchor {
+  opacity: 0;
+  transition: opacity 120ms;
+}
+.react-flow .react-flow__node:hover .holo-anchor,
+.react-flow .react-flow__node.selected .holo-anchor {
+  opacity: 1;
+}
+
+/* Edge marker fills/strokes — the marker <path>s in MarkerDefs.jsx carry these
+   classes instead of hardcoded hex, so the whole marker vocabulary retints from
+   theme/tokens.css. CSS vars resolve where a marker is DEFINED, which is why
+   MarkerDefs mounts inside .react-flow. */
+.react-flow .holo-mk-hollow {
+  fill: var(--bg, #1e1f22);
+  stroke: var(--edge-line, #7a7e85);
+  stroke-width: 1;
+}
+.react-flow .holo-mk-open {
+  fill: none;
+  stroke: var(--edge-line, #7a7e85);
+  stroke-width: 1.2;
+}
+.react-flow .holo-mk-filled {
+  fill: var(--edge-line, #7a7e85);
+}
+.react-flow .holo-mk-sync {
+  fill: var(--sync, #6aa3d5);
+}
+.react-flow .holo-mk-async {
+  fill: var(--async, #4db6ac);
 }

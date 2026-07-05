@@ -1,0 +1,21 @@
+/* tokens.css — the diagram-vocabulary design tokens, scoped to the canvas.
+   Sampled from experiments/uml-nodes-and-edges-catalog.html (the primitive
+   reference sheet) so node chrome, edge strokes, and SVG markers all share one
+   palette in both hosts. HOST palette vars (--bg/--fg/--muted/--code-bg/
+   --border) stay the host's job — diagram's style.css, or planner's --css
+   sheet — this file only ADDS the diagram vocabulary on top, each var with a
+   Darcula fallback. Imported by DiagramCanvas next to canvas-theme.css so it
+   rides along wherever the canvas mounts (standalone app AND planner embed). */
+.react-flow {
+  --pub: #6aab73; /* + public */
+  --priv: #e5534b; /* - private */
+  --prot: #cf8e6d; /* # protected */
+  --pkg: var(--muted, #7a7e85); /* ~ package */
+  --in: #287bde; /* io input pin dot */
+  --out: #cf8e6d; /* io output pin dot */
+  --sync: #6aa3d5; /* sync call edge + marker */
+  --async: #4db6ac; /* async event edge + marker, channel accent */
+  --distinct: #b08cdb; /* border="distinct" highlight (context, singleton, …) */
+  --dot: #2e3033; /* canvas dot grid, one step above --bg */
+  --edge-line: var(--muted, #7a7e85); /* neutral UML edge stroke + marker line */
+}

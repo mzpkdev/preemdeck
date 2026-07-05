@@ -1,0 +1,164 @@
+{
+  "nodes": [
+    {
+      "id": "app",
+      "kind": "io",
+      "name": "App",
+      "stereotype": "component",
+      "inputs": [
+        {
+          "label": "route: string"
+        }
+      ],
+      "outputs": [
+        {
+          "label": "navigate()"
+        }
+      ]
+    },
+    {
+      "id": "board",
+      "kind": "io",
+      "name": "Board",
+      "stereotype": "component",
+      "inputs": [
+        {
+          "label": "boardId: string"
+        }
+      ],
+      "outputs": [
+        {
+          "label": "on:done"
+        }
+      ]
+    },
+    {
+      "id": "card",
+      "kind": "io",
+      "name": "Card",
+      "stereotype": "component",
+      "inputs": [
+        {
+          "label": "card: Card"
+        }
+      ],
+      "outputs": [
+        {
+          "id": "done",
+          "label": "on:done"
+        }
+      ]
+    },
+    {
+      "id": "boardvm",
+      "kind": "class",
+      "name": "BoardVM",
+      "attributes": [
+        {
+          "vis": "-",
+          "name": "columns",
+          "type": "Column[]"
+        },
+        {
+          "vis": "-",
+          "name": "loading",
+          "type": "boolean"
+        }
+      ],
+      "methods": [
+        {
+          "vis": "+",
+          "name": "addCard",
+          "params": "c"
+        },
+        {
+          "vis": "+",
+          "name": "move",
+          "params": "id"
+        }
+      ]
+    },
+    {
+      "id": "cardvm",
+      "kind": "class",
+      "name": "CardVM",
+      "attributes": [
+        {
+          "vis": "-",
+          "name": "done",
+          "type": "boolean"
+        }
+      ],
+      "methods": [
+        {
+          "vis": "+",
+          "name": "toggle",
+          "params": ""
+        }
+      ]
+    },
+    {
+      "id": "boardapi",
+      "kind": "external",
+      "name": "Board API"
+    },
+    {
+      "id": "localstorage",
+      "kind": "db",
+      "name": "localStorage",
+      "engine": "persist"
+    }
+  ],
+  "edges": [
+    {
+      "id": "r1",
+      "source": "app",
+      "target": "board",
+      "kind": "call",
+      "label": "renders"
+    },
+    {
+      "id": "r2",
+      "source": "board",
+      "target": "card",
+      "kind": "call",
+      "label": "renders"
+    },
+    {
+      "id": "c1",
+      "source": "card",
+      "target": "board",
+      "kind": "dependency",
+      "label": "on:done",
+      "sourcePort": "done"
+    },
+    {
+      "id": "o1",
+      "source": "board",
+      "target": "boardvm",
+      "kind": "composition",
+      "label": "owns · $state"
+    },
+    {
+      "id": "o2",
+      "source": "card",
+      "target": "cardvm",
+      "kind": "composition",
+      "label": "owns"
+    },
+    {
+      "id": "v1",
+      "source": "boardvm",
+      "target": "boardapi",
+      "kind": "call",
+      "label": "HTTP"
+    },
+    {
+      "id": "v2",
+      "source": "boardvm",
+      "target": "localstorage",
+      "kind": "composition",
+      "label": "persist"
+    }
+  ]
+}

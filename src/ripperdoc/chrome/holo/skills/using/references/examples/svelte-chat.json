@@ -1,0 +1,230 @@
+{
+  "nodes": [
+    {
+      "id": "app",
+      "kind": "io",
+      "name": "App",
+      "stereotype": "component",
+      "inputs": [
+        {
+          "label": "data: PageData"
+        }
+      ],
+      "outputs": [
+        {
+          "label": "goto()"
+        }
+      ]
+    },
+    {
+      "id": "sidebar",
+      "kind": "io",
+      "name": "Sidebar",
+      "stereotype": "component",
+      "inputs": [
+        {
+          "label": "rooms: Room[]"
+        }
+      ],
+      "outputs": [
+        {
+          "label": "on:select"
+        }
+      ]
+    },
+    {
+      "id": "chatroom",
+      "kind": "io",
+      "name": "ChatRoom",
+      "stereotype": "component",
+      "inputs": [
+        {
+          "label": "roomId: string"
+        }
+      ],
+      "outputs": [
+        {
+          "label": "on:send"
+        }
+      ]
+    },
+    {
+      "id": "messagelist",
+      "kind": "io",
+      "name": "MessageList",
+      "stereotype": "component",
+      "inputs": [
+        {
+          "id": "messages",
+          "label": "messages: Msg[]"
+        }
+      ],
+      "outputs": [
+        {
+          "id": "on-react",
+          "label": "on:react"
+        },
+        {
+          "id": "on-edit",
+          "label": "on:edit"
+        }
+      ]
+    },
+    {
+      "id": "messages",
+      "border": "distinct",
+      "kind": "class",
+      "name": "messages",
+      "stereotype": "store",
+      "attributes": [
+        {
+          "vis": "+",
+          "name": "list",
+          "type": "Msg[]"
+        }
+      ],
+      "methods": [
+        {
+          "vis": "+",
+          "name": "add",
+          "params": "m"
+        }
+      ]
+    },
+    {
+      "id": "session",
+      "border": "distinct",
+      "kind": "class",
+      "name": "Session",
+      "stereotype": "context",
+      "attributes": [
+        {
+          "vis": "+",
+          "name": "user",
+          "type": "User"
+        }
+      ],
+      "methods": []
+    },
+    {
+      "id": "load",
+      "kind": "fn",
+      "name": "load()"
+    },
+    {
+      "id": "chatserver",
+      "kind": "external",
+      "name": "Chat Server"
+    },
+    {
+      "id": "chatapi",
+      "kind": "external",
+      "name": "Chat API"
+    },
+    {
+      "id": "msg-ws",
+      "kind": "channel",
+      "name": "message:new",
+      "transport": "ws"
+    },
+    {
+      "id": "indexeddb",
+      "kind": "db",
+      "name": "IndexedDB",
+      "engine": "offline"
+    }
+  ],
+  "edges": [
+    {
+      "id": "r1",
+      "source": "app",
+      "target": "sidebar",
+      "kind": "call",
+      "label": "renders"
+    },
+    {
+      "id": "r2",
+      "source": "app",
+      "target": "chatroom",
+      "kind": "call",
+      "label": "renders"
+    },
+    {
+      "id": "r3",
+      "source": "chatroom",
+      "target": "messagelist",
+      "kind": "call",
+      "label": "renders"
+    },
+    {
+      "id": "c1",
+      "source": "sidebar",
+      "target": "app",
+      "kind": "dependency",
+      "label": "on:select"
+    },
+    {
+      "id": "c2",
+      "source": "chatroom",
+      "target": "app",
+      "kind": "dependency",
+      "label": "on:send"
+    },
+    {
+      "id": "c3",
+      "source": "messagelist",
+      "target": "chatroom",
+      "kind": "dependency",
+      "label": "on:react, on:edit",
+      "sourcePort": "on-react"
+    },
+    {
+      "id": "a1",
+      "source": "chatroom",
+      "target": "load",
+      "kind": "dependency",
+      "label": "uses"
+    },
+    {
+      "id": "a2",
+      "source": "load",
+      "target": "session",
+      "kind": "dependency",
+      "label": "getContext"
+    },
+    {
+      "id": "a3",
+      "source": "load",
+      "target": "chatapi",
+      "kind": "call",
+      "label": "HTTP"
+    },
+    {
+      "id": "s1",
+      "source": "messages",
+      "target": "messagelist",
+      "kind": "event",
+      "label": "$messages",
+      "targetPort": "messages"
+    },
+    {
+      "id": "s2",
+      "source": "messages",
+      "target": "indexeddb",
+      "kind": "composition",
+      "label": "persists"
+    },
+    {
+      "id": "w1",
+      "source": "chatserver",
+      "target": "msg-ws",
+      "kind": "event"
+    },
+    {
+      "id": "w2",
+      "source": "msg-ws",
+      "target": "messages",
+      "kind": "event"
+    }
+  ]
+}
