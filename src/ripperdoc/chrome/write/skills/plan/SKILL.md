@@ -15,8 +15,8 @@ allowed-tools: [Read, Glob, Grep, Agent, AskUserQuestion, Write, Skill, EnterPla
 ## Overview
 
 Turn a task into a reviewable implementation plan: research, resolve the forks, lay out concrete verifiable steps. The
-user approves it before any code lands. Write each step for an implementer with zero repo context — exact paths, names,
-signatures, commands — and keep prose lean: structure belongs in the diagram, not the steps.
+user approves it before any code lands. Write each step for an implementer with zero repo context — exact paths,
+complete code, exact commands — structure lives in the diagram, code in the steps, and prose stays lean.
 
 ## Announcement
 
@@ -78,7 +78,7 @@ signatures, commands — and keep prose lean: structure belongs in the diagram, 
 
 ## Template
 
-```mdx
+````mdx
 # <plan title>
 
 ## Goal
@@ -94,43 +94,68 @@ inherits them. Omit the section when the spec sets none.>
 
 <the strategy and the key decisions, each with its reason — name the rejected alternative when the call was close>
 
+:::diagram <the structural story — components/classes, new and changed interfaces, flow — via /holo:using; steps
+reference these nodes by name instead of re-describing them> :::
+
 ## Steps
 
-<ordered by dependency; each step one concrete action, executable without reading the other steps>
+<tasks ordered by dependency; a task is the smallest unit worth a reviewer's gate — split only where a reviewer could
+reject one task while approving its neighbor; each step one concrete action, executable without reading other tasks>
 
-- [ ] `<C|M|D|R>` `path/to/file` — <what this step does> <the exact code or signatures — spell out any name a later step
-      consumes; for a test, the behavioral contract to verify> **Verify:** `<the CI command: tests+lint+types>` →
-      <expected result; for a test-first step, the expected failure>
+### <N>. <task name>
+
+- [ ] `<C|M|D|R>` `path/to/file` — <what this step does>
+
+  ```<lang>
+  <the complete code this step lands — for a test, the actual test; a signature alone is a placeholder>
+  ```
+
+  **Verify:** `<the CI command: tests+lint+types>` → <expected result; for a test-first step, the expected failure>
 
 ## Risks / assumptions
 
 - <what you resolved; what the reviewer should weigh>
 
-:::diagram <the structural story — components/classes, new and changed interfaces, flow — via /holo:using; what the
-diagram shows stays out of step prose> :::
-```
+## Done when
+
+- `<the full CI command>` → all PASS
+- <the observable behavior that proves the goal, and how to observe it>
+````
 
 ## Examples
 
-**Prefer:**
+**Prefer** — one task, one concrete step, the complete code, a check with its expected result:
 
-- `- [ ] M src/auth/token.ts — refresh at 80% of TTL: refreshAt(expiresAt: number): number **Verify:** bun test src/auth → PASS, new case "refreshes at 80%"`
-  — one file, one concrete action, the signature later steps consume, a check with its expected result.
+````md
+### 1. Token refresh
+
+- [ ] `M` `src/auth/token.ts` — refresh at 80% of TTL
+
+  ```ts
+  export function refreshAt(expiresAt: number): number {
+    return now() + Math.max(0, expiresAt - now()) * 0.8;
+  }
+  ```
+
+  **Verify:** `bun test src/auth` → PASS, new case "refreshes at 80%"
+````
 
 **Avoid:**
 
 - `- [ ] Improve the auth system` — vague, unbounded, no path, no marker, no Verify.
 - `- [ ] M src/auth/token.ts — add error handling and edge cases` — placeholder: name each case or cut the step.
-- `- [ ] M src/auth/session.ts — same as step 3 for sessions` — steps are read alone: repeat the exact content.
+- `- [ ] M src/auth/token.ts — add refreshAt(expiresAt: number): number` with no code block — a signature is not the
+  change; land the code.
+- `- [ ] M src/auth/session.ts — same as task 1 for sessions` — tasks are read alone: repeat the exact content.
 
 ## Checklist
 
 Before ending the turn, confirm:
 
 - [ ] Every spec requirement maps to a step; nothing beyond the goal (YAGNI)
-- [ ] No placeholder patterns: TBD, "handle edge cases", "add validation", "same as step N"
-- [ ] Names and signatures identical across steps and diagram
-- [ ] Every step: exact path, marker, Verify with expected result
+- [ ] No placeholder patterns: TBD, "handle edge cases", "add validation", "same as task N", code-free signatures
+- [ ] Names and signatures identical across tasks and diagram
+- [ ] Every step: exact path, marker, complete code where code changes, Verify with expected result
 - [ ] Ordered by dependency; independent subsystems split into separate plans
 - [ ] Structure lives in the diagram, not duplicated in step prose
 - [ ] Critic dispatched where the host supports subagents; blocking findings fixed, one round only
