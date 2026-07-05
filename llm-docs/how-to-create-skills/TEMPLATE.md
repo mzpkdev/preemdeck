@@ -50,76 +50,117 @@ host.
 
 Drop this into `<plugin>/skills/<name>/SKILL.md`. Loads on all three hosts; the body teaches the model what to do.
 
-```markdown
+````markdown
 ---
 name: <plugin>-<verb-of-intent>
 description: |
-  <One-sentence purpose.> Trigger when the user <signal phrase>:
-  '<example phrase>', '<another phrase>', or the slash command
-  `/<plugin>-<verb>`. Use for <scope>. Do NOT trigger for <near-miss>.
+  <User-facing purpose: one or two plain sentences, the label a human reads
+  in autocomplete.> (<Trigger follow-up: '<example phrase>', '<another
+  phrase>', or `/<plugin>-<verb>`. For <scope>; not <near-miss>.>)
 ---
 
-# <Skill title>
+# <Skill Name>
 
-<One-sentence framing.>
+## Overview
 
-## When to use
+<One or two sentences: what this skill does and when to use it.>
 
-- <Signal 1 — concrete user phrase or repo state>.
-- <Signal 2>.
-- <Signal 3>.
+## Announcement
 
-## When NOT to use
+<One line the AI says when this skill activates, so the user knows it's running.>
 
-- <Near-miss A — which skill or tool wins instead>.
-- <Near-miss B>.
+## Prerequisites
 
-## How to run
+<Dependencies / other skills / inputs required. Omit this section if none.>
 
-1. <First concrete step — read this file, run that command>.
-2. <Second step — produce this artifact>.
-3. <Third step — verify, report>.
+- <dependency>
 
-## What to return
+## Instructions
 
-<Exact output shape: format, sections, length budget. See
-[BEST_PRACTICES.md — Reply shape](BEST_PRACTICES.md#reply-shape).>
+1. <First step.>
+2. <Second step.>
+3. <Continue as needed.>
+
+## Template
+
+<Markdown template the AI fills in when applying this skill.>
+
+```
+<paste template here>
+```
 
 ## Examples
 
-<One worked example: input phrase → action → output.>
-```
+**Prefer:**
 
-Six sections, same order every time: purpose · when · when NOT · how · return · example. Cut every sentence that doesn't
-shape one of those six.
+- <good example>
+
+**Avoid:**
+
+- <bad example>
+
+## Checklist
+
+Before ending the turn, confirm:
+
+- [ ] <thing to verify>
+- [ ] <thing to verify>
+
+## Handoff
+
+<What happens next: call skill X, ask the user Y, or stop here.>
+````
+
+Eight sections in fixed order: overview · announcement · prerequisites · instructions · template · examples · checklist
+· handoff. Prerequisites is the only optional one — drop it when there are none. Cut every sentence that doesn't shape
+one of them.
+
+---
+
+## Vocabulary
+
+Every rule in the body MUST carry an RFC 2119 keyword, uppercased — semantics, level-picking litmus, and dosing rules in
+[RFC_2119_KEYWORDS.md](../RFC_2119_KEYWORDS.md). The keyword holds the force, so the prose around it stays thin and
+reads like code. Procedural steps stay plain imperative; keywords mark rules.
+
+```
+MUST / MUST NOT       → absolute requirement / prohibition; no exceptions
+SHOULD / SHOULD NOT   → strong default; deviate only with reason
+MAY                   → genuinely optional
+ALWAYS / NEVER        → every case, every turn
+REQUIRED / OPTIONAL   → inputs, fields, arguments
+```
 
 ---
 
 ## Description anatomy
 
-The description is the matcher (Claude / Codex) and the human label (Gemini). One field, three roles. Build it in this
-order:
+The description is the matcher (Claude / Codex) and the human label (Gemini). One field, three roles. Split it in two: a
+user-facing lead, then a trigger follow-up in parens.
 
 ```yaml
 # Avoid — vague, no trigger, no exclusion
 description: A helpful skill for git stuff.
 
-# Prefer — trigger first, scope next, exclusion last
+# Prefer — user-facing lead first, trigger follow-up in parens
 description: |
-  Inspect and report on the working tree's git status with a cyberpunk
-  HUD. Trigger when the user says 'show status', 'what's changed',
-  'git status with style', or runs `/git-hud`. Use for read-only status
-  inspection. Do NOT trigger for commits, branches, or remote ops.
+  Inspect and report on the working tree's git status with a cyberpunk HUD.
+  (Trigger on 'show status', 'what's changed', 'git status with style', or
+  `/git-hud`. For read-only status inspection; not commits, branches, or
+  remote ops.)
 ```
 
-| Slot       | What goes here                                        |
-| ---------- | ----------------------------------------------------- |
-| Trigger    | The user phrases or repo states that should fire this |
-| Scope      | What this skill covers — one verb                     |
-| Exclusion  | The near-neighbor skill that should win in some cases |
-| Slash form | The `/<name>` command, if user-invocable              |
+| Slot       | What goes here                                                             |
+| ---------- | -------------------------------------------------------------------------- |
+| Lead       | User-facing purpose — plain sentence(s), the autocomplete label; no jargon |
+| Trigger    | The user phrases or repo states that should fire this                      |
+| Scope      | What this skill covers — one verb                                          |
+| Exclusion  | The near-neighbor skill that should win in some cases                      |
+| Slash form | The `/<name>` command, if user-invocable                                   |
 
-A parent LLM weighs the opening tokens hardest. A user scanning autocomplete reads the first line. Front-load.
+Lead sits before the parens; trigger, scope, exclusion, and slash form pack inside them. A parent LLM weighs the opening
+tokens hardest and a user scanning autocomplete reads only the lead, so the lead must name the real thing the skill
+does.
 
 ---
 
@@ -200,8 +241,9 @@ other option — typically inside hook config strings.
 ```
 Path          ── <plugin>/skills/<name>/SKILL.md unified inside a plugin; standalone forks per host
 Frontmatter   ── only name + description universal; rest is Claude-only
-Description   ── trigger first, scope next, exclusion last
-Body          ── purpose · when · when NOT · how · return · example
+Description   ── user-facing lead, then trigger + scope + exclusion in parens
+Body          ── overview · announcement · prerequisites · instructions · template · examples · checklist · handoff
+Vocabulary    ── RFC 2119, uppercased: MUST / SHOULD / MAY / ALWAYS / NEVER / REQUIRED / OPTIONAL — see RFC_2119_KEYWORDS.md
 Sugar         ── !`cmd`, $ARGUMENTS, ${CLAUDE_SKILL_DIR}, allowed-tools — all Claude-only
 Slash form    ── md on Claude/Codex; TOML on Gemini — ship both
 Artifacts     ── compute root via `git rev-parse --show-toplevel`; no env var ports

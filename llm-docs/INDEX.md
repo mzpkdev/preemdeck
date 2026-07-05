@@ -14,6 +14,10 @@ Action Dispatch, Prompt Intercept, Adapter Hook.
 Cross-lab rules for system prompts and agent harnesses — structure, context budgeting, eagerness, orchestration
 patterns.
 
+## [RFC 2119 Keywords](RFC_2119_KEYWORDS.md)
+
+Requirement levels for LLM-read markdown. MUST / SHOULD / MAY semantics, uppercase-only force, dosing, and boilerplate.
+
 ## [TypeScript Coding Standards](CODING_STANDARDS.md)
 
 Repo conventions for TypeScript. Naming, modules & imports, types, function shape, errors, async on the Bun runtime, and

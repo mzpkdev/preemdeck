@@ -179,6 +179,23 @@ You are a <role>. <One-sentence purpose.>
 
 ---
 
+## Vocabulary
+
+Every rule in the body MUST carry an RFC 2119 keyword, uppercased — semantics, level-picking litmus, and dosing rules in
+[RFC_2119_KEYWORDS.md](../RFC_2119_KEYWORDS.md). "What NOT to do" lines are MUST NOT / SHOULD NOT territory; "What to
+do" steps stay plain imperative. "What to return" is where MUST earns its keep — the output contract is the one part the
+parent parses.
+
+```
+MUST / MUST NOT       → absolute requirement / prohibition; no exceptions
+SHOULD / SHOULD NOT   → strong default; deviate only with reason
+MAY                   → genuinely optional
+ALWAYS / NEVER        → every case, every turn
+REQUIRED / OPTIONAL   → inputs, fields, arguments
+```
+
+---
+
 ## Invocation by host
 
 Who invokes — and how — differs. The parent agent calls the subagent on Claude and Codex. The user calls it directly on
@@ -202,6 +219,7 @@ Location     ── <plugin>/agents/ (Claude · Gemini); Codex not bundleable �
 Format       ── md+yaml on Claude/Gemini; TOML on Codex (body in developer_instructions)
 Universal    ── name + description only; model widely supported; rest host-specific
 Body shape   ── role · inputs · do · don't · return — in that order
+Vocabulary   ── RFC 2119, uppercased: MUST / SHOULD / MAY / ALWAYS / NEVER / REQUIRED / OPTIONAL — see RFC_2119_KEYWORDS.md
 Tool scope   ── tools: frontmatter (Claude) · sandbox_mode (Codex) · tools list (Gemini)
 Invocation   ── Agent tool (Claude) · Codex subagent surface · @name prefix (Gemini)
 ```
