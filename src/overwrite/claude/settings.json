@@ -1,6 +1,7 @@
 {
   "env": {
-    "CLAUDE_CODE_EFFORT_LEVEL": "max"
+    "CLAUDE_CODE_EFFORT_LEVEL": "max",
+    "CLAUDE_AFK_TIMEOUT_MS": "3600000"
   },
   "attribution": {
     "commit": "",
