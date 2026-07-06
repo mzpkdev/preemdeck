@@ -117,11 +117,7 @@ function HoloEdgeImpl({
   const [path, labelX, labelY] = getBezierPath(ends);
   // Parallel edges spread their labels diagonally (perpendicular shift + slide
   // along the line); a lone edge keeps the exact midpoint.
-  const slide = labelSlide(
-    shift,
-    { x: ends.sourceX, y: ends.sourceY },
-    { x: ends.targetX, y: ends.targetY },
-  );
+  const slide = labelSlide(shift, { x: ends.sourceX, y: ends.sourceY }, { x: ends.targetX, y: ends.targetY });
   const midpoint = `translate(-50%, -50%) translate(${labelX + slide.x}px, ${labelY + slide.y}px)`;
   // Committing an empty label clears it (undefined drops from the JSON on POST).
   const commitLabel = (next) => {
