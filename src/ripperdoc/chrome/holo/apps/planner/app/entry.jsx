@@ -568,6 +568,9 @@ function Holo() {
   // notes present → the one honest button is "Request changes"; a clean doc →
   // "Approve". Leaving a note IS the rejection rationale.
   const [hasNotes, setHasNotes] = useState(false);
+  // The revision tag holds the accent color until the reviewer hovers it — an
+  // unhovered tag means the update may not have been noticed yet.
+  const [revSeen, setRevSeen] = useState(false);
 
   useEffect(() => {
     let live = true;
@@ -681,6 +684,14 @@ function Holo() {
     <>
       {gate ? (
         <div className="holo-gate">
+          {gate.revision > 1 ? (
+            <span
+              className={revSeen ? "holo-gate__rev holo-gate__rev--seen" : "holo-gate__rev"}
+              onMouseEnter={() => setRevSeen(true)}
+            >
+              Revision {gate.revision}
+            </span>
+          ) : null}
           {(gate.sent ?? (hasNotes ? "reject" : "approve")) === "reject" ? (
             <button
               type="button"

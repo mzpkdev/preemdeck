@@ -7,7 +7,7 @@ description: |
   direct 'add X' / 'implement Y', debugging, or a pure explanation.)
 argument-hint: "[spec, feature description, or requirements]"
 user-invocable: true
-allowed-tools: [Read, Glob, Grep, Agent, AskUserQuestion, Write, Skill, EnterPlanMode, ExitPlanMode]
+allowed-tools: [Read, Glob, Grep, Agent, AskUserQuestion, Write, Edit, Bash, Skill]
 ---
 
 # Plan
@@ -27,13 +27,13 @@ complete code, exact commands — structure lives in the diagram, code in the st
 - A spec or requirements to plan — REQUIRED. A bare idea is not one: you MUST build the requirements first via the
   host's ask-user tool (`AskUserQuestion` on Claude, `ask_user_question` on Codex, `ask_user` on Gemini) — one question
   per message, concrete options preferred — until purpose, constraints, and success criteria are pinned.
-- holo — OPTIONAL; adds the editable diagram surface.
+- holo — the plan gate and editable review surface; ships with preemdeck. When its page cannot reach the reviewer
+  (`verdict=none`), the ask-user tool is the fallback gate.
 
 ## Instructions
 
-1. **Go read-only.** Enter plan mode where the host has a tool for it (`EnterPlanMode` on Claude, `enter_plan_mode` on
-   Gemini); Codex has no entry tool, so proceed and self-enforce. Either way you MUST NOT modify source, tests, or
-   config until the user approves the plan.
+1. **Go read-only.** Self-enforced on every host — this skill never enters the harness's plan mode. You MUST NOT modify
+   source, tests, or config until the reviewer approves the plan; the only file you write is the plan itself.
 2. **Triage scope.** If the request spans independent subsystems, you MUST split it — one plan per subsystem, this pass
    plans the first. Decide this now, not after the steps are written.
 3. **Research**, in order:
@@ -44,12 +44,9 @@ complete code, exact commands — structure lives in the diagram, code in the st
 4. **Resolve the forks.** You MAY adopt a default silently only when a file or pattern backs it — cite the path. Every
    other fork MUST go to the user via the host's ask-user tool before you write — 2-3 concrete options with trade-offs,
    your recommendation first. Cut anything the goal does not need (YAGNI).
-5. **Write the plan**, following the **Template** below, to the host's plan file. Map the touched files and each one's
-   single responsibility before writing steps; put structure and interfaces in the diagram, not step prose.
-   - Claude: the file `EnterPlanMode` named.
-   - Gemini: a file in the plans directory (`${GEMINI_PLANS_DIR}`).
-   - Codex: `$(git rev-parse --show-toplevel)/.preemdeck/plan/<slug>.md`; outside a git repo,
-     `${TMPDIR}/preemdeck/plan/<slug>.md`.
+5. **Write the plan**, following the **Template** below, to `$(git rev-parse --show-toplevel)/.preemdeck/plan/<slug>.md`
+   (outside a git repo: `${TMPDIR}/preemdeck/plan/<slug>.md`) — the same path on every host. Map the touched files and
+   each one's single responsibility before writing steps; put structure and interfaces in the diagram, not step prose.
 6. **Self-review, fix inline** — one pass, no re-review loop:
    - coverage: every spec requirement points at a step; uncovered gets a step, extra gets cut.
    - placeholders: scan for the **Avoid** patterns below.
@@ -70,11 +67,34 @@ complete code, exact commands — structure lives in the diagram, code in the st
    as [step — problem — why it blocks]; Recommendations (advisory, non-blocking).
    ```
 
-8. **Present.** On Claude / Gemini call the plan-mode exit tool — it reads the plan file; with holo, the user edits the
-   prose and diagram in the IDE and edits persist back. On Codex, show the plan in chat and ask for approval via the
-   ask-user tool.
-9. **On accept, you MUST re-read the plan file** before implementing — the user's edits are the plan, not your last
-   draft.
+8. **Present — the holo gate.** Serve the plan as a blocking approval gate; the reviewer edits the page (prose, diagram,
+   notes — every edit persists to the file) and clicks the one verdict the page offers:
+
+   ```bash
+   "$HOME/.preemdeck/preemdeck-runtime" "$HOME/.preemdeck/src/ripperdoc/chrome/holo/apps/planner/serve.ts" \
+     <plan.md> --wait --kill-on-disconnect
+   ```
+
+   In a JetBrains terminal (`in-idea.ts -q` exits 0): add
+   `--css "$HOME/.preemdeck/src/ripperdoc/dock/idea/toolbox/plan-preview.css"` and open the printed url in the IDE via
+   `open-url.ts` (see /idea:using). Anywhere else: add `--open`. Run the command at the host's maximum tool timeout; on
+   a timeout, re-run it — a verdict clicked while nothing listened is delivered instantly from the `<plan>.verdict`
+   sidecar. The command's LAST stdout line is the verdict.
+
+   **One port per plan, one tab per plan.** Pick a port on the first round (read the actually-bound port off the `ready`
+   banner — Vite bumps when taken) and pass the SAME `--port` on every re-serve of this plan. Open the url
+   (`open-url.ts` / `--open`) on the FIRST round only: after a rework verdict the dead page keeps polling that port and
+   reloads itself the moment the re-serve binds, so the reviewer stays in the same tab. If the banner ever shows a
+   different port than requested (stolen between rounds), re-open the url once. Pass `--revision <round>` on every serve
+   (1 on the first) — rounds past the first badge the reloaded page as updated.
+
+9. **Act on the verdict:**
+   - `verdict=approve` — you MUST re-read the plan file before implementing; the reviewer's edits are the plan, not your
+     last draft.
+   - `verdict=reject` — re-read the plan and address EVERY `:llm-note`: make the change it asks, then remove the
+     directive keeping the wrapped text. Re-serve (step 8). A plan re-served with notes still in it is a plan you
+     haven't finished reading.
+   - `verdict=none` (the tab closed without a click) — ask for the decision via the host's ask-user tool.
 
 ## Template
 
@@ -162,5 +182,5 @@ Before ending the turn, confirm:
 
 ## Handoff
 
-On accept, the plan is the contract: execute it step by step, or hand it to the implementer. On reject, fold the user's
-edits and re-present. If the user wanted only the plan, stop here.
+On approve, the plan is the contract: execute it step by step, or hand it to the implementer. On reject, the notes drive
+the rework loop (instruction 9). If the user wanted only the plan, stop here.

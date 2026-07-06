@@ -172,6 +172,36 @@
   border-color: var(--muted, #7a7e85);
 }
 
+/* Rework rounds: the reloaded page announces itself. Chrome-free on purpose —
+   a boxed pill next to the verdict button reads as a disabled control; this is
+   a bare uppercase tag that pulses toward the accent twice on load (the
+   reviewer just watched a dead tab come back) then settles muted. */
+.holo-gate__rev {
+  margin-right: 10px;
+  /* Rests ACCENT until hovered: four blinks announce the reload, then the tag
+     holds the color as an unread marker; the hover is the acknowledgement
+     (entry.jsx latches it) and eases the tag back to muted. */
+  color: var(--link, #287bde);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  cursor: default;
+  transition: color 0.3s cubic-bezier(0.2, 0, 0, 1);
+  animation: holo-rev-pulse 0.7s cubic-bezier(0.2, 0, 0, 1) 0.25s 4;
+}
+
+.holo-gate__rev--seen {
+  color: var(--muted, #7a7e85);
+  animation: none;
+}
+
+@keyframes holo-rev-pulse {
+  50% {
+    color: var(--muted, #7a7e85);
+  }
+}
+
 /* Embedded diagram chrome (zoom controls): hidden while the canvas is inert, fading
    in when a click arms it (.holo-diagram--armed, set by DiagramEditor). Same snappy
    curve as the toolbar slide above. */

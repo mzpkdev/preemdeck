@@ -421,11 +421,15 @@ describe("createDisconnectReaper", () => {
 
 describe("the approval gate (--wait)", () => {
     context("handleGateIo", () => {
-        it("GET reports waiting + nonce as JSON", () => {
+        it("GET reports waiting + nonce + revision as JSON, revision defaulting to 1", () => {
             const result = handleGateIo("GET", true, "n-1")
             expect(result.status).toBe(200)
             expect(result.contentType).toContain("application/json")
-            expect(JSON.parse(result.body ?? "")).toEqual({ waiting: true, nonce: "n-1" })
+            expect(JSON.parse(result.body ?? "")).toEqual({ waiting: true, nonce: "n-1", revision: 1 })
+        })
+
+        it("passes a rework round's revision through", () => {
+            expect(JSON.parse(handleGateIo("GET", true, "n-1", 3).body ?? "").revision).toBe(3)
         })
 
         it("reports a non-gating serve as waiting: false", () => {

@@ -202,6 +202,12 @@ with Ctrl-C, or pass `--kill-on-disconnect` to have it self-reap when the tab cl
 own** (a `.json`, not embedded in a plan), the sibling `apps/diagram/serve.ts` serves the same canvas over
 `/__holo/graph`.
 
+**`--wait` turns the serve into an approval gate.** The page grows one verdict button — `✓ Approve` on a clean doc,
+`↺ Rework` the moment any `:llm-note` exists — and the command blocks until the click, then prints
+`holo: verdict=<approve|reject|none>` as its LAST stdout line and exits (`none` = the tab closed unanswered). A verdict
+clicked while no listener was alive survives in a `<plan.md>.verdict` sidecar; the next `--wait` run delivers it
+instantly without serving. write:plan presents every plan through this gate.
+
 ## Notes
 
 - **The file is the source of truth**, not your draft and not the page — always re-read the plan `.md` on resume.

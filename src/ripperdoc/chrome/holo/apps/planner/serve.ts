@@ -54,6 +54,8 @@ export type ServeOptions = {
     css?: string
     /** `--wait`: serve as an approval gate — block until the page posts a verdict, print it, exit. */
     wait?: boolean
+    /** `--revision`: which review round this serve presents (default 1); the page badges rounds > 1 as updated. */
+    revision?: number
 }
 
 /**
@@ -392,12 +394,19 @@ export type Verdict = "approve" | "reject"
 export const verdictSidecarPath = (mdxPath: string): string => `${mdxPath}.verdict`
 
 /**
- * Pure request logic for {@link GATE_ENDPOINT}: GET reports `{ waiting, nonce }`
- * — the page renders its verdict bar only when `waiting` — anything else is 405.
+ * Pure request logic for {@link GATE_ENDPOINT}: GET reports
+ * `{ waiting, nonce, revision }` — the page renders its verdict bar only when
+ * `waiting`, and badges the plan as updated when `revision` > 1 — anything
+ * else is 405.
  */
-export const handleGateIo = (method: string | undefined, waiting: boolean, nonce: string): PlanIoResult =>
+export const handleGateIo = (
+    method: string | undefined,
+    waiting: boolean,
+    nonce: string,
+    revision = 1
+): PlanIoResult =>
     method === "GET"
-        ? { status: 200, body: JSON.stringify({ waiting, nonce }), contentType: "application/json" }
+        ? { status: 200, body: JSON.stringify({ waiting, nonce, revision }), contentType: "application/json" }
         : { status: 405 }
 
 /** The outcome of {@link handleVerdictIo}: the HTTP status, plus the accepted verdict on 204. */
@@ -546,7 +555,7 @@ export const serve = async (file: string, options: ServeOptions): Promise<void> 
             name: "holo-gate",
             configureServer(server: ViteDevServer): void {
                 server.middlewares.use(GATE_ENDPOINT, (req, res) => {
-                    const result = handleGateIo(req.method, options.wait === true, nonce)
+                    const result = handleGateIo(req.method, options.wait === true, nonce, options.revision ?? 1)
                     res.statusCode = result.status
                     if (result.contentType !== undefined) {
                         res.setHeader("content-type", result.contentType)
@@ -701,11 +710,20 @@ const command = defineCommand({
             arity: 0,
             description:
                 "serve as an approval gate: block until the page's Approve / Request-changes verdict, print `holo: verdict=<approve|reject|none>` as the last line and exit; a `<plan>.verdict` sidecar survives a killed listener and short-circuits the next --wait"
+        },
+        {
+            name: "revision",
+            arity: 1,
+            hint: "n",
+            description:
+                "which review round this serve presents (default 1); rounds > 1 badge the page as updated after a rework",
+            coerce: integer,
+            defaultValue: () => 1
         }
     ],
-    run: async ({ file, host, port, open, css, "kill-on-disconnect": killOnDisconnect, wait }) => {
+    run: async ({ file, host, port, open, css, "kill-on-disconnect": killOnDisconnect, wait, revision }) => {
         try {
-            await serve(file, { host, port, open, css, killOnDisconnect, wait })
+            await serve(file, { host, port, open, css, killOnDisconnect, wait, revision })
         } catch (error) {
             if (error instanceof ServeError) {
                 process.stderr.write(`holo: error: ${error.message}\n`)
