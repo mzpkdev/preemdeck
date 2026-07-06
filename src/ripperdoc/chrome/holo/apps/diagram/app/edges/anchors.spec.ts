@@ -7,7 +7,7 @@
  */
 
 import { describe, expect, it } from "bun:test"
-import { borderPoint, floatingAnchors, parallelShift, pinAnchor, sideOf } from "./anchors"
+import { borderPoint, floatingAnchors, labelSlide, parallelShift, pinAnchor, sideOf } from "./anchors"
 
 // Two 100×50 boxes: `right` sits 200px to the right of `left`, same row.
 const left = { x: 0, y: 0, width: 100, height: 50 }
@@ -67,6 +67,25 @@ describe("parallelShift", () => {
         const up = parallelShift("up", "list", "app", edges)
         expect(down).toBe(-7)
         expect(up).toBe(7)
+    })
+})
+
+describe("labelSlide", () => {
+    it("is zero for a lone (unshifted) edge", () => {
+        expect(labelSlide(0, { x: 0, y: 0 }, { x: 100, y: 0 })).toEqual({ x: 0, y: 0 })
+    })
+
+    it("slides along the line, opposite directions for a spread pair", () => {
+        const a = labelSlide(-7, { x: 0, y: 0 }, { x: 100, y: 0 })
+        const b = labelSlide(7, { x: 0, y: 0 }, { x: 100, y: 0 })
+        expect(a).toEqual({ x: -28, y: 0 })
+        expect(b).toEqual({ x: 28, y: 0 })
+    })
+
+    it("follows the edge axis: vertical edges slide vertically", () => {
+        const s = labelSlide(7, { x: 0, y: 0 }, { x: 0, y: 100 })
+        expect(s.x).toBe(0)
+        expect(s.y).toBe(28)
     })
 })
 

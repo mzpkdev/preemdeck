@@ -25,6 +25,7 @@
 export type LayoutHintsIn = {
     direction?: "DOWN" | "UP" | "RIGHT" | "LEFT"
     spacing?: number
+    groupPadding?: number
 }
 
 /** ELK layered layout knobs; hints override direction/spacing (layer gap keeps today's 60→80 ratio). */
@@ -34,12 +35,20 @@ export const buildLayoutOptions = (hints: LayoutHintsIn = {}): Record<string, st
         "elk.algorithm": "layered",
         "elk.direction": hints.direction ?? "DOWN",
         "elk.layered.spacing.nodeNodeBetweenLayers": String(Math.round((spacing * 4) / 3)),
-        "elk.spacing.nodeNode": String(spacing)
+        "elk.spacing.nodeNode": String(spacing),
+        // Comment boxes (note nodes) hug their owner at ELK's ~10px default,
+        // which reads cramped next to 60px node gaps; keep the tie visibly
+        // tighter than node spacing but give it air, scaling with the hint.
+        "elk.spacing.commentNode": String(Math.round(spacing / 3))
     }
 }
 
-/** Compound padding: room for children plus the group's label tab up top. */
-const GROUP_PADDING = "[top=28,left=16,bottom=16,right=16]"
+/**
+ * Compound padding: room for children plus the group's label tab up top. The
+ * `groupPadding` hint sets the side inset (default 16, today's look); the top
+ * always adds 12 for the tab.
+ */
+const groupPadding = (pad: number): string => `[top=${pad + 12},left=${pad},bottom=${pad},right=${pad}]`
 
 /** Used only if a node somehow reports no measured size (it always should by pass 2). */
 export const FALLBACK = { width: 180, height: 80 }
@@ -85,10 +94,11 @@ export const buildElkGraph = (
         childrenOf.set(n.parentId, siblings)
     }
 
+    const pad = groupPadding(hints.groupPadding ?? 16)
     const build = (n: MeasuredNode): ElkChild => {
         const kids = childrenOf.get(n.id)
         if (kids !== undefined && kids.length > 0) {
-            return { id: n.id, layoutOptions: { "elk.padding": GROUP_PADDING }, children: kids.map(build), edges: [] }
+            return { id: n.id, layoutOptions: { "elk.padding": pad }, children: kids.map(build), edges: [] }
         }
         return {
             id: n.id,

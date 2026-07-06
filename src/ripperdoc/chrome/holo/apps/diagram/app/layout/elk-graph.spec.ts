@@ -17,6 +17,7 @@ describe("buildLayoutOptions", () => {
         expect(options["elk.direction"]).toBe("DOWN")
         expect(options["elk.spacing.nodeNode"]).toBe("60")
         expect(options["elk.layered.spacing.nodeNodeBetweenLayers"]).toBe("80")
+        expect(options["elk.spacing.commentNode"]).toBe("20")
     })
 
     it("folds hints in, preserving the 4/3 layer-gap ratio", () => {
@@ -24,6 +25,7 @@ describe("buildLayoutOptions", () => {
         expect(options["elk.direction"]).toBe("RIGHT")
         expect(options["elk.spacing.nodeNode"]).toBe("45")
         expect(options["elk.layered.spacing.nodeNodeBetweenLayers"]).toBe("60")
+        expect(options["elk.spacing.commentNode"]).toBe("15")
     })
 })
 
@@ -85,12 +87,18 @@ describe("buildElkGraph with groups", () => {
         const core = graph.children?.find((c) => c.id === "core")
         expect(core?.width).toBeUndefined()
         expect(core?.height).toBeUndefined()
-        expect(core?.layoutOptions?.["elk.padding"]).toContain("top=28")
+        expect(core?.layoutOptions?.["elk.padding"]).toBe("[top=28,left=16,bottom=16,right=16]")
         const svc = core?.children?.find((c) => c.id === "svc")
         expect(svc?.width).toBe(190)
         const inner = core?.children?.find((c) => c.id === "inner")
         expect(inner?.children?.map((c) => c.id)).toEqual(["leaf"])
         expect(inner?.width).toBeUndefined()
+    })
+
+    it("scales compound padding from the groupPadding hint, keeping the tab headroom", () => {
+        const padded = buildElkGraph(nodes, edges, { groupPadding: 28 })
+        const core = padded.children?.find((c) => c.id === "core")
+        expect(core?.layoutOptions?.["elk.padding"]).toBe("[top=40,left=28,bottom=28,right=28]")
     })
 
     it("places each edge at its endpoints' lowest common ancestor container", () => {

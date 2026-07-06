@@ -24,7 +24,7 @@
 import { BaseEdge, EdgeLabelRenderer, getBezierPath, useEdges, useInternalNode, useReactFlow } from "@xyflow/react";
 import { memo, useState } from "react";
 import { CycleGlyph, EditableText, RemoveX, editInputStyle } from "../kinds/parts/editing";
-import { floatingAnchors, parallelShift, pinAnchor } from "./anchors";
+import { floatingAnchors, labelSlide, parallelShift, pinAnchor } from "./anchors";
 import { nextKind } from "./edge-ops";
 import { EDGE_COLOR_VARS, EDGE_VISUALS, markerUrl } from "./visuals";
 
@@ -96,10 +96,11 @@ function HoloEdgeImpl({
   // handle's y (the pin row) but snaps x to whichever border faces the
   // counterpart (anchors.pinAnchor) — the catalog's out-pin behaviour.
   let ends = { sourceX, sourceY, targetX, targetY, sourcePosition, targetPosition };
+  const shift = parallelShift(id, source, target, edges);
   const sourceRect = rectOf(sourceNode);
   const targetRect = rectOf(targetNode);
   if (sourceRect && targetRect) {
-    const anchors = floatingAnchors(sourceRect, targetRect, parallelShift(id, source, target, edges));
+    const anchors = floatingAnchors(sourceRect, targetRect, shift);
     if (sourceHandleId?.startsWith("out:")) {
       const pinned = pinAnchor(sourceRect, sourceY, targetRect.x + targetRect.width / 2);
       ends = { ...ends, sourceX: pinned.x, sourceY: pinned.y, sourcePosition: pinned.side };
@@ -114,7 +115,14 @@ function HoloEdgeImpl({
     }
   }
   const [path, labelX, labelY] = getBezierPath(ends);
-  const midpoint = `translate(-50%, -50%) translate(${labelX}px, ${labelY}px)`;
+  // Parallel edges spread their labels diagonally (perpendicular shift + slide
+  // along the line); a lone edge keeps the exact midpoint.
+  const slide = labelSlide(
+    shift,
+    { x: ends.sourceX, y: ends.sourceY },
+    { x: ends.targetX, y: ends.targetY },
+  );
+  const midpoint = `translate(-50%, -50%) translate(${labelX + slide.x}px, ${labelY + slide.y}px)`;
   // Committing an empty label clears it (undefined drops from the JSON on POST).
   const commitLabel = (next) => {
     setEditingLabel(false);

@@ -149,9 +149,10 @@ chains must be acyclic.
 **Labels are load-bearing** on the flow kinds — the same `kind` reads as `"props down"`, `"onMenu"`, `"HTTP"`, or
 `"owns"` only through its `label`. Always label `call`/`event`/`dependency` edges with the protocol or meaning.
 
-**LayoutHints** `{ "direction"?: "DOWN" | "UP" | "RIGHT" | "LEFT", "spacing"?: number }` — positions are **always
-computed** (ELK auto-layout); dragging on the canvas is ephemeral and never persists. Class hierarchies read best `DOWN`
-(the default); io/pin topologies usually want `RIGHT`.
+**LayoutHints** `{ "direction"?: "DOWN" | "UP" | "RIGHT" | "LEFT", "spacing"?: number, "groupPadding"?: number }` —
+positions are **always computed** (ELK auto-layout); dragging on the canvas is ephemeral and never persists. Class
+hierarchies read best `DOWN` (the default); io/pin topologies usually want `RIGHT`. `groupPadding` is the inset between
+a group frame and its members (default 16; the label tab always gets extra headroom).
 
 ### Rules and constraints
 

@@ -205,7 +205,8 @@ export const EdgeSpec = z.object({
  */
 export const LayoutHints = z.object({
     direction: z.enum(["DOWN", "UP", "RIGHT", "LEFT"]).optional(),
-    spacing: z.number().positive().optional()
+    spacing: z.number().positive().optional(),
+    groupPadding: z.number().positive().optional()
 })
 
 /** The whole graph document: the agent authors it, serve.ts serves it, the page renders it. */
