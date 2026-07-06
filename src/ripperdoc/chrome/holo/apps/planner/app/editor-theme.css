@@ -105,6 +105,73 @@
   transform: translateY(0);
 }
 
+/* The --wait approval bar (entry.jsx renders it only when the serve gates): two
+   plain buttons pinned top-right, above the slide-away toolbar whose right end
+   holds nothing. Same snappy curve as the toolbar slide; hover brightens, active
+   nudges down a pixel. */
+.holo-gate {
+  position: fixed;
+  top: 12px;
+  right: 16px;
+  z-index: 80;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font:
+    600 12px -apple-system,
+    BlinkMacSystemFont,
+    "Segoe UI",
+    sans-serif;
+}
+
+.holo-gate button {
+  height: 24px;
+  padding: 0 12px;
+  border-radius: 6px;
+  cursor: pointer;
+  font: inherit;
+  line-height: 22px;
+  text-align: center;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.35);
+  transition:
+    background-color 0.15s cubic-bezier(0.2, 0, 0, 1),
+    border-color 0.15s cubic-bezier(0.2, 0, 0, 1),
+    box-shadow 0.15s cubic-bezier(0.2, 0, 0, 1);
+}
+
+/* The click reads as the shadow snapping flat — no movement. */
+.holo-gate button:active:not(:disabled) {
+  box-shadow: none;
+}
+
+/* Clicked = same button, just inert: the verdict went out, nothing to re-press. */
+.holo-gate button:disabled {
+  opacity: 0.55;
+  cursor: default;
+  box-shadow: none;
+}
+
+.holo-gate__approve {
+  background: var(--link, #287bde);
+  border: 1px solid transparent;
+  color: #fff;
+}
+
+.holo-gate__approve:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--link, #287bde) 82%, #fff);
+}
+
+.holo-gate__reject {
+  background: var(--code-bg, #303235);
+  border: 1px solid var(--border, #4f5153);
+  color: var(--fg, #bcbec3);
+}
+
+.holo-gate__reject:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--code-bg, #303235) 65%, var(--border, #4f5153));
+  border-color: var(--muted, #7a7e85);
+}
+
 /* Embedded diagram chrome (zoom controls): hidden while the canvas is inert, fading
    in when a click arms it (.holo-diagram--armed, set by DiagramEditor). Same snappy
    curve as the toolbar slide above. */

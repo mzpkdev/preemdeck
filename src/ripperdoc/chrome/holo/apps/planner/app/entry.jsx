@@ -56,6 +56,12 @@ import { GraphSpec } from "../../diagram/app/kinds/schema";
 /** The endpoint holo's dev server mounts: GET seeds the editor, POST persists an edit. */
 const PLAN_ENDPOINT = "/__holo/plan";
 
+/** GET: is this serve an approval gate (`--wait`), and under which nonce. */
+const GATE_ENDPOINT = "/__holo/gate";
+
+/** POST `{ verdict, nonce }`: render the reviewer's verdict; the server prints it and exits. */
+const VERDICT_ENDPOINT = "/__holo/verdict";
+
 /** Debounce window (ms) between the last keystroke and the write-back POST. */
 const SAVE_DEBOUNCE_MS = 300;
 
@@ -546,6 +552,10 @@ function Holo() {
   // Resolved after mount (readPaletteIsDark); drives MDXEditor's dark chrome and
   // the <html> class that reaches its body-portaled dropdowns/popovers.
   const [dark, setDark] = useState(false);
+  // null until the gate probe lands; then `{ waiting, nonce }` and, once a
+  // verdict is posted, `sent: "approve" | "reject"`. The bar renders only when
+  // the serve is actually gating (`--wait`).
+  const [gate, setGate] = useState(null);
   const saveTimer = useRef(undefined);
   // The latest edit not yet confirmed by a completed POST. Held so a teardown can
   // persist it synchronously instead of dropping it: the JCEF preview tab reloads
@@ -553,6 +563,46 @@ function Holo() {
   // otherwise cancel the pending POST AND re-seed the editor from the stale file,
   // silently reverting the edit. `null` means nothing outstanding.
   const pending = useRef(null);
+  // Whether the CURRENT document carries reviewer notes (`:llm-note`), tracked
+  // live from the initial fetch and every edit. The verdict follows from it:
+  // notes present → the one honest button is "Request changes"; a clean doc →
+  // "Approve". Leaving a note IS the rejection rationale.
+  const [hasNotes, setHasNotes] = useState(false);
+
+  useEffect(() => {
+    let live = true;
+    fetch(GATE_ENDPOINT)
+      .then((response) => (response.ok ? response.json() : null))
+      .then((state) => {
+        if (live && state?.waiting) {
+          setGate(state);
+        }
+      })
+      .catch(() => {});
+    return () => {
+      live = false;
+    };
+  }, []);
+
+  // A verdict must never race the debounced save: flush the outstanding edit with
+  // an AWAITED POST (the teardown beacon gives no completion signal), then post
+  // the verdict with this serve's nonce. The server prints the verdict and exits;
+  // the badge tells the reviewer this page is done.
+  const sendVerdict = async (verdict) => {
+    clearTimeout(saveTimer.current);
+    const text = pending.current;
+    pending.current = null;
+    if (text !== null) {
+      await fetch(PLAN_ENDPOINT, { method: "POST", body: text });
+    }
+    const response = await fetch(VERDICT_ENDPOINT, {
+      method: "POST",
+      body: JSON.stringify({ verdict, nonce: gate.nonce }),
+    });
+    if (response.ok) {
+      setGate({ ...gate, sent: verdict });
+    }
+  };
 
   useEffect(() => {
     const isDark = readPaletteIsDark();
@@ -568,6 +618,7 @@ function Holo() {
       .then((text) => {
         if (live) {
           setMarkdown(text);
+          setHasNotes(text.includes(":llm-note"));
         }
       });
 
@@ -615,6 +666,7 @@ function Holo() {
     // Track the outstanding text so a teardown flush can persist it; keep it set until
     // the POST resolves, so a reload between timer-fire and completion still re-sends it.
     pending.current = next;
+    setHasNotes(next.includes(":llm-note"));
     clearTimeout(saveTimer.current);
     saveTimer.current = setTimeout(() => {
       void fetch(PLAN_ENDPOINT, { method: "POST", body: next }).then(() => {
@@ -626,45 +678,72 @@ function Holo() {
   };
 
   return (
-    <MDXEditor
-      markdown={markdown}
-      onChange={save}
-      className={dark ? "dark-theme dark-editor" : undefined}
-      contentEditableClassName="holo-plan"
-      plugins={[
-        headingsPlugin(),
-        listsPlugin(),
-        quotePlugin(),
-        tablePlugin(),
-        linkPlugin(),
-        linkDialogPlugin(),
-        thematicBreakPlugin(),
-        frontmatterPlugin(),
-        codeBlockPlugin({ defaultCodeBlockLanguage: "txt" }),
-        codeMirrorPlugin({ codeBlockLanguages: CODE_LANGUAGES, codeMirrorExtensions }),
-        markdownShortcutPlugin(),
-        directivesPlugin({ directiveDescriptors: [llmNoteDescriptor, llmGuideDescriptor, diagramDescriptor] }),
-        toolbarPlugin({
-          toolbarContents: () => (
-            <>
-              <UndoRedo />
-              <Separator />
-              <BoldItalicUnderlineToggles />
-              <CodeToggle />
-              <Separator />
-              <BlockTypeSelect />
-              <ListsToggle />
-              <Separator />
-              <CreateLink />
-              <InsertTable />
-              <InsertThematicBreak />
-              <InsertCodeBlock />
-              <NoteAnnotator />
-            </>
-          ),
-        }),
-      ]}
-    />
+    <>
+      {gate ? (
+        <div className="holo-gate">
+          {(gate.sent ?? (hasNotes ? "reject" : "approve")) === "reject" ? (
+            <button
+              type="button"
+              className="holo-gate__reject"
+              title="Send your notes back to the agent"
+              disabled={Boolean(gate.sent)}
+              onClick={() => void sendVerdict("reject")}
+            >
+              ↺ Rework
+            </button>
+          ) : (
+            <button
+              type="button"
+              className="holo-gate__approve"
+              title="Approve the plan"
+              disabled={Boolean(gate.sent)}
+              onClick={() => void sendVerdict("approve")}
+            >
+              ✓ Approve
+            </button>
+          )}
+        </div>
+      ) : null}
+      <MDXEditor
+        markdown={markdown}
+        onChange={save}
+        className={dark ? "dark-theme dark-editor" : undefined}
+        contentEditableClassName="holo-plan"
+        plugins={[
+          headingsPlugin(),
+          listsPlugin(),
+          quotePlugin(),
+          tablePlugin(),
+          linkPlugin(),
+          linkDialogPlugin(),
+          thematicBreakPlugin(),
+          frontmatterPlugin(),
+          codeBlockPlugin({ defaultCodeBlockLanguage: "txt" }),
+          codeMirrorPlugin({ codeBlockLanguages: CODE_LANGUAGES, codeMirrorExtensions }),
+          markdownShortcutPlugin(),
+          directivesPlugin({ directiveDescriptors: [llmNoteDescriptor, llmGuideDescriptor, diagramDescriptor] }),
+          toolbarPlugin({
+            toolbarContents: () => (
+              <>
+                <UndoRedo />
+                <Separator />
+                <BoldItalicUnderlineToggles />
+                <CodeToggle />
+                <Separator />
+                <BlockTypeSelect />
+                <ListsToggle />
+                <Separator />
+                <CreateLink />
+                <InsertTable />
+                <InsertThematicBreak />
+                <InsertCodeBlock />
+                <NoteAnnotator />
+              </>
+            ),
+          }),
+        ]}
+      />
+    </>
   );
 }
 

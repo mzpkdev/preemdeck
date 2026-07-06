@@ -20,13 +20,17 @@ import * as os from "node:os"
 import * as path from "node:path"
 import {
     buildViteConfig,
+    consumeVerdictSidecar,
     createDisconnectReaper,
     DEFAULT_CSS,
+    handleGateIo,
     handlePlanIo,
+    handleVerdictIo,
     resolveCssPath,
     resolveMdxPath,
     ServeError,
-    STYLE_ALIAS
+    STYLE_ALIAS,
+    verdictSidecarPath
 } from "./serve"
 
 const context = describe
@@ -412,5 +416,104 @@ describe("createDisconnectReaper", () => {
         reaper.onDisconnect() // a late event must not re-fire onReap
         clock.advance(GRACE * 5)
         expect(reaped).toBe(1)
+    })
+})
+
+describe("the approval gate (--wait)", () => {
+    context("handleGateIo", () => {
+        it("GET reports waiting + nonce as JSON", () => {
+            const result = handleGateIo("GET", true, "n-1")
+            expect(result.status).toBe(200)
+            expect(result.contentType).toContain("application/json")
+            expect(JSON.parse(result.body ?? "")).toEqual({ waiting: true, nonce: "n-1" })
+        })
+
+        it("reports a non-gating serve as waiting: false", () => {
+            expect(JSON.parse(handleGateIo("GET", false, "n-1").body ?? "").waiting).toBe(false)
+        })
+
+        it("rejects non-GET", () => {
+            expect(handleGateIo("POST", true, "n-1").status).toBe(405)
+        })
+    })
+
+    context("handleVerdictIo", () => {
+        const gate = { waiting: true, nonce: "n-1" }
+
+        it("accepts a nonce-matched approve/reject as 204 carrying the verdict", () => {
+            expect(handleVerdictIo("POST", JSON.stringify({ verdict: "approve", nonce: "n-1" }), gate)).toEqual({
+                status: 204,
+                verdict: "approve"
+            })
+            expect(handleVerdictIo("POST", JSON.stringify({ verdict: "reject", nonce: "n-1" }), gate).verdict).toBe(
+                "reject"
+            )
+        })
+
+        it("405s non-POST and 409s a serve that is not gating", () => {
+            expect(handleVerdictIo("GET", "", gate).status).toBe(405)
+            expect(
+                handleVerdictIo("POST", JSON.stringify({ verdict: "approve", nonce: "n-1" }), {
+                    waiting: false,
+                    nonce: "n-1"
+                }).status
+            ).toBe(409)
+        })
+
+        it("403s a nonce mismatch — the forgery guard", () => {
+            const result = handleVerdictIo("POST", JSON.stringify({ verdict: "approve", nonce: "stolen" }), gate)
+            expect(result.status).toBe(403)
+            expect(result.verdict).toBeUndefined()
+        })
+
+        it("400s malformed JSON and unknown verdicts", () => {
+            expect(handleVerdictIo("POST", "not json", gate).status).toBe(400)
+            expect(handleVerdictIo("POST", JSON.stringify({ verdict: "maybe", nonce: "n-1" }), gate).status).toBe(400)
+        })
+    })
+
+    context("verdict sidecar", () => {
+        it("consumes a leftover verdict: returns it once, the file is gone after", async () => {
+            const { file } = await fixtureMdx()
+            await fs.writeFile(verdictSidecarPath(file), "approve")
+            expect(consumeVerdictSidecar(file)).toBe("approve")
+            expect(consumeVerdictSidecar(file)).toBeNull()
+        })
+
+        it("returns null when absent; junk is consumed too, never re-read", async () => {
+            const { file } = await fixtureMdx()
+            expect(consumeVerdictSidecar(file)).toBeNull()
+            await fs.writeFile(verdictSidecarPath(file), "maybe")
+            expect(consumeVerdictSidecar(file)).toBeNull()
+            await expect(fs.access(verdictSidecarPath(file))).rejects.toBeDefined()
+        })
+    })
+
+    context("the CLI", () => {
+        it("accepts --wait on --dry-run and rehearses the banner without a sidecar interaction", async () => {
+            const { file } = await fixtureMdx()
+            await fs.writeFile(verdictSidecarPath(file), "approve")
+            const result = await run([file, "--wait", "--dry-run"])
+            expect(result.code).toBe(0)
+            expect(result.stdout).toContain("holo: ready")
+            // Dry-run rides effect(): the sidecar must NOT be consumed. (Boolean
+            // probe rather than .resolves — Bun fulfils fs.access with null.)
+            expect(
+                await fs.access(verdictSidecarPath(file)).then(
+                    () => true,
+                    () => false
+                )
+            ).toBe(true)
+        })
+
+        it("short-circuits a real --wait on a leftover sidecar: prints the verdict, never binds", async () => {
+            const { file } = await fixtureMdx()
+            await fs.writeFile(verdictSidecarPath(file), "reject")
+            const result = await run([file, "--wait"])
+            expect(result.code).toBe(0)
+            expect(result.stdout).toContain("holo: verdict=reject")
+            expect(result.stdout).not.toContain("holo: ready")
+            await expect(fs.access(verdictSidecarPath(file))).rejects.toBeDefined()
+        })
     })
 })

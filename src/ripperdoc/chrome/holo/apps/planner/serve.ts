@@ -17,6 +17,7 @@
  * rehearses the whole prelude WITHOUT binding a port.
  */
 
+import * as crypto from "node:crypto"
 import * as fs from "node:fs"
 import type { IncomingMessage } from "node:http"
 import * as path from "node:path"
@@ -51,6 +52,8 @@ export type ServeOptions = {
     killOnDisconnect?: boolean
     /** Optional `--css` override path (a `.css` file); absent → {@link DEFAULT_CSS}. */
     css?: string
+    /** `--wait`: serve as an approval gate — block until the page posts a verdict, print it, exit. */
+    wait?: boolean
 }
 
 /**
@@ -371,6 +374,85 @@ const readRequestBody = (req: IncomingMessage): Promise<string> =>
         req.on("error", reject)
     })
 
+/** The dev-server endpoint the page probes for gate state (GET): is this serve gating, and under which nonce. */
+export const GATE_ENDPOINT = "/__holo/gate"
+
+/** The dev-server endpoint the page posts the reviewer's verdict to (POST, JSON `{ verdict, nonce }`). */
+export const VERDICT_ENDPOINT = "/__holo/verdict"
+
+/** The two verdicts a reviewer can render on a `--wait` serve. */
+export type Verdict = "approve" | "reject"
+
+/**
+ * The sidecar holding a verdict that outlived its `--wait` process. Written the
+ * moment a verdict lands (so a listener killed by a host tool-timeout can't lose
+ * the click), deleted once stdout has carried the verdict; the next `--wait` run
+ * consumes a leftover instead of re-serving.
+ */
+export const verdictSidecarPath = (mdxPath: string): string => `${mdxPath}.verdict`
+
+/**
+ * Pure request logic for {@link GATE_ENDPOINT}: GET reports `{ waiting, nonce }`
+ * — the page renders its verdict bar only when `waiting` — anything else is 405.
+ */
+export const handleGateIo = (method: string | undefined, waiting: boolean, nonce: string): PlanIoResult =>
+    method === "GET"
+        ? { status: 200, body: JSON.stringify({ waiting, nonce }), contentType: "application/json" }
+        : { status: 405 }
+
+/** The outcome of {@link handleVerdictIo}: the HTTP status, plus the accepted verdict on 204. */
+export type VerdictIoResult = { status: number; verdict?: Verdict }
+
+/**
+ * Pure request logic for {@link VERDICT_ENDPOINT}. POST only (405); a serve that
+ * is not gating refuses with 409; the JSON body must carry this serve's nonce
+ * (403 otherwise — the nonce is what stops any other local process from forging
+ * a verdict) and a verdict of approve/reject (400 otherwise).
+ */
+export const handleVerdictIo = (
+    method: string | undefined,
+    bodyText: string,
+    expected: { waiting: boolean; nonce: string }
+): VerdictIoResult => {
+    if (method !== "POST") {
+        return { status: 405 }
+    }
+    if (!expected.waiting) {
+        return { status: 409 }
+    }
+    let parsed: unknown
+    try {
+        parsed = JSON.parse(bodyText)
+    } catch {
+        return { status: 400 }
+    }
+    const { verdict, nonce } = (parsed ?? {}) as { verdict?: unknown; nonce?: unknown }
+    if (nonce !== expected.nonce) {
+        return { status: 403 }
+    }
+    if (verdict !== "approve" && verdict !== "reject") {
+        return { status: 400 }
+    }
+    return { status: 204, verdict }
+}
+
+/**
+ * Consume (read, then delete) a leftover verdict sidecar. Returns the verdict it
+ * held, or null when absent or holding anything else — junk is still deleted, so
+ * a corrupt sidecar can't wedge every future `--wait` of the same plan.
+ */
+export const consumeVerdictSidecar = (mdxPath: string): Verdict | null => {
+    const sidecar = verdictSidecarPath(mdxPath)
+    let text: string
+    try {
+        text = fs.readFileSync(sidecar, "utf8").trim()
+    } catch {
+        return null
+    }
+    fs.rmSync(sidecar, { force: true })
+    return text === "approve" || text === "reject" ? text : null
+}
+
 /**
  * Run the foreground server: validate the path, build the config, boot Vite in
  * dev/HMR mode, print the banner, and block until a signal.
@@ -401,6 +483,23 @@ export const serve = async (file: string, options: ServeOptions): Promise<void> 
     if (options.css !== undefined) {
         resolveCssPath(options.css)
     }
+
+    // A verdict clicked while no --wait listener was alive (the previous run hit a
+    // host tool-timeout after the sidecar was written) short-circuits the serve:
+    // deliver it and exit without binding. Rides effect() so --dry-run stays pure.
+    if (options.wait) {
+        const leftover = (await effect(() => consumeVerdictSidecar(mdxPath))) as Verdict | null | undefined
+        if (leftover != null) {
+            process.stdout.write(`holo: verdict=${leftover}\n`)
+            return
+        }
+    }
+    // Per-serve nonce: the page echoes it on the verdict POST, so nothing that
+    // didn't load THIS page can render a verdict.
+    const nonce = crypto.randomUUID()
+    // Assigned inside the park block below; the verdict middleware calls through it.
+    let onVerdict: (verdict: Verdict) => void = () => {}
+
     const config = buildViteConfig(options)
 
     // Title the tab after the loaded file (not hardcoded): a serve-time
@@ -438,6 +537,44 @@ export const serve = async (file: string, options: ServeOptions): Promise<void> 
                         })
                 })
             }
+        },
+        {
+            // The approval gate: GET /__holo/gate tells the page whether this serve
+            // waits for a verdict (and under which nonce); POST /__holo/verdict
+            // renders it. A verdict is made durable in the sidecar BEFORE the
+            // response, then funnels into the park block's shutdown.
+            name: "holo-gate",
+            configureServer(server: ViteDevServer): void {
+                server.middlewares.use(GATE_ENDPOINT, (req, res) => {
+                    const result = handleGateIo(req.method, options.wait === true, nonce)
+                    res.statusCode = result.status
+                    if (result.contentType !== undefined) {
+                        res.setHeader("content-type", result.contentType)
+                    }
+                    res.end(result.body)
+                })
+                server.middlewares.use(VERDICT_ENDPOINT, (req, res) => {
+                    void readRequestBody(req)
+                        .then((body) => {
+                            const result = handleVerdictIo(req.method, body, {
+                                waiting: options.wait === true,
+                                nonce
+                            })
+                            if (result.verdict !== undefined) {
+                                fs.writeFileSync(verdictSidecarPath(mdxPath), result.verdict)
+                            }
+                            res.statusCode = result.status
+                            res.end()
+                            if (result.verdict !== undefined) {
+                                onVerdict(result.verdict)
+                            }
+                        })
+                        .catch((error) => {
+                            res.statusCode = 500
+                            res.end(String(error))
+                        })
+                })
+            }
         }
     ]
 
@@ -465,14 +602,37 @@ export const serve = async (file: string, options: ServeOptions): Promise<void> 
         () =>
             new Promise<void>((resolve) => {
                 let stopped = false
-                // The single shutdown path: SIGINT/SIGTERM AND the disconnect reaper
-                // both funnel here, so the server is closed exactly once.
+                let rendered: Verdict | undefined
+                // The single shutdown path: SIGINT/SIGTERM, the disconnect reaper AND a
+                // rendered verdict all funnel here, so the server is closed exactly once.
+                // Under --wait the LAST stdout line is the greppable verdict — approve /
+                // reject from a click, none from any other shutdown. KEEP THIS SHAPE
+                // STABLE (skills/specs grep it). A delivered verdict also clears the
+                // sidecar: stdout carried it, so nothing is left to consume.
+                //
+                // The verdict is written BEFORE the close, and the close is raced
+                // against a short grace: Vite's close() drains live HTTP/ws clients,
+                // and the page that just posted the verdict is still connected — an
+                // open tab would otherwise park this process forever with its
+                // listener already gone (observed as the verdict "crash").
                 const shutdown = (): void => {
                     if (stopped) {
                         return
                     }
                     stopped = true
-                    void server.close().then(() => resolve())
+                    if (options.wait) {
+                        process.stdout.write(`holo: verdict=${rendered ?? "none"}\n`)
+                        if (rendered !== undefined) {
+                            fs.rmSync(verdictSidecarPath(mdxPath), { force: true })
+                        }
+                    }
+                    void Promise.race([server.close(), new Promise((grace) => setTimeout(grace, 1500))]).then(() =>
+                        resolve()
+                    )
+                }
+                onVerdict = (verdict): void => {
+                    rendered = verdict
+                    shutdown()
                 }
                 process.once("SIGINT", shutdown)
                 process.once("SIGTERM", shutdown)
@@ -535,11 +695,17 @@ const command = defineCommand({
             arity: 1,
             hint: "path",
             description: "override the page stylesheet with a .css file (default: holo's built-in style.css)"
+        },
+        {
+            name: "wait",
+            arity: 0,
+            description:
+                "serve as an approval gate: block until the page's Approve / Request-changes verdict, print `holo: verdict=<approve|reject|none>` as the last line and exit; a `<plan>.verdict` sidecar survives a killed listener and short-circuits the next --wait"
         }
     ],
-    run: async ({ file, host, port, open, css, "kill-on-disconnect": killOnDisconnect }) => {
+    run: async ({ file, host, port, open, css, "kill-on-disconnect": killOnDisconnect, wait }) => {
         try {
-            await serve(file, { host, port, open, css, killOnDisconnect })
+            await serve(file, { host, port, open, css, killOnDisconnect, wait })
         } catch (error) {
             if (error instanceof ServeError) {
                 process.stderr.write(`holo: error: ${error.message}\n`)
