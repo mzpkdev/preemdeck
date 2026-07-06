@@ -11,12 +11,12 @@ import { EdgeKind } from "../kinds/schema"
 import { EDGE_COLOR_VARS, EDGE_VISUALS, MARKER_IDS, markerUrl } from "./visuals"
 
 describe("EDGE_VISUALS", () => {
-    it("covers every EdgeKind with exactly one marker on exactly one end", () => {
+    it("covers every EdgeKind with exactly one marker on exactly one end — except the markerless note anchor", () => {
         for (const kind of EdgeKind.options) {
             const visual = EDGE_VISUALS[kind]
             expect(visual).toBeDefined()
             const markers = [visual.markerStart, visual.markerEnd].filter(Boolean)
-            expect(markers).toHaveLength(1)
+            expect(markers).toHaveLength(kind === "note" ? 0 : 1)
         }
     })
 

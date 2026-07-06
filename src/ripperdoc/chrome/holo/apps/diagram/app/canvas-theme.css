@@ -33,6 +33,30 @@
   --xy-handle-border-color: var(--border, #4f5153);
 }
 
+/* Our `group` kind collides with React Flow's BUILT-IN "group" node type, whose
+   stock stylesheet paints the wrapper itself: solid background, border, padding,
+   a fixed width. Every other kind has a custom name and dodges this. Strip the
+   wrapper bare so GroupNode.jsx's dashed frame is the only chrome. */
+.react-flow .react-flow__node-group {
+  padding: 0;
+  border: none;
+  border-radius: 0;
+  background: none;
+  width: auto;
+  box-shadow: none;
+}
+
+/* Edge labels ride a layer that stacks BELOW nodes by default, so a label
+   crossing a group frame vanished under the frame's solid label tab. Lift the
+   whole label layer above nodes: floating anchors keep midpoints off node
+   faces everywhere except boundary crossings, which is exactly where the label
+   must stay readable. The container stays pointer-inert; the selected-edge
+   chip opts back in per element. */
+.react-flow .react-flow__edgelabel-renderer {
+  z-index: 10;
+  pointer-events: none;
+}
+
 /* Side anchor dots (NodeShell.jsx) — drawing affordances only. Hidden until
    the node invites them: hover or selection reveals. */
 .react-flow .holo-anchor {

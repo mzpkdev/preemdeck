@@ -104,17 +104,18 @@ Top level: `{ "nodes": NodeSpec[], "edges"?: EdgeSpec[], "layout"?: LayoutHints 
 `kind:"group"` node this one sits inside — and `border: "distinct"`, the purple highlight for the special one (a
 context, a singleton, a gateway).
 
-| `kind`     | required fields | optional fields                                 | draws                                                                                        |
-| ---------- | --------------- | ----------------------------------------------- | -------------------------------------------------------------------------------------------- |
-| `class`    | `name`          | `stereotype`, `attributes[]`, `methods[]`       | UML class box; ANY stereotype renders as «guillemets»; `abstract`/`interface` italicise      |
-| `io`       | `name`          | `stereotype`, `inputs: Pin[]`, `outputs: Pin[]` | component/service box: blue in-pins, orange out-pins, binding tags                           |
-| `enum`     | `name`          | `values: string[]`                              | cut-corner «enumeration» box; ordinals derive from array index                               |
-| `fn`       | `name`          |                                                 | ƒ pill; `name` holds the whole signature (`"createShape(kind): Shape"`)                      |
-| `db`       | `name`          | `engine`                                        | datastore cylinder; `engine` (postgres/sqlite/browser/…) as the subtitle                     |
-| `actor`    | `name`          |                                                 | stick figure with the fixed «actor» tag                                                      |
-| `external` | `name`          |                                                 | dashed box with the fixed «external» tag — a system you don't own                            |
-| `channel`  | `name`          | `transport`                                     | teal async conduit (queue/topic/stream/bus); `transport` renders uppercase (default "topic") |
-| `group`    | `name`          | `stereotype`                                    | dashed boundary frame that CONTAINS its members; label tab `«stereotype ?? boundary» name`   |
+| `kind`     | required fields | optional fields                                 | draws                                                                                                  |
+| ---------- | --------------- | ----------------------------------------------- | ------------------------------------------------------------------------------------------------------ |
+| `class`    | `name`          | `stereotype`, `attributes[]`, `methods[]`       | UML class box; ANY stereotype renders as «guillemets»; `abstract`/`interface` italicise                |
+| `io`       | `name`          | `stereotype`, `inputs: Pin[]`, `outputs: Pin[]` | component/service box: blue in-pins, orange out-pins, binding tags                                     |
+| `enum`     | `name`          | `values: string[]`                              | cut-corner «enumeration» box; ordinals derive from array index                                         |
+| `fn`       | `name`          |                                                 | ƒ pill; `name` holds the whole signature (`"createShape(kind): Shape"`)                                |
+| `db`       | `name`          | `engine`                                        | datastore cylinder; `engine` (postgres/sqlite/browser/…) as the subtitle                               |
+| `actor`    | `name`          |                                                 | stick figure with the fixed «actor» tag                                                                |
+| `external` | `name`          |                                                 | dashed box with the fixed «external» tag — a system you don't own                                      |
+| `channel`  | `name`          | `transport`                                     | teal async conduit (queue/topic/stream/bus); `transport` renders uppercase (default "topic")           |
+| `group`    | `name`          | `stereotype`                                    | dashed boundary frame that CONTAINS its members; label tab `«stereotype ?? boundary» name`             |
+| `note`     | `text`          |                                                 | UML note: verbatim code/prose, monospace, folded corner; tie it to its owner with a `kind:"note"` edge |
 
 **Attribute** `{ vis?, name, type? }` renders `‹vis› name: type`. **Method** `{ vis?, name, params?, type? }` renders
 `‹vis› name(params): type` — `params` is a **free-form string**. **Visibility** `vis` is one of `+` public, `-` private,
@@ -133,16 +134,17 @@ chains must be acyclic.
 **Direction convention: `source` is the parent / owner / whole / caller** — `animal → dog` is `inheritance`,
 `factory → db` is `composition`. Each kind's marker lands on the correct end automatically:
 
-| `kind`                  | line        | marker                                                               |
-| ----------------------- | ----------- | -------------------------------------------------------------------- |
-| `inheritance`           | solid       | hollow triangle at the **source** (the parent)                       |
-| `realization`           | dashed      | hollow triangle at the source (the interface)                        |
-| `aggregation`           | solid       | hollow diamond at the source (the whole; has-a)                      |
-| `composition`           | solid       | filled diamond at the source (the owner; also "persists")            |
-| `association` (default) | solid       | open arrow at the target (plain "knows about")                       |
-| `dependency`            | dashed      | open arrow at the target (the thing used; also callbacks/consumes)   |
-| `call`                  | solid blue  | filled arrow at the target (sync: HTTP / gRPC / render / props down) |
-| `event`                 | dashed teal | filled arrow at the target (async, through a `channel`)              |
+| `kind`                  | line        | marker                                                                           |
+| ----------------------- | ----------- | -------------------------------------------------------------------------------- |
+| `inheritance`           | solid       | hollow triangle at the **source** (the parent)                                   |
+| `realization`           | dashed      | hollow triangle at the source (the interface)                                    |
+| `aggregation`           | solid       | hollow diamond at the source (the whole; has-a)                                  |
+| `composition`           | solid       | filled diamond at the source (the owner; also "persists")                        |
+| `association` (default) | solid       | open arrow at the target (plain "knows about")                                   |
+| `dependency`            | dashed      | open arrow at the target (the thing used; also callbacks/consumes)               |
+| `call`                  | solid blue  | filled arrow at the target (sync: HTTP / gRPC / render / props down)             |
+| `event`                 | dashed teal | filled arrow at the target (async, through a `channel`)                          |
+| `note`                  | dashed      | none — the anchor tying a `note` node to its owner (one end MUST be a note node) |
 
 **Labels are load-bearing** on the flow kinds — the same `kind` reads as `"props down"`, `"onMenu"`, `"HTTP"`, or
 `"owns"` only through its `label`. Always label `call`/`event`/`dependency` edges with the protocol or meaning.

@@ -18,6 +18,7 @@ import { ExternalNode } from "./ExternalNode.jsx";
 import { FnNode } from "./FnNode.jsx";
 import { GroupNode } from "./GroupNode.jsx";
 import { IoNode } from "./IoNode.jsx";
+import { NoteNode } from "./NoteNode.jsx";
 import {
   ActorNodeSpec,
   ChannelNodeSpec,
@@ -28,6 +29,7 @@ import {
   FnNodeSpec,
   GroupNodeSpec,
   IoNodeSpec,
+  NoteNodeSpec,
 } from "./schema";
 
 /** kind → { schema, Node }. Extend with more kinds (extending NodeSpec in lockstep). */
@@ -41,6 +43,7 @@ export const nodeKinds = {
   external: { schema: ExternalNodeSpec, Node: ExternalNode },
   channel: { schema: ChannelNodeSpec, Node: ChannelNode },
   group: { schema: GroupNodeSpec, Node: GroupNode },
+  note: { schema: NoteNodeSpec, Node: NoteNode },
 };
 
 /** kind → component map for React Flow's `nodeTypes` prop, derived from the registry. */

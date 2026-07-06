@@ -95,6 +95,10 @@ describe("nextKind", () => {
         expect(nextKind("composition")).toBe("call")
         expect(nextKind("event")).toBe("association")
     })
+
+    it("keeps the note anchor out of the cycle — a note edge stays a note", () => {
+        expect(nextKind("note")).toBe("note")
+    })
 })
 
 describe("defaultEdgeKind", () => {

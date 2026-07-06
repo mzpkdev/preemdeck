@@ -102,9 +102,14 @@ export const genEdgeId = (existing: ReadonlySet<string>): string => {
     return `e${n}`
 }
 
-/** Cycle order for the selected-edge kind chip: the catalog order, wrapping. */
+/**
+ * Cycle order for the selected-edge kind chip: the catalog order, wrapping.
+ * The note anchor sits outside the cycle — it is a tie, not a relationship, so
+ * a note edge stays one (no-op) and no other kind cycles into "note".
+ */
 export const nextKind = (kind: EdgeKindName): EdgeKindName => {
-    const order = EdgeKind.options
+    if (kind === "note") return "note"
+    const order = EdgeKind.options.filter((k) => k !== "note")
     const at = order.indexOf(kind)
     return order[(at + 1) % order.length] ?? "association"
 }

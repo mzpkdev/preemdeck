@@ -5,7 +5,7 @@
  * `{vis, name, type}` members, pins, enum values etc. off the parsed node and
  * lays the compartments out itself (so it can colour the visibility glyph,
  * italicise abstract names, anchor edges to pins, etc.). `NodeSpec` is a
- * `discriminatedUnion` on `kind` — nine kinds, one primitive vocabulary for
+ * `discriminatedUnion` on `kind` — ten kinds, one primitive vocabulary for
  * class AND component/architecture diagrams; adding a kind = one union member
  * here + one component + one registry line (kinds/index.js). Edges render
  * through the edge registry (../edges/visuals.ts): each `kind` draws its own
@@ -138,6 +138,17 @@ export const GroupNodeSpec = NodeBase.extend({
     stereotype: z.string().optional()
 })
 
+/**
+ * A UML note: verbatim code/prose in a folded-corner monospace box. `text` is
+ * the whole content, newlines included. Anchors to its owner through a
+ * `kind:"note"` edge (dashed, no marker) — the anchor names the owner, it does
+ * not point at it.
+ */
+export const NoteNodeSpec = NodeBase.extend({
+    kind: z.literal("note"),
+    text: z.string()
+})
+
 /** The node union, discriminated on `kind`; extend with more kinds later. */
 export const NodeSpec = z.discriminatedUnion("kind", [
     ClassNodeSpec,
@@ -148,12 +159,14 @@ export const NodeSpec = z.discriminatedUnion("kind", [
     ActorNodeSpec,
     ExternalNodeSpec,
     ChannelNodeSpec,
-    GroupNodeSpec
+    GroupNodeSpec,
+    NoteNodeSpec
 ])
 
 /**
- * The edge relationship vocabulary: the six UML kinds plus the two flow
- * overlays (`call` = sync, `event` = async through a channel).
+ * The edge relationship vocabulary: the six UML kinds, the two flow overlays
+ * (`call` = sync, `event` = async through a channel), and `note` — the
+ * markerless dashed anchor tying a note node to its owner.
  */
 export const EdgeKind = z.enum([
     "association",
@@ -163,7 +176,8 @@ export const EdgeKind = z.enum([
     "aggregation",
     "composition",
     "call",
-    "event"
+    "event",
+    "note"
 ])
 
 /**
@@ -257,6 +271,18 @@ export const GraphSpec = z
                     code: "custom",
                     path: ["edges", i, "targetPort"],
                     message: `edge ${name} targetPort "${edge.targetPort}" is not a declared input pin id on "${edge.target}"`
+                })
+            }
+            // A note anchor exists to tie a note to its owner — one end must be a note node.
+            if (
+                edge.kind === "note" &&
+                byId.get(edge.source)?.kind !== "note" &&
+                byId.get(edge.target)?.kind !== "note"
+            ) {
+                ctx.addIssue({
+                    code: "custom",
+                    path: ["edges", i, "kind"],
+                    message: `edge ${name} kind "note" must have a note node at one end`
                 })
             }
         })

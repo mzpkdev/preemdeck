@@ -39,7 +39,9 @@ export const EDGE_VISUALS: Record<EdgeKindName, EdgeVisual> = {
     association: { dashed: false, color: "line", markerEnd: "open" },
     dependency: { dashed: true, color: "line", markerEnd: "open" },
     call: { dashed: false, color: "sync", markerEnd: "arr-sync" },
-    event: { dashed: true, color: "async", markerEnd: "arr-async" }
+    event: { dashed: true, color: "async", markerEnd: "arr-async" },
+    // The UML note anchor: the one markerless kind — it ties, it doesn't point.
+    note: { dashed: true, color: "line" }
 }
 
 /** The CSS var an edge colour role resolves through (tokens.css). */

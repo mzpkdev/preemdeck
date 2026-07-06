@@ -40,6 +40,20 @@ describe("buildElkGraph", () => {
         expect(graph.edges).toEqual([{ id: "e0", sources: ["a"], targets: ["b"] }])
         expect(graph.layoutOptions["elk.algorithm"]).toBe("layered")
     })
+
+    it("marks note-typed leaves as ELK comment boxes; other leaves stay bare", () => {
+        const graph = buildElkGraph(
+            [
+                { id: "owner", type: "fn", measured: { width: 180, height: 40 } },
+                { id: "memo", type: "note", measured: { width: 200, height: 60 } }
+            ],
+            [{ id: "tie", source: "memo", target: "owner" }]
+        )
+        const memo = graph.children?.find((c) => c.id === "memo")
+        const owner = graph.children?.find((c) => c.id === "owner")
+        expect(memo?.layoutOptions).toEqual({ "org.eclipse.elk.commentBox": "true" })
+        expect(owner?.layoutOptions).toBeUndefined()
+    })
 })
 
 describe("buildElkGraph with groups", () => {

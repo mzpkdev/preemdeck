@@ -12,10 +12,12 @@ import { EditableText, editInputStyle } from "./parts/editing";
 const frameStyle = {
   width: "100%",
   height: "100%",
-  border: "1.5px dashed var(--border)",
+  border: "1.5px dashed color-mix(in srgb, var(--border, #4f5153) 80%, transparent)",
   borderRadius: 10,
   position: "relative",
-  background: "transparent",
+  // A faint interior wash so the boundary reads as a region, not a stray
+  // outline — light enough that the dot grid and crossing edges stay visible.
+  background: "color-mix(in srgb, var(--border, #4f5153) 7%, transparent)",
 };
 
 const distinctFrameStyle = { ...frameStyle, borderColor: "var(--distinct, #b08cdb)" };
@@ -29,6 +31,8 @@ const tabStyle = {
   color: "var(--muted)",
   fontSize: 11,
   whiteSpace: "nowrap",
+  borderRadius: 3,
+  lineHeight: "17px",
 };
 
 function GroupNodeImpl({ id, data }) {

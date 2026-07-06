@@ -18,7 +18,8 @@ const KIND_MINIMALS = [
     { id: "n4", kind: "db", name: "DB" },
     { id: "n5", kind: "actor", name: "User" },
     { id: "n6", kind: "external", name: "Stripe" },
-    { id: "n7", kind: "channel", name: "orders" }
+    { id: "n7", kind: "channel", name: "orders" },
+    { id: "n8", kind: "note", text: "x > 0 ? a : b" }
 ]
 
 describe("schema", () => {
@@ -78,6 +79,19 @@ describe("schema", () => {
         const bare = ClassNodeSpec.parse({ id: "c", kind: "class", name: "C" })
         expect("border" in bare && bare.border !== undefined).toBe(false)
         expect("group" in bare && bare.group !== undefined).toBe(false)
+    })
+
+    it("requires a note edge to anchor a note node at one end", () => {
+        const nodes = [
+            { id: "a", kind: "class", name: "A" },
+            { id: "n", kind: "note", text: "provider === 'strapi'" }
+        ]
+        expect(GraphSpec.safeParse({ nodes, edges: [{ source: "n", target: "a", kind: "note" }] }).success).toBe(true)
+        const unanchored = GraphSpec.safeParse({ nodes, edges: [{ source: "a", target: "a", kind: "note" }] })
+        expect(unanchored.success).toBe(false)
+        if (!unanchored.success) {
+            expect(unanchored.error.issues[0]?.message).toContain(`must have a note node at one end`)
+        }
     })
 
     it("parses a {nodes, edges} document and defaults an edge kind to association", () => {

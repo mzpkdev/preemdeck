@@ -41,7 +41,9 @@ const MONO_10 = '10px ui-monospace, "JetBrains Mono", Menlo, monospace';
 const labelStyle = {
   position: "absolute",
   font: MONO_10,
-  background: "var(--bg, #1e1f22)",
+  // Translucent knockout: dims the line under the text for readability while
+  // keeping the arrow visible through the chip.
+  background: "color-mix(in srgb, var(--bg, #1e1f22) 72%, transparent)",
   padding: "0 4px",
   borderRadius: 3,
   pointerEvents: "none",

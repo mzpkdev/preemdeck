@@ -44,9 +44,10 @@ const GROUP_PADDING = "[top=28,left=16,bottom=16,right=16]"
 /** Used only if a node somehow reports no measured size (it always should by pass 2). */
 export const FALLBACK = { width: 180, height: 80 }
 
-/** The slice of a React Flow node the builder reads (`node.measured` appears after mount). */
+/** The slice of a React Flow node the builder reads (`node.measured` appears after mount; `type` is the kind). */
 export type MeasuredNode = {
     id: string
+    type?: string
     parentId?: string
     measured?: { width?: number; height?: number }
 }
@@ -92,7 +93,11 @@ export const buildElkGraph = (
         return {
             id: n.id,
             width: n.measured?.width ?? FALLBACK.width,
-            height: n.measured?.height ?? FALLBACK.height
+            height: n.measured?.height ?? FALLBACK.height,
+            // Notes ride ELK's comment handling: the layered algorithm keeps a
+            // comment box beside the node its (note) edge ties it to instead of
+            // slotting it into a layer of its own.
+            ...(n.type === "note" ? { layoutOptions: { "org.eclipse.elk.commentBox": "true" } } : {})
         }
     }
 
