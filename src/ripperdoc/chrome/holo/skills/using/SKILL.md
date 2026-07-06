@@ -4,8 +4,8 @@ description: |
   whenever you're authoring or revising a plan that will be reviewed in holo: how the served page round-trips
   edits back to the .md, how to read and clear the reviewer `:llm-note`s the user leaves, and — the main
   payload — how to embed an editable software diagram (UML class or component/architecture) as a `:::diagram`
-  block so it renders on the canvas instead of as raw JSON. Covers the GraphSpec schema (nine node kinds,
-  eight edge kinds, groups, ports, layout hints), the exact carrier syntax, and the render constraints.
+  block so it renders on the canvas instead of as raw JSON. Covers the GraphSpec schema (ten node kinds,
+  nine edge kinds, groups, ports, layout hints), the exact carrier syntax, and the render constraints.
 user-invocable: true
 ---
 
@@ -55,7 +55,7 @@ reject→re-present.
 ## Embedding a diagram: `:::diagram`
 
 The planner renders an editable **software diagram** inline when you wrap a graph spec in a `:::diagram` container
-directive. One primitive vocabulary — nine node kinds, eight edge kinds — covers UML class diagrams AND
+directive. One primitive vocabulary — ten node kinds, nine edge kinds — covers UML class diagrams AND
 component/architecture diagrams. Use it when a plan describes a **domain model, a type hierarchy, a component tree, or a
 service topology** — anywhere the shape of the system carries more than prose can.
 
@@ -212,6 +212,37 @@ sequenceDiagram
 Structure, types, components, and dataflow belong in `:::diagram` — the reviewer can EDIT that canvas; a mermaid block
 is read-mostly (double-click opens the source, Cmd/Ctrl+Enter or blur commits, Escape reverts). Don't reach for mermaid
 because it's easier to author — an editable GraphSpec beats a static picture everywhere both could work.
+
+## Progressive disclosure: `:::details`
+
+A `:::details` container directive renders as a collapsible fold (collapsed by default) — the carrier for progressive
+disclosure in a plan. It keeps a phase's outcome, approach, and gate visible on the surface while the code-bearing
+detail (the step checklist, complete code, Verify commands) folds away until the reviewer or implementer expands it. The
+`summary` attribute is the fold label:
+
+````text
+:::details{summary="Implementation · 2 files"}
+
+- [ ] `M` `src/auth/token.ts` — refresh at 80% of TTL
+
+  ```ts
+  export function refreshAt(expiresAt: number): number { ... }
+  ```
+
+  **Verify:** `bun test src/auth` → PASS
+
+:::
+````
+
+- **Same carrier rule as `:::diagram`.** The children are ordinary markdown (a checklist, code fences, prose) and
+  round-trip verbatim through the editor; a raw `<details>` HTML block would NOT survive (MDXEditor drops raw HTML the
+  same way it drops comments). Keep the blank lines around the content, and the `{summary="…"}` attribute on ONE line.
+- **The fold is editable.** Its children render in place through a nested editor, so the reviewer can edit the folded
+  steps and every change persists back into the `.md` like any other edit.
+- **Degrades on GitHub** to a labelled block with its content visible (uncollapsed), same as `:::diagram`. It only folds
+  inside holo; embed it only in a plan reviewed there.
+- **write:plan uses it** to fold each phase's implementation steps, so the served plan reads as phases and gates on the
+  surface with the code one click down.
 
 ## Serving a plan by hand
 

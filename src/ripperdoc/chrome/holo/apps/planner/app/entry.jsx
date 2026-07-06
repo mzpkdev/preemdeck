@@ -23,6 +23,7 @@ import {
   listsPlugin,
   markdownShortcutPlugin,
   MDXEditor,
+  NestedLexicalEditor,
   quotePlugin,
   Separator,
   tablePlugin,
@@ -600,6 +601,102 @@ const mermaidDescriptor = {
   Editor: MermaidEditor,
 };
 
+// --- Collapsible implementation detail ---------------------------------------
+// Progressive disclosure for a plan: a phase keeps its outcome + Gate visible as
+// plain markdown, while the code-bearing steps ride inside a `:::details` CONTAINER
+// directive that renders as a native <details> fold (collapsed by default). Same
+// carrier rationale as :::diagram/:::mermaid — a directive round-trips its children
+// verbatim through MDXEditor, whereas a raw <details> HTML block would not survive
+// the import→export cycle (MDXEditor drops raw HTML, the same as it drops comments).
+// On GitHub it degrades to a labelled block with its content visible. The children
+// are ordinary markdown (the checklist + code + Verify), edited in place through a
+// NestedLexicalEditor so the fold stays a live part of the document.
+const DETAILS = "details";
+
+/** Summary shown on the fold when the directive omits `{summary="…"}`. */
+const DETAILS_SUMMARY_FALLBACK = "Implementation";
+
+/** Stable NestedLexicalEditor accessors — hoisted so toggling `open` never re-seeds the fold. */
+const detailsGetContent = (node) => node.children ?? [];
+const detailsGetUpdatedMdastNode = (node, children) => ({ ...node, children });
+
+/**
+ * Renders a `:::details` directive as a controlled collapsible fold. The `summary`
+ * attribute is the fold label (display-only) on a slim caret row; the directive's
+ * children render and edit in place via NestedLexicalEditor, so edits flow out through
+ * MDXEditor's debounced onChange → POST like any other prose (no POST here, same as
+ * :::diagram). Controlled rather than a native <details> so the open can transition:
+ * the content rides a `grid-template-rows: 0fr → 1fr` animation (Chromium 107+, so it
+ * runs in the IDE's JCEF) with the children kept mounted + editable, collapsed to zero
+ * height rather than display:none.
+ */
+const DetailsEditor = ({ mdastNode }) => {
+  const { summary = "" } = mdastNode.attributes ?? {};
+  const [open, setOpen] = useState(false);
+  return (
+    // Slim row, no border box, small margin so consecutive directive blocks don't butt
+    // together (prose spacing never applies): the collapsed fold takes minimal space.
+    <div className="holo-details" style={{ margin: "8px 0" }}>
+      <button
+        type="button"
+        aria-expanded={open}
+        onClick={() => setOpen((value) => !value)}
+        onMouseDown={(event) => event.stopPropagation()}
+        style={{
+          display: "flex",
+          alignItems: "center",
+          gap: "6px",
+          width: "100%",
+          padding: "2px 0",
+          border: "none",
+          background: "none",
+          cursor: "pointer",
+          fontFamily: "inherit",
+          fontSize: "12px",
+          fontWeight: 600,
+          color: "var(--muted, inherit)",
+          userSelect: "none",
+        }}
+      >
+        <span
+          aria-hidden="true"
+          style={{
+            display: "inline-block",
+            fontSize: "9px",
+            transition: "transform 160ms ease",
+            transform: open ? "rotate(90deg)" : "rotate(0deg)",
+          }}
+        >
+          ▸
+        </span>
+        {summary || DETAILS_SUMMARY_FALLBACK}
+      </button>
+      <div
+        style={{
+          display: "grid",
+          gridTemplateRows: open ? "1fr" : "0fr",
+          transition: "grid-template-rows 200ms ease",
+        }}
+      >
+        <div style={{ overflow: "hidden", minHeight: 0 }}>
+          <div style={{ borderLeft: "2px solid var(--border)", paddingLeft: "12px", marginTop: "4px" }}>
+            <NestedLexicalEditor block getContent={detailsGetContent} getUpdatedMdastNode={detailsGetUpdatedMdastNode} />
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+/** Registers `:::details` so directivesPlugin preserves it on round-trip and renders the fold. */
+const detailsDescriptor = {
+  name: DETAILS,
+  testNode: (node) => node.name === DETAILS,
+  attributes: ["summary"],
+  hasChildren: true,
+  Editor: DetailsEditor,
+};
+
 /**
  * Right-click-with-selection → new-note popover. A contextmenu inside the editable
  * content with a live text selection suppresses the native menu and opens a Radix
@@ -860,7 +957,13 @@ function Holo() {
           codeMirrorPlugin({ codeBlockLanguages: CODE_LANGUAGES, codeMirrorExtensions }),
           markdownShortcutPlugin(),
           directivesPlugin({
-            directiveDescriptors: [llmNoteDescriptor, llmGuideDescriptor, diagramDescriptor, mermaidDescriptor],
+            directiveDescriptors: [
+              llmNoteDescriptor,
+              llmGuideDescriptor,
+              diagramDescriptor,
+              mermaidDescriptor,
+              detailsDescriptor,
+            ],
           }),
           toolbarPlugin({
             toolbarContents: () => (

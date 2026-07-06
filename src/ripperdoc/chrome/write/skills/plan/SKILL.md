@@ -14,9 +14,11 @@ allowed-tools: [Read, Glob, Grep, Agent, AskUserQuestion, Write, Edit, Bash, Ski
 
 ## Overview
 
-Turn a task into a reviewable implementation plan: research, resolve the forks, lay out concrete verifiable steps. The
-user approves it before any code lands. Write each step for an implementer with zero repo context — exact paths,
-complete code, exact commands — structure lives in the diagram, code in the steps, and prose stays lean.
+Turn a task into a reviewable implementation plan: research, resolve the forks, lay out phases a human can read and an
+implementer can execute. The plan leads with outcomes — a verb-first title, the approach and its key decisions, the
+phases each named by what they make true — and folds every phase's code-bearing steps (exact paths, complete code, exact
+commands) inside a `:::details` block. Structure lives in the diagram, the detail in the fold, the surface stays
+readable top to bottom. The user approves it before any code lands.
 
 ## Announcement
 
@@ -35,22 +37,25 @@ complete code, exact commands — structure lives in the diagram, code in the st
 1. **Go read-only.** Self-enforced on every host — this skill never enters the harness's plan mode. You MUST NOT modify
    source, tests, or config until the reviewer approves the plan; the only file you write is the plan itself.
 2. **Triage scope.** If the request spans independent subsystems, you MUST split it — one plan per subsystem, this pass
-   plans the first. Decide this now, not after the steps are written.
+   plans the first. Decide this now, not after the phases are written.
 3. **Research**, in order:
    - the spec: every requirement, constraint, acceptance criterion.
    - the project: the context file (CLAUDE.md / AGENTS.md / GEMINI.md), README, manifest, layout, conventions.
    - the integration code the new code will touch.
    - the quality toolchain and its exact commands (test, lint, format, types).
 4. **Resolve the forks.** You MAY adopt a default silently only when a file or pattern backs it — cite the path. Every
-   other fork MUST go to the user via the host's ask-user tool before you write — 2-3 concrete options with trade-offs,
-   your recommendation first. Cut anything the goal does not need (YAGNI).
+   other fork MUST go to the user via the host's ask-user tool BEFORE you write — 2-3 concrete options with trade-offs,
+   your recommendation first — until nothing material is unresolved. The plan you present carries no open questions; a
+   fork you could not settle with the user is a fork you do not yet plan around. Cut anything the goal does not need
+   (YAGNI).
 5. **Write the plan**, following the **Template** below, to `$(git rev-parse --show-toplevel)/.preemdeck/plan/<slug>.md`
    (outside a git repo: `${TMPDIR}/preemdeck/plan/<slug>.md`) — the same path on every host. Map the touched files and
-   each one's single responsibility before writing steps; put structure and interfaces in the diagram, not step prose.
+   each one's single responsibility before writing phases; put structure and interfaces in the diagram and the code in
+   each phase's `:::details` fold, never in phase prose.
 6. **Self-review, fix inline** — one pass, no re-review loop:
-   - coverage: every spec requirement points at a step; uncovered gets a step, extra gets cut.
-   - placeholders: scan for the **Avoid** patterns below.
-   - drift: names and signatures identical across steps and diagram.
+   - coverage: every spec requirement points at a phase; uncovered gets a phase, extra gets cut.
+   - placeholders: open every fold and scan the steps for the **Avoid** patterns below.
+   - drift: names and signatures identical across phases, folds, and diagram.
 7. **Critic review** — fresh eyes before the user's. Dispatch the `critic` worker via the host's subagent tool; on a
    host without subagent dispatch, skip — self-review already ran. The critic gets the plan file and the spec (the file,
    or the requirements verbatim when there is none), NEVER the conversation; it MAY read repo files to judge
@@ -59,16 +64,17 @@ complete code, exact commands — structure lives in the diagram, code in the st
 
    ```text
    Review the implementation plan at <plan file> against this spec: <spec file, or requirements verbatim>.
-   Judge one question: would an implementer with zero repo context, following this plan alone, build the
-   right thing without getting stuck? Check for: spec requirements no step covers; contradictory or vague
-   steps; placeholder content; names or signatures that drift between steps; Verify commands that don't
-   prove their step. Flag only what would block or mislead the implementer — wording and style are not
-   findings. Approve unless something serious is wrong. Return: Status (Approved | Issues Found); Issues
-   as [step — problem — why it blocks]; Recommendations (advisory, non-blocking).
+   Judge one question: would an implementer with zero repo context, following this plan alone (opening each
+   phase's :::details fold for the steps), build the right thing without getting stuck? Check for: spec
+   requirements no phase covers; a phase whose Gate does not prove it is done; contradictory or vague steps;
+   placeholder content in the folds; names or signatures that drift between phases, folds, and the diagram;
+   Verify commands that don't prove their step. Flag only what would block or mislead the implementer —
+   wording and style are not findings. Approve unless something serious is wrong. Return: Status (Approved |
+   Issues Found); Issues as [phase — problem — why it blocks]; Recommendations (advisory, non-blocking).
    ```
 
 8. **Present — the holo gate.** Serve the plan as a blocking approval gate; the reviewer edits the page (prose, diagram,
-   notes — every edit persists to the file) and clicks the one verdict the page offers:
+   notes, and the folded steps — every edit persists to the file) and clicks the one verdict the page offers:
 
    ```bash
    "$HOME/.preemdeck/preemdeck-runtime" "$HOME/.preemdeck/src/ripperdoc/chrome/holo/apps/planner/serve.ts" \
@@ -99,33 +105,39 @@ complete code, exact commands — structure lives in the diagram, code in the st
 ## Template
 
 ````mdx
-# <plan title>
+# PLAN: <verb-first title>
 
-## Goal
+<2-3 sentences: what this builds, why now, the one thing to sanity-check.>
 
-<what "done" looks like, in a sentence or two>
+**Not doing:** <the scope you are deliberately leaving out, one line — omit when there is none.>
 
 ## Constraints
 
-<project-wide rules copied verbatim from the spec — version floors, naming, platform limits — one line each; every step
-inherits them. Omit the section when the spec sets none.>
+<project-wide rules copied verbatim from the spec — version floors, naming, platform limits — one line each; every phase
+and step inherits them. Omit the section when the spec sets none.>
 
-## Approach
+## Approach & Key Decisions
 
-<the strategy and the key decisions, each with its reason — name the rejected alternative when the call was close>
+<the strategy and the key calls, each with its reason — name the rejected alternative when the call was close.>
 
-:::diagram <the structural story — components/classes, new and changed interfaces, flow — via /holo:using; steps
-reference these nodes by name instead of re-describing them> :::
+:::diagram <OPTIONAL — the structural story via /holo:using: components/classes, new and changed interfaces, flow;
+phases reference these nodes by name. Include only when the shape carries more than the prose does.> :::
 
 <OPTIONAL: one :::mermaid block (carrier syntax via /holo:using) for a sequence or state diagram ONLY — the two kinds
-:::diagram cannot draw; structure and dataflow stay in the editable diagram above>
+:::diagram cannot draw.>
 
-## Steps
+## Phases
 
-<tasks ordered by dependency; a task is the smallest unit worth a reviewer's gate — split only where a reviewer could
-reject one task while approving its neighbor; each step one concrete action, executable without reading other tasks>
+<phases ordered by dependency; each the smallest unit worth a reviewer's gate — split only where a reviewer could reject
+one phase while approving its neighbour. Name each by its outcome, not its activity.>
 
-### <N>. <task name>
+### Phase <N> — <outcome>
+
+<1-3 sentences: the approach for this phase.>
+
+**Gate:** <the observable fact that proves this phase is done>
+
+:::details{summary="Implementation · <n> files"}
 
 - [ ] `<C|M|D|R>` `path/to/file` — <what this step does>
 
@@ -135,11 +147,9 @@ reject one task while approving its neighbor; each step one concrete action, exe
 
   **Verify:** `<the CI command: tests+lint+types>` → <expected result; for a test-first step, the expected failure>
 
-## Risks / assumptions
+:::
 
-- <what you resolved; what the reviewer should weigh>
-
-## Done when
+## Success Criteria
 
 - `<the full CI command>` → all PASS
 - <the observable behavior that proves the goal, and how to observe it>
@@ -147,10 +157,17 @@ reject one task while approving its neighbor; each step one concrete action, exe
 
 ## Examples
 
-**Prefer** — one task, one concrete step, the complete code, a check with its expected result:
+**Prefer** — a phase named by its outcome, a Gate that proves it, and inside the fold one concrete step with the
+complete code and a check with its expected result:
 
 ````md
-### 1. Token refresh
+### Phase 1 — tokens refresh before they expire
+
+The client swaps its token at 80% of TTL on a timer, so no request ever rides an expired token.
+
+**Gate:** a session held open past the token's TTL keeps working with no re-login.
+
+:::details{summary="Implementation · 1 file"}
 
 - [ ] `M` `src/auth/token.ts` — refresh at 80% of TTL
 
@@ -161,29 +178,35 @@ reject one task while approving its neighbor; each step one concrete action, exe
   ```
 
   **Verify:** `bun test src/auth` → PASS, new case "refreshes at 80%"
+
+:::
 ````
 
 **Avoid:**
 
+- `### Phase 1 — auth work` — named by activity, not outcome; name what becomes true, not what you do.
 - `- [ ] Improve the auth system` — vague, unbounded, no path, no marker, no Verify.
 - `- [ ] M src/auth/token.ts — add error handling and edge cases` — placeholder: name each case or cut the step.
 - `- [ ] M src/auth/token.ts — add refreshAt(expiresAt: number): number` with no code block — a signature is not the
   change; land the code.
-- `- [ ] M src/auth/session.ts — same as task 1 for sessions` — tasks are read alone: repeat the exact content.
+- `- [ ] M src/auth/session.ts — same as phase 1 for sessions` — steps are read alone: repeat the exact content.
 
 ## Checklist
 
 Before ending the turn, confirm:
 
-- [ ] Every spec requirement maps to a step; nothing beyond the goal (YAGNI)
-- [ ] No placeholder patterns: TBD, "handle edge cases", "add validation", "same as task N", code-free signatures
-- [ ] Names and signatures identical across tasks and diagram
-- [ ] Every step: exact path, marker, complete code where code changes, Verify with expected result
+- [ ] Every spec requirement maps to a phase; nothing beyond the goal (YAGNI)
+- [ ] No placeholder patterns: TBD, "handle edge cases", "add validation", "same as phase N", code-free signatures
+- [ ] Names and signatures identical across phases, folds, and the diagram
+- [ ] Every phase named by its outcome with a Gate that proves it; every folded step has an exact path, marker, complete
+      code where code changes, and a Verify with expected result
 - [ ] Ordered by dependency; independent subsystems split into separate plans
-- [ ] Structure lives in the diagram, not duplicated in step prose; :::mermaid only for sequence/state
-- [ ] Critic dispatched where the host supports subagents; blocking findings fixed, one round only
+- [ ] Structure in the diagram and code in the `:::details` folds, not duplicated in phase prose; :::mermaid only for
+      sequence/state
+- [ ] Every fork resolved up front via the ask-user tool, so the plan carries no open questions; critic dispatched where
+      the host supports subagents; blocking findings fixed, one round only
 
 ## Handoff
 
-On approve, the plan is the contract: execute it step by step, or hand it to the implementer. On reject, the notes drive
-the rework loop (instruction 9). If the user wanted only the plan, stop here.
+On approve, the plan is the contract: execute it phase by phase, or hand it to the implementer. On reject, the notes
+drive the rework loop (instruction 9). If the user wanted only the plan, stop here.
