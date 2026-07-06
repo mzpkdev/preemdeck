@@ -680,7 +680,11 @@ const DetailsEditor = ({ mdastNode }) => {
       >
         <div style={{ overflow: "hidden", minHeight: 0 }}>
           <div style={{ borderLeft: "2px solid var(--border)", paddingLeft: "12px", marginTop: "4px" }}>
-            <NestedLexicalEditor block getContent={detailsGetContent} getUpdatedMdastNode={detailsGetUpdatedMdastNode} />
+            <NestedLexicalEditor
+              block
+              getContent={detailsGetContent}
+              getUpdatedMdastNode={detailsGetUpdatedMdastNode}
+            />
           </div>
         </div>
       </div>
