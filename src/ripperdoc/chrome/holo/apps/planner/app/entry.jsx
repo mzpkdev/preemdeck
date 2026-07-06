@@ -399,6 +399,26 @@ const DiagramEditor = ({ mdastNode }) => {
   updaterRef.current = updateMdastNode;
   const [parsed] = useState(() => parseDiagramSpec(mdastNode));
 
+  // Inert until clicked: react-flow preventDefault()s wheel for its zoom, so a canvas
+  // met mid-scroll would hijack the page. While inactive an overlay swallows all
+  // pointer interaction and lets wheel bubble to the page scroll; a click arms the
+  // canvas (border tint signals it), a pointerdown outside disarms it.
+  const [active, setActive] = useState(false);
+  const frameRef = useRef(null);
+
+  useEffect(() => {
+    if (!active) {
+      return;
+    }
+    const disarm = (event) => {
+      if (!frameRef.current?.contains(event.target)) {
+        setActive(false);
+      }
+    };
+    document.addEventListener("pointerdown", disarm);
+    return () => document.removeEventListener("pointerdown", disarm);
+  }, [active]);
+
   const onChange = useCallback((nextSpec) => {
     updaterRef.current({
       children: [{ type: "code", lang: "json", meta: null, value: JSON.stringify(nextSpec, null, 2) }],
@@ -415,10 +435,24 @@ const DiagramEditor = ({ mdastNode }) => {
   return (
     <Suspense fallback={<div style={DIAGRAM_ERROR_STYLE}>loading diagram…</div>}>
       <div
-        className="holo-diagram"
-        style={{ height: DIAGRAM_HEIGHT, border: "1px solid var(--border)", borderRadius: "6px", overflow: "hidden" }}
+        ref={frameRef}
+        className={active ? "holo-diagram holo-diagram--armed" : "holo-diagram"}
+        style={{
+          position: "relative",
+          height: DIAGRAM_HEIGHT,
+          border: `1px solid ${active ? "var(--accent, #4c8ffb)" : "var(--border)"}`,
+          borderRadius: "6px",
+          overflow: "hidden",
+        }}
       >
         <DiagramCanvas spec={parsed.spec} onChange={onChange} />
+        {!active && (
+          <div
+            title="Click to edit the diagram"
+            onClick={() => setActive(true)}
+            style={{ position: "absolute", inset: 0, zIndex: 10, cursor: "pointer" }}
+          />
+        )}
       </div>
     </Suspense>
   );

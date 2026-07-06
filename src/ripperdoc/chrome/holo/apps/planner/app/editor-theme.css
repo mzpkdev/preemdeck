@@ -105,6 +105,20 @@
   transform: translateY(0);
 }
 
+/* Embedded diagram chrome (zoom controls): hidden while the canvas is inert, fading
+   in when a click arms it (.holo-diagram--armed, set by DiagramEditor). Same snappy
+   curve as the toolbar slide above. */
+.holo-diagram .react-flow__controls {
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.15s cubic-bezier(0.2, 0, 0, 1);
+}
+
+.holo-diagram--armed .react-flow__controls {
+  opacity: 1;
+  pointer-events: auto;
+}
+
 /* Table extend/select affordances — the pseudo cells that add or select columns/rows:
    the add-column column (last th in each thead/tbody row), the add-row footer (every
    tfoot th), and the select-handle cells for the first row + first column (matched by

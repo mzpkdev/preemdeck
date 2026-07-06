@@ -69,6 +69,13 @@ function Flow({ spec, onChange }) {
   const { getNodes, fitView } = useReactFlow();
   const nodesInitialized = useNodesInitialized();
   const laidOut = useRef(false);
+  // Armed only after pass 2 lands. Between mount and layout the store and the
+  // closure state can disagree (seed effect swaps the baselines synchronously,
+  // the seeded state lands a commit later), so an emission in that window reads
+  // partial state and can write a spec with its nodes stripped — a real
+  // clobber we've seen persisted. No user edit can exist before the reveal, so
+  // holding emission until then loses nothing.
+  const armed = useRef(false);
   // Emission baselines, seeded from the exact objects handed to React Flow
   // below, so nothing emits until a real edit swaps something out.
   const lastEmittedNodes = useRef(spec.nodes);
@@ -80,6 +87,7 @@ function Flow({ spec, onChange }) {
   // mount silent either way).
   useEffect(() => {
     laidOut.current = false;
+    armed.current = false;
     const seededNodes = seedNodes(spec.nodes);
     const seededEdges = seedEdges(spec.edges);
     lastEmittedNodes.current = seededNodes.map((n) => n.data);
@@ -94,6 +102,7 @@ function Flow({ spec, onChange }) {
     laidOut.current = true;
     layout(getNodes(), edges, spec.layout).then((positioned) => {
       setNodes(positioned);
+      armed.current = true;
       requestAnimationFrame(() => fitView({ padding: 0.2 }));
     });
   }, [nodesInitialized, getNodes, edges, spec, setNodes, fitView]);
@@ -128,6 +137,9 @@ function Flow({ spec, onChange }) {
   // pass-2 reveal don't emit, and no relayout runs. The sink (entry.jsx)
   // debounces + persists; we don't.
   useEffect(() => {
+    // A non-empty spec only ever empties through the pre-layout window above;
+    // the empty-spec case stays armed so a first drawn edge can still persist.
+    if (!armed.current && spec.nodes.length > 0) return;
     const data = getNodes().map((n) => n.data);
     const nodesDirty = changedSinceBaseline(data, lastEmittedNodes.current);
     const edgesDirty = edgesChangedSinceBaseline(edges, lastEmittedEdges.current);
