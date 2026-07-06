@@ -160,8 +160,8 @@ a group frame and its members (default 16; the label tab always gets extra headr
   `holo: <message>` in place of the canvas. **Dangling references fail loud**: edge endpoints must name node ids,
   `sourcePort`/`targetPort` must name declared pin ids on the right ends, `group` must name a `kind:"group"` node,
   membership must be acyclic. Keep the fence tagged ` ```json ` and put exactly one JSON child in the directive.
-- **Class + component/architecture only.** There is no sequence, state, or ER kind — don't emit them; fall back to the
-  ASCII graph in the `visuals` skill. No multiplicities on edge ends, no self-loops.
+- **Class + component/architecture only.** There is no sequence, state, or ER kind — don't emit them as GraphSpec; a
+  ` ```mermaid ` fence covers sequence and state (see below). No multiplicities on edge ends, no self-loops.
 - **It only renders inside holo.** In a plain markdown view (chat, GitHub, a raw editor) the block degrades to a literal
   `:::diagram` line plus a JSON code block. Embed one only in a plan that will be reviewed in the holo planner; never
   put a `:::diagram` in prose headed for the terminal.
@@ -188,6 +188,30 @@ the one nearest your situation and author in its shape:
 | [`web-components.json`](references/examples/web-components.json) | Custom elements, including a bubbling event that skips a level (`x-track → x-app` past `x-library`)                                 |
 | [`svelte-runes.json`](references/examples/svelte-runes.json)     | Thin components each OWNING a view-model class (composition diamonds mixing io + class kinds)                                       |
 | [`microservices.json`](references/examples/microservices.json)   | Service topology: «boundary» `group`, distinct gateway, call/event through a broker `channel`, `"layout": { "direction": "RIGHT" }` |
+
+## Flow gaps: `:::mermaid`
+
+The planner renders a `:::mermaid` container directive wrapping ONE ` ```mermaid ` code child as an inline SVG — use it
+ONLY for the kinds GraphSpec cannot draw: a **sequence diagram** or a **state machine**. The carrier matches
+`:::diagram` for the same reason: a directive round-trips its code child byte-faithfully through the editor (a bare
+fence does not survive), and on GitHub the inner fence still renders as a diagram. Keep the blank lines around the
+fence, exactly like `:::diagram`:
+
+````text
+:::mermaid
+
+```mermaid
+sequenceDiagram
+    A->>B: request
+    B-->>A: response
+```
+
+:::
+````
+
+Structure, types, components, and dataflow belong in `:::diagram` — the reviewer can EDIT that canvas; a mermaid block
+is read-mostly (double-click opens the source, Cmd/Ctrl+Enter or blur commits, Escape reverts). Don't reach for mermaid
+because it's easier to author — an editable GraphSpec beats a static picture everywhere both could work.
 
 ## Serving a plan by hand
 

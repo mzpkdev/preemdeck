@@ -79,6 +79,7 @@ const CODE_LANGUAGES = {
   html: "HTML",
   md: "Markdown",
   py: "Python",
+  mermaid: "Mermaid",
 };
 
 /**
@@ -446,6 +447,9 @@ const DiagramEditor = ({ mdastNode }) => {
         style={{
           position: "relative",
           height: DIAGRAM_HEIGHT,
+          // Directive editors render bare divs — without a margin, consecutive
+          // blocks (canvas, mermaid) butt together; prose spacing never applies.
+          margin: "16px 0",
           border: `1px solid ${active ? "var(--accent, #4c8ffb)" : "var(--border)"}`,
           borderRadius: "6px",
           overflow: "hidden",
@@ -471,6 +475,129 @@ const diagramDescriptor = {
   attributes: [],
   hasChildren: true,
   Editor: DiagramEditor,
+};
+
+// --- Mermaid flow blocks -----------------------------------------------------
+// GraphSpec deliberately has no sequence/state kind; a `:::mermaid` container
+// directive wrapping ONE ```mermaid code child fills exactly that gap. The
+// carrier matches :::diagram on purpose: a directive round-trips its mdast
+// verbatim (a bare custom code-block editor lost its body through MDXEditor's
+// export — observed as an emptied fence), and on GitHub the inner fence still
+// renders as a mermaid diagram. Read-mostly: the block renders as SVG;
+// double-click opens the source in a textarea (Cmd/Ctrl+Enter or blur commits,
+// Escape reverts — the note editor's grammar). Structure and dataflow stay in
+// :::diagram; the plan skill polices that boundary.
+
+const MERMAID = "mermaid";
+
+/** Unique render target per mermaid.render call (it mounts a scratch element by id). */
+let mermaidRenderSeq = 0;
+
+const MERMAID_TEXTAREA_STYLE = {
+  width: "100%",
+  minHeight: 160,
+  font: '12px ui-monospace, "JetBrains Mono", Menlo, monospace',
+  color: "var(--fg)",
+  background: "transparent",
+  border: "none",
+  outline: "none",
+  resize: "vertical",
+};
+
+const MermaidEditor = ({ mdastNode }) => {
+  const updateMdastNode = useMdastNodeUpdater();
+  const updaterRef = useRef(updateMdastNode);
+  updaterRef.current = updateMdastNode;
+  const code = ((mdastNode.children ?? []).find((child) => child.type === "code")?.value ?? "").trim();
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState(code);
+  const [svg, setSvg] = useState("");
+  const [error, setError] = useState(null);
+
+  useEffect(() => {
+    if (editing || code === "") {
+      return;
+    }
+    let live = true;
+    void (async () => {
+      try {
+        const mermaid = (await import("mermaid")).default;
+        mermaid.initialize({
+          startOnLoad: false,
+          theme: document.documentElement.classList.contains("dark-theme") ? "dark" : "neutral",
+        });
+        const rendered = await mermaid.render(`holo-mmd-${++mermaidRenderSeq}`, code);
+        if (live) {
+          setSvg(rendered.svg);
+          setError(null);
+        }
+      } catch (renderError) {
+        if (live) {
+          setError(String(renderError));
+        }
+      }
+    })();
+    return () => {
+      live = false;
+    };
+  }, [code, editing]);
+
+  const commit = () => {
+    setEditing(false);
+    updaterRef.current({ children: [{ type: "code", lang: "mermaid", meta: null, value: draft }] });
+  };
+  if (editing) {
+    return (
+      <div className="holo-mermaid nodrag nopan">
+        <textarea
+          className="nodrag nopan"
+          style={MERMAID_TEXTAREA_STYLE}
+          value={draft}
+          autoFocus
+          onChange={(e) => setDraft(e.target.value)}
+          onKeyDown={(e) => {
+            e.stopPropagation();
+            if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) commit();
+            else if (e.key === "Escape") setEditing(false);
+          }}
+          onMouseDown={(e) => e.stopPropagation()}
+          onBlur={commit}
+        />
+      </div>
+    );
+  }
+  return (
+    <div
+      className="holo-mermaid"
+      title="Double-click to edit the mermaid source"
+      onDoubleClick={() => {
+        setDraft(code);
+        setEditing(true);
+      }}
+    >
+      {code === "" ? (
+        <span style={{ color: "var(--muted)", fontStyle: "italic" }}>
+          empty mermaid block — double-click to add source
+        </span>
+      ) : error ? (
+        <span className="holo-error" style={DIAGRAM_ERROR_STYLE}>
+          holo: mermaid — {error}
+        </span>
+      ) : (
+        // biome-ignore lint/security/noDangerouslySetInnerHtml: mermaid emits its own sanitized SVG
+        <div dangerouslySetInnerHTML={{ __html: svg }} />
+      )}
+    </div>
+  );
+};
+
+/** Registers `:::mermaid` so directivesPlugin preserves it verbatim and renders the SVG block. */
+const mermaidDescriptor = {
+  name: MERMAID,
+  testNode: (node) => node.name === MERMAID,
+  attributes: [],
+  hasChildren: true,
+  Editor: MermaidEditor,
 };
 
 /**
@@ -732,7 +859,9 @@ function Holo() {
           codeBlockPlugin({ defaultCodeBlockLanguage: "txt" }),
           codeMirrorPlugin({ codeBlockLanguages: CODE_LANGUAGES, codeMirrorExtensions }),
           markdownShortcutPlugin(),
-          directivesPlugin({ directiveDescriptors: [llmNoteDescriptor, llmGuideDescriptor, diagramDescriptor] }),
+          directivesPlugin({
+            directiveDescriptors: [llmNoteDescriptor, llmGuideDescriptor, diagramDescriptor, mermaidDescriptor],
+          }),
           toolbarPlugin({
             toolbarContents: () => (
               <>

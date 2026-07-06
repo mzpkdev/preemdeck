@@ -202,6 +202,21 @@
   }
 }
 
+/* Mermaid flow blocks (sequence/state — the kinds GraphSpec doesn't draw):
+   framed like the diagram canvas, SVG centered, scrollable when wide. */
+.holo-mermaid {
+  margin: 16px 0;
+  border: 1px solid var(--border, #4f5153);
+  border-radius: 6px;
+  padding: 12px;
+  overflow: auto;
+}
+
+.holo-mermaid svg {
+  display: block;
+  margin: 0 auto;
+}
+
 /* Embedded diagram chrome (zoom controls): hidden while the canvas is inert, fading
    in when a click arms it (.holo-diagram--armed, set by DiagramEditor). Same snappy
    curve as the toolbar slide above. */

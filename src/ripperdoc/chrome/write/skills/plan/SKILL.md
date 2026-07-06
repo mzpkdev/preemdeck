@@ -117,6 +117,9 @@ inherits them. Omit the section when the spec sets none.>
 :::diagram <the structural story — components/classes, new and changed interfaces, flow — via /holo:using; steps
 reference these nodes by name instead of re-describing them> :::
 
+<OPTIONAL: one :::mermaid block (carrier syntax via /holo:using) for a sequence or state diagram ONLY — the two kinds
+:::diagram cannot draw; structure and dataflow stay in the editable diagram above>
+
 ## Steps
 
 <tasks ordered by dependency; a task is the smallest unit worth a reviewer's gate — split only where a reviewer could
@@ -177,7 +180,7 @@ Before ending the turn, confirm:
 - [ ] Names and signatures identical across tasks and diagram
 - [ ] Every step: exact path, marker, complete code where code changes, Verify with expected result
 - [ ] Ordered by dependency; independent subsystems split into separate plans
-- [ ] Structure lives in the diagram, not duplicated in step prose
+- [ ] Structure lives in the diagram, not duplicated in step prose; :::mermaid only for sequence/state
 - [ ] Critic dispatched where the host supports subagents; blocking findings fixed, one round only
 
 ## Handoff
