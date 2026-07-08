@@ -3,7 +3,7 @@ import * as path from "node:path"
 import { defineCommand, execute } from "cmdore"
 import { isNotifyEnabled } from "../../../../common/preemdeck"
 import { PIPED, type Reaped, reap } from "../../../../common/process"
-import { inIdea, isTabFocused } from "./core/index"
+import { inIdea } from "./core/index"
 import { notify } from "./notify"
 
 /**
@@ -158,9 +158,8 @@ export const title = (host: string, cwd: string | null | undefined, branch: stri
 
 /**
  * Derive the per-tab title + one-line gist and pop the turn-end balloon, reaching
- * through the engine notify(). No-op outside a JetBrains IDE, or when this tab is
- * already focused (the tab glyph flags it). `deps.gitBranch` supplies the branch
- * READ (real by default, injected in the error-branch tests).
+ * through the engine notify(). No-op outside a JetBrains IDE. `deps.gitBranch`
+ * supplies the branch READ (real by default, injected in the error-branch tests).
  */
 const emit = async (host: string, deps: TurnNotifyDeps): Promise<void> => {
     if (!inIdea()) {
@@ -172,9 +171,6 @@ const emit = async (host: string, deps: TurnNotifyDeps): Promise<void> => {
     const branch = await deps.gitBranch(cwd)
     const titleText = title(host, cwd, branch)
     const body = gist || `${host} finished responding`
-    if ((await isTabFocused()).focused) {
-        return // this tab is focused: the tab glyph already signals it, so don't also pop a balloon
-    }
     // `all` broadcasts the turn-end balloon to every open project window of every
     // running JetBrains product, so it's visible whichever window/IDE is focused.
     // (No cwd: all-windows ignores it; the title already took the project name above.)

@@ -23,7 +23,7 @@
 
 import { defineCommand, execute } from "cmdore"
 import { isNotifyEnabled } from "../../../../common/preemdeck"
-import { inIdea, isTabFocused } from "./core/index"
+import { inIdea } from "./core/index"
 import { notify } from "./notify"
 import { cleanGist, htmlEscape, readHookInput, title } from "./turn-notify"
 
@@ -56,7 +56,7 @@ export const isIdleNotification = (data: HookData): boolean => {
 /**
  * Derive the balloon body (the host's message, or a generic fallback) and the
  * `<project>·<host>` title, then pop it broadcast to every window. No-op outside
- * a JetBrains IDE, or when this tab is already focused (the tab glyph flags it).
+ * a JetBrains IDE.
  */
 const emit = async (host: string): Promise<void> => {
     if (!(await isNotifyEnabled("permission"))) {
@@ -72,9 +72,6 @@ const emit = async (host: string): Promise<void> => {
     const cwd = (data.cwd as string | undefined) || process.env.PWD
     const body = notificationMessage(data) ?? `${host} needs your attention`
     const titleText = title(host, cwd, null)
-    if ((await isTabFocused()).focused) {
-        return // this tab is focused: the tab glyph already signals it, so don't also pop a balloon
-    }
     await notify(htmlEscape(body), { title: htmlEscape(titleText), all: await isNotifyEnabled("broadcast") })
 }
 
