@@ -41,7 +41,18 @@ import { $createTextNode, $getNodeByKey } from "lexical";
 import { HighlightStyle, syntaxHighlighting } from "@codemirror/language";
 import { EditorView } from "@codemirror/view";
 import { tags as t } from "@lezer/highlight";
-import { Component, lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  Component,
+  createContext,
+  lazy,
+  Suspense,
+  useCallback,
+  useContext,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import { createRoot } from "react-dom/client";
 import "@holo-style";
 // Loaded last so it wins the cascade: patches MDXEditor dark tokens (e.g. the
@@ -392,6 +403,14 @@ const parseDiagramSpec = (mdastNode) => {
   return parsed.success ? { ok: true, spec: parsed.data } : { ok: false, message: parsed.error.message };
 };
 
+// A `DiagramEditor` lives deep inside MDXEditor's Lexical tree (a directive
+// decorator), with no prop channel back to the gate bar in <Holo>. This context
+// carries a "the reviewer touched a diagram" callback down to it — createPortal
+// (how Lexical mounts decorators) preserves React context, so a provider wrapping
+// <MDXEditor> reaches it. Default no-op so the standalone diagram app (which mounts
+// DiagramCanvas directly, never DiagramEditor) needs no provider.
+const DiagramEditContext = createContext(() => {});
+
 /**
  * Renders a `:::diagram` directive as an embedded, editable DiagramCanvas. The spec
  * is parsed ONCE from the carrier at mount (via useState initializer) so the `spec`
@@ -408,6 +427,11 @@ const DiagramEditor = ({ mdastNode }) => {
   // replacing `children` wholesale never disturbs `name`/`type`.
   const updaterRef = useRef(updateMdastNode);
   updaterRef.current = updateMdastNode;
+  // Behind a ref so `onChange` keeps a stable identity (the canvas's emit effect
+  // depends on it — a changing identity would re-fire the effect).
+  const notifyEdited = useContext(DiagramEditContext);
+  const notifyEditedRef = useRef(notifyEdited);
+  notifyEditedRef.current = notifyEdited;
   const [parsed] = useState(() => parseDiagramSpec(mdastNode));
 
   // Inert until clicked: react-flow preventDefault()s wheel for its zoom, so a canvas
@@ -431,9 +455,16 @@ const DiagramEditor = ({ mdastNode }) => {
   }, [active]);
 
   const onChange = useCallback((nextSpec) => {
-    updaterRef.current({
-      children: [{ type: "code", lang: "json", meta: null, value: JSON.stringify(nextSpec, null, 2) }],
-    });
+    // The canvas emits only on a REAL edit (its guards suppress mount/layout/
+    // selection — see DiagramCanvas), so reaching here means the reviewer changed
+    // the diagram: flag it so the gate's verdict flips to Rework.
+    notifyEditedRef.current?.();
+    // The emit rides a react-flow useEffect, and useMdastNodeUpdater applies its
+    // change through flushSync — which React refuses to run mid-commit (the
+    // "flushSync from inside a lifecycle method" warning). Defer to a microtask so
+    // the write lands right after the commit, outside React's render phase.
+    const children = [{ type: "code", lang: "json", meta: null, value: JSON.stringify(nextSpec, null, 2) }];
+    queueMicrotask(() => updaterRef.current({ children }));
   }, []);
 
   if (!parsed.ok) {
@@ -841,6 +872,14 @@ function Holo() {
   // notes present → the one honest button is "Request changes"; a clean doc →
   // "Approve". Leaving a note IS the rejection rationale.
   const [hasNotes, setHasNotes] = useState(false);
+  // Whether the reviewer has edited an embedded `:::diagram` this session (set by
+  // the DiagramEditor via DiagramEditContext on its first real emit). A diagram
+  // edit is a structural change to the plan, so — like a note — it flips the
+  // verdict to Rework: the agent re-reads the persisted spec and revises around
+  // it. Sticky once set (a fresh page load after a rework round starts clean).
+  const [diagramEdited, setDiagramEdited] = useState(false);
+  // Stable so it never re-fires the canvas's emit effect through the context.
+  const notifyDiagramEdited = useCallback(() => setDiagramEdited(true), []);
   // The revision tag holds the accent color until the reviewer hovers it — an
   // unhovered tag means the update may not have been noticed yet.
   const [revSeen, setRevSeen] = useState(false);
@@ -968,7 +1007,7 @@ function Holo() {
               Revision {gate.revision}
             </span>
           ) : null}
-          {(gate.sent ?? (hasNotes ? "reject" : "approve")) === "reject" ? (
+          {(gate.sent ?? (hasNotes || diagramEdited ? "reject" : "approve")) === "reject" ? (
             <button
               type="button"
               className="holo-gate__reject"
@@ -994,59 +1033,61 @@ function Holo() {
       {renderFailed ? (
         <PlainFallback markdown={markdown} onChange={save} dark={dark} />
       ) : (
-        <MdxErrorBoundary fallback={<PlainFallback markdown={markdown} onChange={save} dark={dark} />}>
-          <MDXEditor
-            markdown={markdown}
-            onChange={save}
-            onError={(payload) => {
-              console.error("holo: plan MDX parse error, showing plain-text fallback", payload?.error);
-              queueMicrotask(() => setRenderFailed(true));
-            }}
-            className={dark ? "dark-theme dark-editor" : undefined}
-            contentEditableClassName="holo-plan"
-            plugins={[
-              headingsPlugin(),
-              listsPlugin(),
-              quotePlugin(),
-              tablePlugin(),
-              linkPlugin(),
-              linkDialogPlugin(),
-              thematicBreakPlugin(),
-              frontmatterPlugin(),
-              codeBlockPlugin({ defaultCodeBlockLanguage: "txt" }),
-              codeMirrorPlugin({ codeBlockLanguages: CODE_LANGUAGES, codeMirrorExtensions }),
-              markdownShortcutPlugin(),
-              directivesPlugin({
-                directiveDescriptors: [
-                  llmNoteDescriptor,
-                  llmGuideDescriptor,
-                  diagramDescriptor,
-                  mermaidDescriptor,
-                  detailsDescriptor,
-                ],
-              }),
-              toolbarPlugin({
-                toolbarContents: () => (
-                  <>
-                    <UndoRedo />
-                    <Separator />
-                    <BoldItalicUnderlineToggles />
-                    <CodeToggle />
-                    <Separator />
-                    <BlockTypeSelect />
-                    <ListsToggle />
-                    <Separator />
-                    <CreateLink />
-                    <InsertTable />
-                    <InsertThematicBreak />
-                    <InsertCodeBlock />
-                    <NoteAnnotator />
-                  </>
-                ),
-              }),
-            ]}
-          />
-        </MdxErrorBoundary>
+        <DiagramEditContext.Provider value={notifyDiagramEdited}>
+          <MdxErrorBoundary fallback={<PlainFallback markdown={markdown} onChange={save} dark={dark} />}>
+            <MDXEditor
+              markdown={markdown}
+              onChange={save}
+              onError={(payload) => {
+                console.error("holo: plan MDX parse error, showing plain-text fallback", payload?.error);
+                queueMicrotask(() => setRenderFailed(true));
+              }}
+              className={dark ? "dark-theme dark-editor" : undefined}
+              contentEditableClassName="holo-plan"
+              plugins={[
+                headingsPlugin(),
+                listsPlugin(),
+                quotePlugin(),
+                tablePlugin(),
+                linkPlugin(),
+                linkDialogPlugin(),
+                thematicBreakPlugin(),
+                frontmatterPlugin(),
+                codeBlockPlugin({ defaultCodeBlockLanguage: "txt" }),
+                codeMirrorPlugin({ codeBlockLanguages: CODE_LANGUAGES, codeMirrorExtensions }),
+                markdownShortcutPlugin(),
+                directivesPlugin({
+                  directiveDescriptors: [
+                    llmNoteDescriptor,
+                    llmGuideDescriptor,
+                    diagramDescriptor,
+                    mermaidDescriptor,
+                    detailsDescriptor,
+                  ],
+                }),
+                toolbarPlugin({
+                  toolbarContents: () => (
+                    <>
+                      <UndoRedo />
+                      <Separator />
+                      <BoldItalicUnderlineToggles />
+                      <CodeToggle />
+                      <Separator />
+                      <BlockTypeSelect />
+                      <ListsToggle />
+                      <Separator />
+                      <CreateLink />
+                      <InsertTable />
+                      <InsertThematicBreak />
+                      <InsertCodeBlock />
+                      <NoteAnnotator />
+                    </>
+                  ),
+                }),
+              ]}
+            />
+          </MdxErrorBoundary>
+        </DiagramEditContext.Provider>
       )}
     </>
   );
