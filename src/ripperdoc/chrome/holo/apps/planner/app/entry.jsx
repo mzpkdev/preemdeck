@@ -41,7 +41,7 @@ import { $createTextNode, $getNodeByKey } from "lexical";
 import { HighlightStyle, syntaxHighlighting } from "@codemirror/language";
 import { EditorView } from "@codemirror/view";
 import { tags as t } from "@lezer/highlight";
-import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Component, lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import "@holo-style";
 // Loaded last so it wins the cascade: patches MDXEditor dark tokens (e.g. the
@@ -53,6 +53,9 @@ import "./editor-theme.css";
 // the repo root (serve.ts `server.fs.allow`), so `../../diagram/...` resolves and
 // Vite/esbuild transpiles the .ts on the fly.
 import { GraphSpec } from "../../diagram/app/kinds/schema";
+// Escape stray `<tag>`/`{expr}` in prose before MDXEditor parses the plan as MDX,
+// so a plan (or a write:plan `<placeholder>`) never blanks the page.
+import { escapeStrayMdx } from "../escape-mdx";
 
 /** The endpoint holo's dev server mounts: GET seeds the editor, POST persists an edit. */
 const PLAN_ENDPOINT = "/__holo/plan";
@@ -773,6 +776,48 @@ const NoteAnnotator = () => {
   );
 };
 
+// A plan that can't be parsed as MDX (a stray `<tag>`/`{expr}` in prose, an
+// unterminated code fence, invalid frontmatter) must never blank the page. Fall
+// back to an editable plain-text view bound to the same debounced save, so the
+// reviewer can still read the plan and fix the offending markup.
+function PlainFallback({ markdown, onChange, dark }) {
+  return (
+    <div className={dark ? "dark-theme holo-plain-fallback" : "holo-plain-fallback"}>
+      <p className="holo-plain-fallback__note">
+        {"This plan couldn't be rendered as rich MDX (usually a stray "}
+        <code>{"<tag>"}</code>
+        {" or "}
+        <code>{"{expr}"}</code>
+        {
+          " in prose, an unterminated code fence, or invalid frontmatter). Editing as plain text; fix the markup and reopen to render it."
+        }
+      </p>
+      <textarea
+        className="holo-plain-fallback__area"
+        defaultValue={markdown}
+        spellCheck={false}
+        onChange={(event) => onChange(event.target.value)}
+      />
+    </div>
+  );
+}
+
+// Catches a hard render throw from MDXEditor. Its onError (below) covers the
+// parse-failure path, which is reported rather than thrown; either route lands
+// the reviewer on PlainFallback.
+class MdxErrorBoundary extends Component {
+  state = { failed: false };
+  static getDerivedStateFromError() {
+    return { failed: true };
+  }
+  componentDidCatch(error) {
+    console.error("holo: plan failed to render, showing plain-text fallback", error);
+  }
+  render() {
+    return this.state.failed ? this.props.fallback : this.props.children;
+  }
+}
+
 function Holo() {
   // null until the initial GET resolves — MDXEditor reads its initial content
   // from `markdown` once at mount, so we render it only after the fetch lands.
@@ -799,6 +844,9 @@ function Holo() {
   // The revision tag holds the accent color until the reviewer hovers it — an
   // unhovered tag means the update may not have been noticed yet.
   const [revSeen, setRevSeen] = useState(false);
+  // A plan that fails MDX parsing must never blank the page: flip to an editable
+  // plain-text fallback (set from MDXEditor's onError, below).
+  const [renderFailed, setRenderFailed] = useState(false);
 
   useEffect(() => {
     let live = true;
@@ -848,7 +896,7 @@ function Holo() {
       .then((response) => response.text())
       .then((text) => {
         if (live) {
-          setMarkdown(text);
+          setMarkdown(escapeStrayMdx(text));
           setHasNotes(text.includes(":llm-note"));
         }
       });
@@ -943,53 +991,63 @@ function Holo() {
           )}
         </div>
       ) : null}
-      <MDXEditor
-        markdown={markdown}
-        onChange={save}
-        className={dark ? "dark-theme dark-editor" : undefined}
-        contentEditableClassName="holo-plan"
-        plugins={[
-          headingsPlugin(),
-          listsPlugin(),
-          quotePlugin(),
-          tablePlugin(),
-          linkPlugin(),
-          linkDialogPlugin(),
-          thematicBreakPlugin(),
-          frontmatterPlugin(),
-          codeBlockPlugin({ defaultCodeBlockLanguage: "txt" }),
-          codeMirrorPlugin({ codeBlockLanguages: CODE_LANGUAGES, codeMirrorExtensions }),
-          markdownShortcutPlugin(),
-          directivesPlugin({
-            directiveDescriptors: [
-              llmNoteDescriptor,
-              llmGuideDescriptor,
-              diagramDescriptor,
-              mermaidDescriptor,
-              detailsDescriptor,
-            ],
-          }),
-          toolbarPlugin({
-            toolbarContents: () => (
-              <>
-                <UndoRedo />
-                <Separator />
-                <BoldItalicUnderlineToggles />
-                <CodeToggle />
-                <Separator />
-                <BlockTypeSelect />
-                <ListsToggle />
-                <Separator />
-                <CreateLink />
-                <InsertTable />
-                <InsertThematicBreak />
-                <InsertCodeBlock />
-                <NoteAnnotator />
-              </>
-            ),
-          }),
-        ]}
-      />
+      {renderFailed ? (
+        <PlainFallback markdown={markdown} onChange={save} dark={dark} />
+      ) : (
+        <MdxErrorBoundary fallback={<PlainFallback markdown={markdown} onChange={save} dark={dark} />}>
+          <MDXEditor
+            markdown={markdown}
+            onChange={save}
+            onError={(payload) => {
+              console.error("holo: plan MDX parse error, showing plain-text fallback", payload?.error);
+              queueMicrotask(() => setRenderFailed(true));
+            }}
+            className={dark ? "dark-theme dark-editor" : undefined}
+            contentEditableClassName="holo-plan"
+            plugins={[
+              headingsPlugin(),
+              listsPlugin(),
+              quotePlugin(),
+              tablePlugin(),
+              linkPlugin(),
+              linkDialogPlugin(),
+              thematicBreakPlugin(),
+              frontmatterPlugin(),
+              codeBlockPlugin({ defaultCodeBlockLanguage: "txt" }),
+              codeMirrorPlugin({ codeBlockLanguages: CODE_LANGUAGES, codeMirrorExtensions }),
+              markdownShortcutPlugin(),
+              directivesPlugin({
+                directiveDescriptors: [
+                  llmNoteDescriptor,
+                  llmGuideDescriptor,
+                  diagramDescriptor,
+                  mermaidDescriptor,
+                  detailsDescriptor,
+                ],
+              }),
+              toolbarPlugin({
+                toolbarContents: () => (
+                  <>
+                    <UndoRedo />
+                    <Separator />
+                    <BoldItalicUnderlineToggles />
+                    <CodeToggle />
+                    <Separator />
+                    <BlockTypeSelect />
+                    <ListsToggle />
+                    <Separator />
+                    <CreateLink />
+                    <InsertTable />
+                    <InsertThematicBreak />
+                    <InsertCodeBlock />
+                    <NoteAnnotator />
+                  </>
+                ),
+              }),
+            ]}
+          />
+        </MdxErrorBoundary>
+      )}
     </>
   );
 }

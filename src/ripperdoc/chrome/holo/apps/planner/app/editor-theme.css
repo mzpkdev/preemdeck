@@ -305,3 +305,50 @@
   color: var(--bg);
   background: var(--link);
 }
+
+/* Plain-text fallback: shown when a plan can't be parsed as MDX, so the page is
+   never blank. An editable textarea bound to the same debounced save. */
+.holo-plain-fallback {
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  height: 100vh;
+  padding: 1rem 1.25rem;
+}
+.holo-plain-fallback__note {
+  margin: 0;
+  border-radius: 6px;
+  padding: 0.5rem 0.75rem;
+  background: #fff3cd;
+  color: #5c4400;
+  font:
+    13px/1.5 system-ui,
+    sans-serif;
+}
+.holo-plain-fallback__note code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+.dark-theme .holo-plain-fallback__note {
+  background: #3a2f00;
+  color: #ffe08a;
+}
+.holo-plain-fallback__area {
+  box-sizing: border-box;
+  flex: 1;
+  width: 100%;
+  resize: none;
+  border: 1px solid rgba(0, 0, 0, 0.15);
+  border-radius: 6px;
+  padding: 0.75rem;
+  font:
+    13px/1.6 ui-monospace,
+    SFMono-Regular,
+    Menlo,
+    monospace;
+}
+.dark-theme .holo-plain-fallback__area {
+  background: #1e1e1e;
+  color: #e6e6e6;
+  border-color: rgba(255, 255, 255, 0.15);
+}
