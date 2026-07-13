@@ -70,19 +70,22 @@ const writeCount = (file: string, count: number): void => {
 }
 
 /**
- * Whether this turn is a cadence boundary for its session: true on the 1st turn
- * and every `every`th after (`(count - 1) % every === 0`). Increments the
- * session's counter as a side effect. `every` is clamped to >= 1, so `every === 1`
- * fires every turn. Never throws — any IO failure falls back to firing (the safe
- * default, matching the old fail-open behavior).
+ * Whether this turn is a cadence boundary for its session: true on turn `first`,
+ * then every `every`th after (`count >= first && (count - first) % every === 0`).
+ * Increments the session's counter as a side effect. `every` is clamped to >= 1
+ * (so `every === 1` fires every turn from `first` on) and `first` to >= 1 (turn
+ * counts are 1-based); turns before `first` never fire. With the default
+ * `first === 1` this is the 1st turn then every Nth. Never throws — any IO failure
+ * falls back to firing (the safe default, matching the old fail-open behavior).
  */
-export const throttle = (payload: Record<string, unknown>, every: number): boolean => {
+export const throttle = (payload: Record<string, unknown>, every: number, first = 1): boolean => {
     const step = Math.max(1, every)
+    const start = Math.max(1, first)
     try {
         const file = keyFile(sessionKey(payload))
         const count = readCount(file) + 1
         writeCount(file, count)
-        return (count - 1) % step === 0
+        return count >= start && (count - start) % step === 0
     } catch {
         return true
     }

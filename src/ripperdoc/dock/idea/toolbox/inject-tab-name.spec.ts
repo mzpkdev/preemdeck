@@ -52,23 +52,38 @@ const runHookCli = async (argv: string[], stdinText: string): Promise<{ out: str
 }
 
 describe("inject-tab-name", () => {
-    context("extracting --event and --every", () => {
-        it("pulls --event and --every, keeping them out of the operands", () => {
-            expect(extractArgs(["TAB-NAME.md", "--event", "UserPromptSubmit", "--every", "1"])).toEqual({
+    context("extracting --event, --every, and --first", () => {
+        it("pulls --event, --every, and --first, keeping them out of the operands", () => {
+            expect(
+                extractArgs([
+                    "triggers/RENAME_TAB_TRIGGER.md",
+                    "--event",
+                    "UserPromptSubmit",
+                    "--every",
+                    "3",
+                    "--first",
+                    "1"
+                ])
+            ).toEqual({
                 event: "UserPromptSubmit",
-                every: 1,
-                positionals: ["TAB-NAME.md"]
+                every: 3,
+                first: 1,
+                positionals: ["triggers/RENAME_TAB_TRIGGER.md"]
             })
         })
         it("supports Gemini's BeforeAgent event", () => {
-            expect(extractArgs(["TAB-NAME.md", "--event", "BeforeAgent"]).event).toBe("BeforeAgent")
+            expect(extractArgs(["triggers/RENAME_TAB_TRIGGER.md", "--event", "BeforeAgent"]).event).toBe("BeforeAgent")
         })
         it("yields null for a dangling --event", () => {
-            expect(extractArgs(["--event"])).toEqual({ event: null, every: null, positionals: [] })
+            expect(extractArgs(["--event"])).toEqual({ event: null, every: null, first: null, positionals: [] })
         })
         it("treats a non-positive or non-numeric --every as absent (caller defaults)", () => {
             expect(extractArgs(["t.md", "--event", "X", "--every", "0"]).every).toBeNull()
             expect(extractArgs(["t.md", "--event", "X", "--every", "nope"]).every).toBeNull()
+        })
+        it("treats a non-positive or non-numeric --first as absent (caller defaults)", () => {
+            expect(extractArgs(["t.md", "--event", "X", "--first", "0"]).first).toBeNull()
+            expect(extractArgs(["t.md", "--event", "X", "--first", "nope"]).first).toBeNull()
         })
     })
 

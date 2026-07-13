@@ -6,7 +6,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "$HOME/.preemdeck/preemdeck-runtime \"$HOME/.preemdeck/src/ripperdoc/wetware/directive/scripts/inject-mode.ts\" --event UserPromptSubmit",
+            "command": "$HOME/.preemdeck/preemdeck-runtime \"$HOME/.preemdeck/src/ripperdoc/wetware/directive/scripts/inject-mode.ts\" --event UserPromptSubmit --every 5 --first 1",
             "timeout": 5
           }
         ]

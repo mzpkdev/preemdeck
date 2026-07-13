@@ -13,6 +13,7 @@ import {
     DEFAULT_EVERY,
     extractEvent,
     extractEvery,
+    extractFirst,
     loadModeText,
     renderBodies,
     renderGate,
@@ -103,6 +104,21 @@ describe("inject-mode", () => {
             expect(extractEvery(["--every"])).toBeNull()
             expect(extractEvery(["--every", "0"])).toBeNull()
             expect(extractEvery(["--every", "abc"])).toBeNull()
+        })
+    })
+
+    context("extracting the first flag", () => {
+        it("returns the value after the first --first", () => {
+            expect(extractFirst(["--first", "3", "x"])).toBe(3)
+        })
+        it("accepts the inline --first=<n> form", () => {
+            expect(extractFirst(["--first=2"])).toBe(2)
+        })
+        it("is null when absent, dangling, or non-positive (caller falls back to DEFAULT_FIRST)", () => {
+            expect(extractFirst(["x"])).toBeNull()
+            expect(extractFirst(["--first"])).toBeNull()
+            expect(extractFirst(["--first", "0"])).toBeNull()
+            expect(extractFirst(["--first", "abc"])).toBeNull()
         })
     })
 

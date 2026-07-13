@@ -31,7 +31,17 @@
         "hooks": [
           {
             "type": "command",
-            "command": "$HOME/.preemdeck/preemdeck-runtime \"$HOME/.preemdeck/src/ripperdoc/dock/idea/toolbox/inject-tab-name.ts\" TAB-NAME.md --event BeforeAgent --every 3",
+            "command": "$HOME/.preemdeck/preemdeck-runtime \"$HOME/.preemdeck/src/ripperdoc/dock/idea/toolbox/inject-tab-name.ts\" triggers/RENAME_TAB_TRIGGER.md --event BeforeAgent --first 1 --every 5",
+            "timeout": 5
+          }
+        ]
+      },
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "$HOME/.preemdeck/preemdeck-runtime \"$HOME/.preemdeck/src/ripperdoc/dock/idea/toolbox/inject-trigger.ts\" triggers/NOTIFY_TRIGGER.md --event BeforeAgent --every 1 --first 1",
             "timeout": 5
           }
         ]
@@ -50,16 +60,6 @@
       }
     ],
     "AfterAgent": [
-      {
-        "matcher": "",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "$HOME/.preemdeck/preemdeck-runtime \"$HOME/.preemdeck/src/ripperdoc/dock/idea/toolbox/turn-notify.ts\" Gemini",
-            "timeout": 5
-          }
-        ]
-      },
       {
         "matcher": "",
         "hooks": [

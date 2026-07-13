@@ -48,11 +48,12 @@ const runHookCli = async (argv: string[], stdinText: string): Promise<{ out: str
 }
 
 describe("inject-hook", () => {
-    context("extracting --event and --every", () => {
+    context("extracting --event, --every, and --first", () => {
         it("pulls --event and returns operands regardless of position", () => {
             expect(extractArgs(["IMPRINT.md", "--event", "BeforeAgent", "hosts/h.md"])).toEqual({
                 event: "BeforeAgent",
                 every: null,
+                first: null,
                 positionals: ["IMPRINT.md", "hosts/h.md"]
             })
         })
@@ -61,22 +62,28 @@ describe("inject-hook", () => {
             expect(extractArgs(["--event", "A", "--event", "B"])).toEqual({
                 event: "A",
                 every: null,
+                first: null,
                 positionals: ["B"]
             })
         })
         it("yields null for a dangling --event", () => {
-            expect(extractArgs(["--event"])).toEqual({ event: null, every: null, positionals: [] })
+            expect(extractArgs(["--event"])).toEqual({ event: null, every: null, first: null, positionals: [] })
         })
-        it("parses --every and keeps it out of the operands", () => {
-            expect(extractArgs(["DIGEST.md", "--event", "UserPromptSubmit", "--every", "1"])).toEqual({
+        it("parses --every and --first and keeps them out of the operands", () => {
+            expect(extractArgs(["DIGEST.md", "--event", "UserPromptSubmit", "--every", "5", "--first", "1"])).toEqual({
                 event: "UserPromptSubmit",
-                every: 1,
+                every: 5,
+                first: 1,
                 positionals: ["DIGEST.md"]
             })
         })
         it("treats a non-positive or non-numeric --every as absent (caller defaults)", () => {
             expect(extractArgs(["t.md", "--event", "X", "--every", "0"]).every).toBeNull()
             expect(extractArgs(["t.md", "--event", "X", "--every", "nope"]).every).toBeNull()
+        })
+        it("treats a non-positive or non-numeric --first as absent (caller defaults)", () => {
+            expect(extractArgs(["t.md", "--event", "X", "--first", "0"]).first).toBeNull()
+            expect(extractArgs(["t.md", "--event", "X", "--first", "nope"]).first).toBeNull()
         })
     })
 

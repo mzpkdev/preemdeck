@@ -5,7 +5,7 @@
  * Mirrors the imprint's inject-hook.ts, but self-contained in dock/idea for plugin
  * independence and with no `{{host_tools}}` substitution. On the prompt-submit event
  * (Claude/Codex UserPromptSubmit, Gemini BeforeAgent) it reads a directive template
- * (TAB-NAME.md, positional) from the plugin root, strips it, appends the tab's
+ * (triggers/RENAME_TAB_TRIGGER.md, positional) from the plugin root, strips it, appends the tab's
  * CURRENT name (read back from the IDE, glyph-stripped, so the model can judge
  * whether it still fits), and emits it as an `additionalContext` envelope via the
  * shared runInjectionHook — the host folds it into the MAIN model's context for that
@@ -37,30 +37,40 @@ import { inIdea, readTabTitle, resolveTabPids } from "./core"
 /** Default cadence: inject on every turn. The directive is conditional, so per-turn is cheap. Overridable via `--every`. */
 const DEFAULT_EVERY = 1
 
+/** Default first-fire turn: a session's 1st prompt. Overridable via `--first`. */
+const DEFAULT_FIRST = 1
+
 /**
- * Pull `--event <name>` and optional `--every <n>` out of argv; return them with the
- * leftover positionals. Never throws. Only the first occurrence of each flag is honored;
- * surplus values fall through to positionals. `every` is null when absent or not a
- * positive integer — the caller supplies the default. (Mirrors inject-hook.extractArgs.)
+ * Pull `--event <name>` and optional `--every <n>` / `--first <n>` out of argv; return
+ * them with the leftover positionals. Never throws. Only the first occurrence of each
+ * flag is honored; surplus values fall through to positionals. `every` (cadence) and
+ * `first` (the turn of the first fire) are null when absent or not a positive integer —
+ * the caller supplies the defaults. (Mirrors inject-hook.extractArgs.)
  */
-export const extractArgs = (argv: string[]): { event: string | null; every: number | null; positionals: string[] } => {
+export const extractArgs = (
+    argv: string[]
+): { event: string | null; every: number | null; first: number | null; positionals: string[] } => {
     try {
         const args = argvex({
             argv,
             schema: [
                 { name: "event", arity: 1 },
-                { name: "every", arity: 1 }
+                { name: "every", arity: 1 },
+                { name: "first", arity: 1 }
             ]
         })
         const everyRaw = args.every?.[0]
         const every = everyRaw === undefined ? Number.NaN : Number.parseInt(everyRaw, 10)
+        const firstRaw = args.first?.[0]
+        const first = firstRaw === undefined ? Number.NaN : Number.parseInt(firstRaw, 10)
         return {
             event: args.event?.[0] ?? null,
             every: Number.isInteger(every) && every > 0 ? every : null,
+            first: Number.isInteger(first) && first > 0 ? first : null,
             positionals: args._
         }
     } catch {
-        return { event: null, every: null, positionals: [] }
+        return { event: null, every: null, first: null, positionals: [] }
     }
 }
 
@@ -122,19 +132,20 @@ export const appendTabName = (text: string, name: string | null): string =>
     name ? `${text}\n\nThis tab is currently named \`${name}\`.` : text
 
 if (import.meta.main) {
-    const { event, every, positionals } = extractArgs(Bun.argv.slice(2))
+    const { event, every, first, positionals } = extractArgs(Bun.argv.slice(2))
     if (event === null || event.length === 0) {
-        process.stderr.write("usage: inject-tab-name --event <name> [--every <n>] <template>\n")
+        process.stderr.write("usage: inject-tab-name --event <name> [--every <n>] [--first <n>] <template>\n")
         process.exit(2)
     }
     const text = await renderTemplate(positionals)
     const cadence = every ?? DEFAULT_EVERY
+    const firstAt = first ?? DEFAULT_FIRST
     await runInjectionHook({
         event,
         // Resolve the current name only when the throttle fires (an IDE round-trip),
         // so no-op turns stay cheap; a null name just omits the extra line.
         render: async (payload) =>
-            text && throttle(payload, cadence) ? appendTabName(text, await currentTabName()) : null
+            text && throttle(payload, cadence, firstAt) ? appendTabName(text, await currentTabName()) : null
     })
     process.exit(0)
 }

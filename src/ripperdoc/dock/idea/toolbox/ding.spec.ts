@@ -1,18 +1,13 @@
 /**
- * os-ding.spec.ts — exercises os-ding.ts at two layers.
+ * ding.spec.ts — exercises ding.ts hermetically (no real audio).
  *
- * UNIT (hermetic, no real audio): the run seam and the platform worker are
- * injected (DI), and the real runCmd seam is exercised against silent
- * subprocesses (MOCK PATTERN D, lightly).
- *
- * E2E (subprocess): spawn os-ding.ts under --dry-run so effect() skips the real
- * spawn — a mechanism is still reported and the process exits 0. Mirrors
- * open-file.spec's subprocess harness.
+ * The run seam and the platform worker are injected (DI); the real runCmd seam is
+ * exercised against silent subprocesses (MOCK PATTERN D, lightly). No CLI layer —
+ * ding.ts is a module the idea notify() calls, not a standalone hook.
  */
 
 import { describe, expect, it } from "bun:test"
-import * as path from "node:path"
-import { ding, dingLinux, dingMacos, LINUX_CANDIDATES, platformWorker, runCmd } from "./os-ding"
+import { ding, dingLinux, dingMacos, LINUX_CANDIDATES, platformWorker, runCmd } from "./ding"
 
 const context = describe
 
@@ -28,26 +23,7 @@ const fakeRun = (ok: (cmd: string[]) => boolean): { calls: string[][]; run: (cmd
     }
 }
 
-// Spawn the CLI as a real subprocess; os-ding takes no positional and ignores stdin.
-const run = async (
-    args: string[],
-    environment: Record<string, string> = {}
-): Promise<{ code: number; stdout: string; stderr: string }> => {
-    const subprocess = Bun.spawn([process.execPath, path.join(import.meta.dir, "os-ding.ts"), ...args], {
-        stdin: "ignore",
-        stdout: "pipe",
-        stderr: "pipe",
-        env: { ...process.env, ...environment }
-    })
-    const [stdout, stderr] = await Promise.all([
-        new Response(subprocess.stdout).text(),
-        new Response(subprocess.stderr).text()
-    ])
-    const code = await subprocess.exited
-    return { code, stdout, stderr }
-}
-
-describe("os-ding", () => {
+describe("ding", () => {
     context("runCmd — the real (silent) subprocess seam", () => {
         it("is false for a missing binary", async () => {
             expect(await runCmd(["preemdeck-no-such-binary-zzz"])).toBe(false)
@@ -128,39 +104,6 @@ describe("os-ding", () => {
         })
         it("gives an exotic platform the null worker (straight to bell)", async () => {
             expect(await platformWorker("sunos", fakeRun(() => true).run)()).toBeNull()
-        })
-    })
-
-    context("as a subprocess", () => {
-        it("exits 0 under --dry-run (no real player spawned)", async () => {
-            const { code } = await run(["--dry-run"])
-            expect(code).toBe(0)
-        })
-
-        it("reports the mechanism on stderr under --dry-run --verbose and exits 0", async () => {
-            const { code, stderr } = await run(["--dry-run", "--verbose"])
-            expect(code).toBe(0)
-            expect(stderr).toContain("ding:")
-            // A real mechanism fired (not a thrown/empty report), e.g. afplay on a Mac.
-            expect(stderr).toMatch(/ding: \S+/)
-        })
-
-        it("stays silent without --verbose (no mechanism leaks) and exits 0", async () => {
-            const { code, stdout, stderr } = await run(["--dry-run"])
-            expect(code).toBe(0)
-            expect(stderr).not.toContain("ding:")
-            expect(stdout).not.toContain("ding:")
-        })
-
-        it("exits 0 and prints usage with --help", async () => {
-            const { code, stdout } = await run(["--help"])
-            expect(code).toBe(0)
-            expect(stdout).toContain("os-ding")
-        })
-
-        it("exits 2 on an unknown flag", async () => {
-            const { code } = await run(["--bogus"])
-            expect(code).toBe(2)
         })
     })
 })

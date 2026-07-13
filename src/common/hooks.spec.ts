@@ -54,6 +54,27 @@ describe("throttle (host-agnostic per-session turn counter)", () => {
         expect(throttle({ session_id: "s" }, 0)).toBe(true)
     })
 
+    context("with a first-fire turn", () => {
+        it("holds off until turn `first`, then fires every Nth after it", () => {
+            const hits: boolean[] = []
+            // first=3, every=5 → turns 1,2 no-op; 3 fires; 8 fires.
+            for (let i = 0; i < 9; i++) hits.push(throttle({ session_id: "s" }, 5, 3))
+            expect(hits).toEqual([false, false, true, false, false, false, false, true, false])
+        })
+
+        it("with first=1 (the default) matches the plain 1st-then-every-Nth cadence", () => {
+            const hits: boolean[] = []
+            for (let i = 0; i < 6; i++) hits.push(throttle({ session_id: "s" }, 5, 1))
+            expect(hits).toEqual([true, false, false, false, false, true])
+        })
+
+        it("clamps a non-positive first to turn 1 rather than firing before the counter starts", () => {
+            const hits: boolean[] = []
+            for (let i = 0; i < 3; i++) hits.push(throttle({ session_id: "s" }, 5, 0))
+            expect(hits).toEqual([true, false, false])
+        })
+    })
+
     it("persists exactly one counter file per session key", async () => {
         throttle({ session_id: "one" }, 5)
         throttle({ session_id: "one" }, 5)

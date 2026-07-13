@@ -19,12 +19,12 @@
         "hooks": [
           {
             "type": "command",
-            "command": "$HOME/.preemdeck/preemdeck-runtime \"$HOME/.preemdeck/src/ripperdoc/wetware/imprint/scripts/inject-hook.ts\" IMPRINT.md hosts/host_claude.md --event UserPromptSubmit",
+            "command": "$HOME/.preemdeck/preemdeck-runtime \"$HOME/.preemdeck/src/ripperdoc/wetware/imprint/scripts/inject-hook.ts\" IMPRINT.md hosts/host_claude.md --event UserPromptSubmit --every 5 --first 1",
             "timeout": 5
           },
           {
             "type": "command",
-            "command": "$HOME/.preemdeck/preemdeck-runtime \"$HOME/.preemdeck/src/ripperdoc/wetware/imprint/scripts/inject-hook.ts\" DIGEST.md --event UserPromptSubmit --every 1",
+            "command": "$HOME/.preemdeck/preemdeck-runtime \"$HOME/.preemdeck/src/ripperdoc/wetware/imprint/scripts/inject-hook.ts\" DIGEST.md --event UserPromptSubmit --every 5 --first 1",
             "timeout": 5
           }
         ]

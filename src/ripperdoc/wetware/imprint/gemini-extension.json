@@ -10,7 +10,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "$HOME/.preemdeck/preemdeck-runtime \"$HOME/.preemdeck/src/ripperdoc/wetware/imprint/scripts/inject-hook.ts\" IMPRINT.md hosts/host_gemini.md --event BeforeAgent",
+            "command": "$HOME/.preemdeck/preemdeck-runtime \"$HOME/.preemdeck/src/ripperdoc/wetware/imprint/scripts/inject-hook.ts\" IMPRINT.md hosts/host_gemini.md --event BeforeAgent --every 5 --first 1",
             "timeout": 5
           }
         ]

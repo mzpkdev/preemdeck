@@ -1,17 +1,23 @@
 #!/usr/bin/env -S preemdeck-runtime
 /**
- * inject-hook.ts — imprint-template context injector.
+ * inject-trigger.ts — generic trigger-directive injector for dock/idea.
  *
- * Resolves a template (positional path), reads it
- * from the plugin root, substitutes the optional host-tools file's contents for
- * `{{host_tools}}`, strips, and injects via lib/hook.ts. Missing/empty files are a
- * silent `{}` no-op; a missing host-tools file substitutes empty. `--event <name>`
- * (first only) is the required host event; stdin wins.
+ * The plugin-independent sibling of inject-tab-name.ts: reads a trigger template
+ * (positional, e.g. triggers/NOTIFY_TRIGGER.md) from the plugin root, strips it, and
+ * emits it as an `additionalContext` envelope via the shared runInjectionHook,
+ * throttle-gated per session. Unlike inject-tab-name.ts it appends nothing — a plain
+ * directive routed into the model, which reads it and runs whatever the trigger asks.
+ * `--event <name>` is the required host event (stdin's hook_event_name wins);
+ * `--every`/`--first` set the cadence. A missing/empty template or a stdin/throttle
+ * miss is a silent `{}` no-op. Never disrupts the host — a bad template injects nothing.
  *
- * Path note: args resolve as `pluginRoot / arg` with an "absolute arg wins"
- * rule — Node's `resolve()` honors absolute temp paths verbatim. `pluginRoot`
- * defaults to ENV.PLUGIN_ROOT (the .../ripperdoc/<rack>/<plugin> of the running
- * hook); tests pass it explicitly.
+ * It lives in dock/idea (not shared with imprint's inject-hook.ts) because
+ * ENV.PLUGIN_ROOT resolves from the running script's path, so the template must be
+ * read relative to the plugin whose hook fires it.
+ *
+ * Path note: the positional resolves as `pluginRoot / arg` with "absolute arg wins";
+ * `pluginRoot` defaults to ENV.PLUGIN_ROOT (the .../ripperdoc/dock/idea of the running
+ * hook), tests pass it explicitly.
  */
 
 import { existsSync } from "node:fs"
@@ -22,10 +28,10 @@ import { runInjectionHook } from "../../../../common/hook-inject"
 import { throttle } from "../../../../common/hooks"
 import { ENV, markdown } from "../../../../common/preemdeck"
 
-/** Default cadence: inject on a session's 1st prompt, then every Nth. Overridable per hook via `--every`. */
+/** Default cadence: inject on a session's 1st prompt, then every Nth. Overridable via `--every`. */
 const DEFAULT_EVERY = 5
 
-/** Default first-fire turn: a session's 1st prompt. Overridable per hook via `--first`. */
+/** Default first-fire turn: a session's 1st prompt. Overridable via `--first`. */
 const DEFAULT_FIRST = 1
 
 /**
@@ -33,7 +39,7 @@ const DEFAULT_FIRST = 1
  * them with the leftover positionals. Never throws. Only the first occurrence of each
  * flag is honored; surplus values fall through to positionals. `every` (cadence) and
  * `first` (the turn of the first fire) are null when absent or not a positive integer —
- * the caller supplies the defaults.
+ * the caller supplies the defaults. (Mirrors inject-tab-name.extractArgs.)
  */
 export const extractArgs = (
     argv: string[]
@@ -68,33 +74,24 @@ const isFile = async (path: string): Promise<boolean> => {
 
 /**
  * Build the injected text from argv (the script's tail). Returns the stripped
- * text, or null for any no-op (no template arg, missing/empty template, empty
- * after substitution+strip). `pluginRoot` defaults to the running hook's plugin root.
+ * template, or null for any no-op (no template arg, missing template, empty after
+ * strip). `pluginRoot` defaults to the running hook's plugin root.
  */
 export const renderTemplate = async (argv: string[], pluginRoot: string = ENV.PLUGIN_ROOT): Promise<string | null> => {
-    const [templateRel, ...rest] = argv
+    const [templateRel] = argv
     if (!templateRel) return null
 
     const promptPath = resolve(pluginRoot, templateRel)
     if (!(await isFile(promptPath))) return null
-    const template = await markdown.read(promptPath)
 
-    let hostTools = ""
-    if (rest.length > 0) {
-        const hostPath = resolve(pluginRoot, rest[0] as string)
-        if (await isFile(hostPath)) {
-            hostTools = (await markdown.read(hostPath)).trim()
-        }
-    }
-
-    const text = markdown.interpolate(template, { host_tools: hostTools }).trim()
+    const text = (await markdown.read(promptPath)).trim()
     return text || null
 }
 
 if (import.meta.main) {
     const { event, every, first, positionals } = extractArgs(Bun.argv.slice(2))
     if (event === null || event.length === 0) {
-        process.stderr.write("usage: inject-hook --event <name> [--every <n>] [--first <n>] <template> [host-tools]\n")
+        process.stderr.write("usage: inject-trigger --event <name> [--every <n>] [--first <n>] <template>\n")
         process.exit(2)
     }
     const text = await renderTemplate(positionals)

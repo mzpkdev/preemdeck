@@ -15,7 +15,7 @@
     },
     {
       "name": "os",
-      "description": "Cross-platform system sound and desktop notifications; dings on turn end",
+      "description": "Cross-platform desktop notifications on permission prompts",
       "source": "./os",
       "version": "0.0.0",
       "category": "dock"

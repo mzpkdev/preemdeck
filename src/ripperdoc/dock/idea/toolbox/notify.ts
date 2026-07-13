@@ -1,6 +1,7 @@
 #!/usr/bin/env bun
 import type { StandardSchemaV1 } from "cmdore"
 import { defineCommand, effect, execute } from "cmdore"
+import { isNotifyEnabled } from "../../../../common/preemdeck"
 import { assertIdea } from "./assert-idea"
 import {
     escapeGroovy,
@@ -10,6 +11,7 @@ import {
     runGroovyOn,
     webpreviewOpenBody
 } from "./core/index"
+import { ding } from "./ding"
 
 /** One parsed `--action`: its `name`, and the `=arg` payload (`null` when bare). */
 export type Action = { name: string; arg: string | null }
@@ -202,19 +204,27 @@ export const notify = async (message: string, options: NotifyOptions = {}): Prom
     const note = "notify: could not pop notification"
     // runGroovy / runGroovyOn never reject (a missing IDE / spawn error degrades to
     // a stderr note); --dry-run flips effect off so the IDE write is skipped.
-    await effect(async () => {
-        if (all) {
-            // Broadcast: one balloon per running JetBrains IDE. Discovery degrades to
-            // [] on any probe failure; an empty set (or the non-broadcast path) falls
-            // back to the single ancestry binary so the balloon still pops locally.
-            const execPaths = await resolveExecPaths()
-            if (execPaths.length > 0) {
-                await runGroovyOn(groovy, note, execPaths)
-                return
+    // The balloon and the OS ding (moved here from dock/os) fire together, so one
+    // idea notification both shows and sounds; the ding is gated by preemdeck.json
+    // notify.sound and is best-effort (ding() never throws, dry-run skips its spawn).
+    await Promise.all([
+        effect(async () => {
+            if (all) {
+                // Broadcast: one balloon per running JetBrains IDE. Discovery degrades to
+                // [] on any probe failure; an empty set (or the non-broadcast path) falls
+                // back to the single ancestry binary so the balloon still pops locally.
+                const execPaths = await resolveExecPaths()
+                if (execPaths.length > 0) {
+                    await runGroovyOn(groovy, note, execPaths)
+                    return
+                }
             }
-        }
-        await runGroovy(groovy, note)
-    })
+            await runGroovy(groovy, note)
+        }),
+        (async () => {
+            if (await isNotifyEnabled("sound")) await ding()
+        })()
+    ])
 }
 
 /**

@@ -1,20 +1,19 @@
-#!/usr/bin/env -S preemdeck-runtime
 /**
- * os-ding.ts — play a short notification "ding".
+ * ding.ts — play a short notification "ding", ridden by the idea notify() so a
+ * single balloon both shows and sounds.
  *
- * macOS + Linux only (Windows/winsound already removed). Selects a host-native
- * mechanism by platform; falls back to the ASCII terminal bell so something always
- * fires. Wired as a Stop hook: it ignores stdin entirely. Best-effort — never
- * throws; the command always exits 0.
+ * macOS + Linux only. Selects a host-native mechanism by platform; falls back to
+ * the ASCII terminal bell so something always fires. Best-effort — never throws.
+ * Moved here from dock/os (was a standalone Stop-hook ding); notify() now gates it
+ * on preemdeck.json notify.sound and fires it alongside the balloon.
  *
  * The subprocess seam rides process.ts (argv-only, no shell), wrapped in cmdore's
- * `effect()` so `--dry-run` skips the real spawn yet still reports a mechanism. A
- * missing binary makes Bun.spawn throw, which `runCmd` catches -> false, so the
- * candidate is treated as unavailable and the next mechanism is tried.
+ * `effect()` so a caller's `--dry-run` skips the real spawn yet still reports a
+ * mechanism. A missing binary makes Bun.spawn throw, which `runCmd` catches -> false,
+ * so the candidate is treated as unavailable and the next mechanism is tried.
  */
 
-import { defineCommand, effect, execute } from "cmdore"
-import { isNotifyEnabled } from "../../../../common/preemdeck"
+import { effect } from "cmdore"
 import { PIPED, type Reaped, reap } from "../../../../common/process"
 
 // macOS: a built-in system sound that reads as a clean "ding".
@@ -100,29 +99,4 @@ export const ding = async (
         return "bell"
     }
     return mechanism
-}
-
-const command = defineCommand({
-    name: "os-ding",
-    description: "Play a short notification ding (macOS/Linux), falling back to the terminal bell.",
-    options: [{ name: "verbose", arity: 0, description: "report the chosen mechanism on stderr" }],
-    run: async ({ verbose }) => {
-        // Best-effort: a ding failing must never fail the Stop hook that drives
-        // this, so swallow everything and let the process exit 0.
-        try {
-            if (!(await isNotifyEnabled("sound"))) {
-                return // user silenced the ding via preemdeck.json notify.sound
-            }
-            const mechanism = await ding()
-            if (verbose) {
-                process.stderr.write(`ding: ${mechanism}\n`)
-            }
-        } catch {
-            // ignore — the bell floor already tried; never fail the hook
-        }
-    }
-})
-
-if (import.meta.main) {
-    process.exit(await execute(command, { metadata: command }))
 }

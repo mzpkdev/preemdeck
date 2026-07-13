@@ -25,7 +25,7 @@
  *   - Codex: NO Notification event exists, so permission/idle desktop alerts are
  *     UNSUPPORTED on Codex — this hook is simply not wired in the .codex-plugin
  *     manifest. (Firing it on Stop would conflate a turn end with a permission
- *     gate and double up with the os-ding Stop hook, so we deliberately skip it.)
+ *     gate, so we deliberately skip it.)
  *
  * Best-effort + SILENT by contract: a missing notifier, absent/foreign stdin, or
  * any error yields a no-op (run() catches internally and exits 0) so the host

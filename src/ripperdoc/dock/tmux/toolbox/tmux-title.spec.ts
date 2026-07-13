@@ -8,7 +8,7 @@
  * E2E (subprocess): spawn tmux-title.ts under --dry-run so effect() skips the real
  * spawn — the process exits 0 and, critically, writes NOTHING to stdout (a
  * SessionStart/UserPromptSubmit hook's stdout is fed back to the model as context).
- * Mirrors os-ding.spec's subprocess harness.
+ * Mirrors open-file.spec's subprocess harness.
  */
 
 import { describe, expect, it } from "bun:test"
