@@ -1,7 +1,7 @@
 #!/usr/bin/env bun
 import { defineCommand, effect, execute } from "cmdore"
 // The glyph + name composition, shared with tab-title / tmux-title so a model
-// rename reads `• slug` exactly like the state hook's busy label.
+// rename reads `• Name` exactly like the state hook's busy label.
 import { windowName } from "../../tmux/toolbox/tmux-title"
 import { assertIdea } from "./assert-idea"
 import { renameTab, resolveTabPids } from "./core"
@@ -10,12 +10,12 @@ import { renameTab, resolveTabPids } from "./core"
  * Rename the WebStorm terminal tab THIS shell runs in — set a sticky
  * user-defined title that wins over shell/OSC auto-naming, or clear it to
  * restore auto-naming. The entry point for main-thread tab naming: the name is
- * sanitized to a short slug and stamped with the busy glyph (windowName("busy",
- * slug) -> "• slug") since a model rename always lands during an active turn, so
- * the tab matches tab-title's • instead of flashing glyph-less. No on-disk store:
- * the tab title itself is the source of truth, and tab-title reads it back
- * (glyph-stripped) so the name survives the idle/busy/waiting flips. See
- * {@link slugifyTabName} / core/tab-read.ts.
+ * tidied to short Title Case words and stamped with the busy glyph
+ * (windowName("busy", name) -> "• Auth Retry") since a model rename always lands
+ * during an active turn, so the tab matches tab-title's • instead of flashing
+ * glyph-less. No on-disk store: the tab title itself is the source of truth, and
+ * tab-title reads it back (glyph-stripped) so the name survives the
+ * idle/busy/waiting flips. See {@link tidyTabName} / core/tab-read.ts.
  *
  * The target tab is found by process id, not by name or position: `resolveTabPids`
  * lists the pids on our tty (login shell + any tmux client), and the Groovy
@@ -34,7 +34,7 @@ import { renameTab, resolveTabPids } from "./core"
  * @returns nothing; the side effect is the renamed tab.
  *
  * @example
- * await renameTabCli("PR review") // rename this tab to "• pr-review"
+ * await renameTabCli("PR review") // rename this tab to "• PR Review"
  * await renameTabCli(null) // restore auto-naming
  */
 export const renameTabCli = async (
@@ -42,53 +42,60 @@ export const renameTabCli = async (
     verbose = false,
     deps: RenameTabCliDeps = DEFAULT_DEPS
 ): Promise<void> => {
-    // slug is null iff name is null (slugifyTabName always returns a string), so
-    // branching on `slug` below both reads as the reset check AND narrows it to string.
-    const slug = name === null ? null : slugifyTabName(name)
+    // tidy is null iff name is null (tidyTabName always returns a string), so
+    // branching on `tidy` below both reads as the reset check AND narrows it to string.
+    const tidy = name === null ? null : tidyTabName(name)
     const pids = await deps.resolveTabPids()
     if (verbose) {
         const what =
-            slug === null
+            tidy === null
                 ? "reset (restore auto-naming)"
-                : slug.length > 0
-                  ? `name=${slug}`
+                : tidy.length > 0
+                  ? `name=${tidy}`
                   : "no-op (name sanitized to empty)"
         process.stderr.write(`rename-tab: ${what}, pids=[${pids.join(",")}]\n`)
     }
-    if (slug === null) {
+    if (tidy === null) {
         await deps.renameTab(null, pids) // clear the user-defined title, restoring auto-naming
         return
     }
-    if (slug.length === 0) {
+    if (tidy.length === 0) {
         return // nothing usable in the given name — leave the tab as-is
     }
     // Stamp the busy glyph (a model rename always lands mid-turn) so the tab matches
     // tab-title's •. The name lives in the tab title itself (no on-disk store);
     // tab-title reads it back, glyph-stripped, to survive the next state flip.
-    await deps.renameTab(windowName("busy", slug), pids)
+    await deps.renameTab(windowName("busy", tidy), pids)
 }
 
 /**
- * Reduce a (model- or human-) chosen tab name to a safe, short slug: take the
- * FIRST line, strip control chars, trim, drop any surrounding quotes/backticks,
- * lowercase, collapse every run of non-`[a-z0-9]` into a single hyphen, trim edge
- * hyphens, and cap at 24 chars. Returns "" when nothing usable remains (the caller
- * treats "" as a no-op). Pure — no IDE or fs contact.
+ * Reduce a (model- or human-) chosen tab name to short Title Case words: take the
+ * FIRST line, collapse every run of non-`[A-Za-z0-9]` (control chars, quotes, dashes,
+ * punctuation) into a single space, trim, Title Case each word (an all-caps acronym
+ * like PR / CI is kept as-is), and cap at 24 chars on a word boundary. Returns "" when
+ * nothing usable remains (the caller treats "" as a no-op). Pure — no IDE or fs contact.
  */
-export const slugifyTabName = (raw: string): string => {
+export const tidyTabName = (raw: string): string => {
     const firstLine = raw.split("\n")[0] ?? ""
-    return (
-        firstLine
-            // biome-ignore lint/suspicious/noControlCharactersInRegex: intentionally stripping C0/DEL control chars from a tab title
-            .replace(/[\u0000-\u001f\u007f]/g, "") // strip control chars
-            .trim()
-            .replace(/^['"`]+|['"`]+$/g, "") // strip surrounding quotes / backticks
-            .toLowerCase()
-            .replace(/[^a-z0-9]+/g, "-") // non-alphanumeric runs -> single hyphen
-            .replace(/^-+|-+$/g, "") // trim leading / trailing hyphens
-            .slice(0, 24) // cap length
-            .replace(/-+$/g, "")
-    ) // re-trim a hyphen the slice may have exposed
+    const cleaned = firstLine.replace(/[^A-Za-z0-9]+/g, " ").trim()
+    if (cleaned.length === 0) {
+        return ""
+    }
+    const titled = cleaned
+        .split(" ")
+        .map((word) =>
+            word.length > 1 && word === word.toUpperCase()
+                ? word // keep an all-caps acronym (PR, CI, API) as-is
+                : word.charAt(0).toUpperCase() + word.slice(1).toLowerCase()
+        )
+        .join(" ")
+    if (titled.length <= 24) {
+        return titled
+    }
+    // Cap length on a word boundary so the tab never shows a half-word.
+    const cut = titled.slice(0, 24)
+    const lastSpace = cut.lastIndexOf(" ")
+    return (lastSpace > 0 ? cut.slice(0, lastSpace) : cut).trim()
 }
 
 /** Injectable seams for {@link renameTabCli}; production uses the real pid resolver + IDE dispatch. */

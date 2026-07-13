@@ -1,14 +1,14 @@
 /**
  * rename-tab.spec.ts — the CLI at two layers.
  *
- * UNIT (hermetic): slugifyTabName is checked directly, and renameTabCli is driven
+ * UNIT (hermetic): tidyTabName is checked directly, and renameTabCli is driven
  * with a fake pids/rename seam (DI) so NO real IDE dispatch happens — asserting the
  * sanitize -> busy-glyph rename wiring, the reset path (clear the title), and the
  * empty-after-sanitize no-op. There is no on-disk store: the tab title is the store.
  *
  * E2E (subprocess): every case runs under --dry-run so effect() resolves the tab's
  * pids but SKIPS the real IDE dispatch. We assert the exit code, clean stdout, and
- * the --verbose decision line (the sanitized slug) for each name mode, plus the
+ * the --verbose decision line (the tidied name) for each name mode, plus the
  * assertIdea gate. Mirrors tab-title.spec's harness.
  */
 
@@ -17,7 +17,7 @@ import { mkdtemp, rm } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import * as path from "node:path"
 import { windowName } from "../../tmux/toolbox/tmux-title"
-import { type RenameTabCliDeps, renameTabCli, slugifyTabName } from "./rename-tab"
+import { type RenameTabCliDeps, renameTabCli, tidyTabName } from "./rename-tab"
 
 const context = describe
 
@@ -67,36 +67,36 @@ const run = async (
     return { code, stdout, stderr }
 }
 
-describe("slugifyTabName", () => {
+describe("tidyTabName", () => {
     it.each([
-        ["PR Review", "pr-review"],
-        ["  Tab Naming  ", "tab-naming"],
-        ['"quoted"', "quoted"],
-        ["`backtick`", "backtick"],
-        ["Fix: the CI!!!", "fix-the-ci"],
-        ["already-kebab", "already-kebab"],
-        ["UPPER CASE", "upper-case"],
-        ["multi\nline\nname", "multi"]
-    ] as [string, string][])("sanitizes %p -> %p", (raw, slug) => {
-        expect(slugifyTabName(raw)).toBe(slug)
+        ["PR Review", "PR Review"],
+        ["  tab naming  ", "Tab Naming"],
+        ['"quoted"', "Quoted"],
+        ["`backtick`", "Backtick"],
+        ["Fix: the CI!!!", "Fix The CI"],
+        ["already-kebab", "Already Kebab"],
+        ["UPPER CASE", "UPPER CASE"],
+        ["multi\nline\nname", "Multi"]
+    ] as [string, string][])("tidies %p -> %p", (raw, name) => {
+        expect(tidyTabName(raw)).toBe(name)
     })
 
     it("returns '' for junk-only input (the caller no-ops)", () => {
-        expect(slugifyTabName("!!! ???")).toBe("")
-        expect(slugifyTabName("   ")).toBe("")
+        expect(tidyTabName("!!! ???")).toBe("")
+        expect(tidyTabName("   ")).toBe("")
     })
 
-    it("strips control characters", () => {
-        expect(slugifyTabName("a\u0000b\u001fc")).toBe("abc")
+    it("treats control characters as word separators", () => {
+        expect(tidyTabName(`a${String.fromCharCode(0)}b`)).toBe("A B")
     })
 
-    it("caps the slug at 24 chars", () => {
-        expect(slugifyTabName("a".repeat(40))).toBe("a".repeat(24))
+    it("caps the name at 24 chars", () => {
+        expect(tidyTabName("a".repeat(40))).toBe(`A${"a".repeat(23)}`)
     })
 
-    it("re-trims a trailing hyphen the length cap can expose", () => {
-        // 23 'a's + " b" -> "aaa…(23)-b" -> slice(0,24) leaves "aaa…(23)-" -> re-trimmed.
-        expect(slugifyTabName(`${"a".repeat(23)} b`)).toBe("a".repeat(23))
+    it("caps on a word boundary, dropping a half-word", () => {
+        // "a"x23 + " b" -> "Aaa…(23) B" (25 chars) -> slice(0,24) keeps the first word only.
+        expect(tidyTabName(`${"a".repeat(23)} b`)).toBe(`A${"a".repeat(22)}`)
     })
 })
 
@@ -105,13 +105,13 @@ describe("renameTabCli (unit, DI seams)", () => {
         const { deps, calls } = fakeDeps({ pids: [42] })
         await renameTabCli("PR Review!", false, deps)
         // the tab title itself is the store; displayed with the busy glyph via windowName
-        expect(calls.rename).toEqual([{ name: windowName("busy", "pr-review"), pids: [42] }])
+        expect(calls.rename).toEqual([{ name: windowName("busy", "PR Review"), pids: [42] }])
     })
 
     it("still dispatches the rename when no pid resolves (the real renameTab no-ops on [])", async () => {
         const { deps, calls } = fakeDeps({ pids: [] })
         await renameTabCli("Tab Naming", false, deps)
-        expect(calls.rename).toEqual([{ name: windowName("busy", "tab-naming"), pids: [] }])
+        expect(calls.rename).toEqual([{ name: windowName("busy", "Tab Naming"), pids: [] }])
     })
 
     it("reset (null) clears the title (restores auto-naming)", async () => {
@@ -141,10 +141,10 @@ describe("rename-tab CLI (e2e, subprocess)", () => {
             expect(stderr).toBe("")
         })
 
-        it("reports the SANITIZED slug on stderr under --verbose", async () => {
+        it("reports the tidied name on stderr under --verbose", async () => {
             const { code, stderr } = await run(["--dry-run", "--verbose", "PR review"])
             expect(code).toBe(0)
-            expect(stderr).toContain("name=pr-review")
+            expect(stderr).toContain("name=PR Review")
         })
 
         it.each([

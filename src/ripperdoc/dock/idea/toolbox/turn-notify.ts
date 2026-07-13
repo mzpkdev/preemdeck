@@ -137,18 +137,6 @@ export const gitBranch = async (cwd: string | null | undefined): Promise<string 
     return branch
 }
 
-/**
- * Parameter-DI seam for the value-bearing git-branch READ. The happy path runs
- * the real {@link gitBranch}; the error branches (detached HEAD, exit 128,
- * git-not-found) inject a stub.
- */
-export type TurnNotifyDeps = {
-    gitBranch: (cwd: string | null | undefined) => Promise<string | null>
-}
-
-/** The default dependency set: the real git-branch read. */
-export const DEFAULT_DEPS: TurnNotifyDeps = { gitBranch }
-
 /** `<project> · <branch>` — project from cwd basename, host label as fallback head. */
 export const title = (host: string, cwd: string | null | undefined, branch: string | null): string => {
     const project = cwd ? path.basename(cwd.replace(/\/+$/, "")) : ""
@@ -157,24 +145,21 @@ export const title = (host: string, cwd: string | null | undefined, branch: stri
 }
 
 /**
- * Derive the per-tab title + one-line gist and pop the turn-end balloon, reaching
- * through the engine notify(). No-op outside a JetBrains IDE. `deps.gitBranch`
- * supplies the branch READ (real by default, injected in the error-branch tests).
+ * Pop the turn-end balloon: read the reply gist and reach through the engine
+ * notify(), which resolves the title (repo(ticket) · tab) from the hook's cwd.
+ * No-op outside a JetBrains IDE.
  */
-const emit = async (host: string, deps: TurnNotifyDeps): Promise<void> => {
+const emit = async (host: string): Promise<void> => {
     if (!inIdea()) {
         return // not inside a JetBrains IDE: nothing to pop, and no error
     }
     const data = await readHookInput()
     const cwd = (data.cwd as string | undefined) || process.env.PWD
     const gist = payloadGist(data)
-    const branch = await deps.gitBranch(cwd)
-    const titleText = title(host, cwd, branch)
     const body = gist || `${host} finished responding`
-    // `all` broadcasts the turn-end balloon to every open project window of every
-    // running JetBrains product, so it's visible whichever window/IDE is focused.
-    // (No cwd: all-windows ignores it; the title already took the project name above.)
-    await notify(htmlEscape(body), { title: htmlEscape(titleText), all: await isNotifyEnabled("broadcast") })
+    // Pass the hook's cwd so notify() resolves the right repo/branch/tab; `all`
+    // broadcasts to every open project window so it's visible whichever is focused.
+    await notify(htmlEscape(body), { cwd, all: await isNotifyEnabled("broadcast") })
 }
 
 const command = defineCommand({
@@ -188,7 +173,7 @@ const command = defineCommand({
             if (!(await isNotifyEnabled("turn"))) {
                 return // user disabled turn-end alerts via preemdeck.json notify.turn
             }
-            await emit(typeof host === "string" && host ? host : "Agent", DEFAULT_DEPS)
+            await emit(typeof host === "string" && host ? host : "Agent")
         } catch {
             // swallow: a missing IDE, foreign stdin, git failure, or notify error
             // must not disrupt the host

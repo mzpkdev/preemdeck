@@ -8,9 +8,10 @@ The current tab name no longer fits the work. If it already reflects what you're
 
 ## Action
 
-1. Pick a 2 to 3 word, lowercase, kebab-case slug (`auth-retry`, `proj-1234`, `flaky-ci-fix`, `dark-mode-toggle`,
-   `rate-limit-bug`).
-2. Run: `$HOME/.preemdeck/preemdeck-runtime "$HOME/.preemdeck/src/ripperdoc/dock/idea/toolbox/rename-tab.ts" <slug>`
+1. Pick a 2 to 3 word Title Case name (`Auth Retry`, `Notify Title`, `Flaky CI`, `Dark Mode Toggle`); keep acronyms
+   uppercase (PR, CI, API).
+2. Run (quote it, the name has spaces):
+   `$HOME/.preemdeck/preemdeck-runtime "$HOME/.preemdeck/src/ripperdoc/dock/idea/toolbox/rename-tab.ts" "<name>"`
 
 ## Output
 

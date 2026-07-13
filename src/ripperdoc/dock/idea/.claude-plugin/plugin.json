@@ -45,19 +45,19 @@
             "timeout": 5
           }
         ]
-      },
+      }
+    ],
+    "Stop": [
       {
         "matcher": "",
         "hooks": [
           {
             "type": "command",
-            "command": "$HOME/.preemdeck/preemdeck-runtime \"$HOME/.preemdeck/src/ripperdoc/dock/idea/toolbox/inject-trigger.ts\" triggers/NOTIFY_TRIGGER.md --event UserPromptSubmit --every 1 --first 1",
+            "command": "$HOME/.preemdeck/preemdeck-runtime \"$HOME/.preemdeck/src/ripperdoc/dock/idea/toolbox/turn-notify.ts\" Claude",
             "timeout": 5
           }
         ]
-      }
-    ],
-    "Stop": [
+      },
       {
         "matcher": "",
         "hooks": [

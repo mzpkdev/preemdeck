@@ -214,18 +214,28 @@ describe("resolveTitle", () => {
     })
 
     it("uses an explicit title verbatim", async () => {
-        expect(await resolveTitle("CI", "/Users/me/proj", deps("auth-retry", "main"))).toBe("CI")
+        expect(await resolveTitle("CI", "/Users/me/proj", deps("auth-retry", "feature/proj-1234-x"))).toBe("CI")
     })
-    it("prefers <repo> · <tab>", async () => {
-        expect(await resolveTitle(undefined, "/Users/me/proj", deps("auth-retry", "main"))).toBe("proj · auth-retry")
+    it("builds <repo>(<TICKET>) · <tab> from a ticket branch", async () => {
+        expect(await resolveTitle(undefined, "/Users/me/proj", deps("auth-retry", "feature/proj-1234-add-auth"))).toBe(
+            "proj(PROJ-1234) · auth-retry"
+        )
     })
-    it("falls back to <repo> · <branch> when there is no tab", async () => {
-        expect(await resolveTitle(undefined, "/Users/me/proj", deps(null, "main"))).toBe("proj · main")
+    it("uses the raw branch in the parens when it has no ticket", async () => {
+        expect(await resolveTitle(undefined, "/Users/me/proj", deps("auth-retry", "main"))).toBe(
+            "proj(main) · auth-retry"
+        )
     })
-    it("uses <repo> alone when there is neither tab nor branch", async () => {
+    it("drops the parens when off a branch", async () => {
+        expect(await resolveTitle(undefined, "/Users/me/proj", deps("auth-retry", null))).toBe("proj · auth-retry")
+    })
+    it("is the repo (with ticket) alone when there is no tab", async () => {
+        expect(await resolveTitle(undefined, "/Users/me/proj", deps(null, "feature/proj-1234-x"))).toBe(
+            "proj(PROJ-1234)"
+        )
         expect(await resolveTitle(undefined, "/Users/me/proj", deps(null, null))).toBe("proj")
     })
     it("falls back to the hardcoded AI when even the repo cannot resolve", async () => {
-        expect(await resolveTitle(undefined, "/", deps(null, null))).toBe("AI")
+        expect(await resolveTitle(undefined, "/", deps("auth-retry", "main"))).toBe("AI")
     })
 })

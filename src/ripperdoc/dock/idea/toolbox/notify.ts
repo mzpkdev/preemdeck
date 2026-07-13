@@ -14,7 +14,7 @@ import {
 } from "./core/index"
 import { ding } from "./ding"
 import { currentTabName } from "./inject-tab-name"
-import { title as buildTitle, gitBranch } from "./turn-notify"
+import { gitBranch } from "./turn-notify"
 
 /** One parsed `--action`: its `name`, and the `=arg` payload (`null` when bare). */
 export type Action = { name: string; arg: string | null }
@@ -183,11 +183,12 @@ export type NotifyOptions = {
 }
 
 /**
- * The balloon title, in preference order: an explicit `title`, else "<repo> · <tab>"
- * (the terminal tab's task name, glyph-stripped), else "<repo> · <branch>" (just
- * "<repo>" off a branch), else the hardcoded "AI" when even the repo can't resolve.
- * Each rung is best-effort: the tab read and git branch degrade to the next. `deps`
- * injects the tab/branch reads for hermetic tests.
+ * The balloon title as "<repo>(<TICKET>) · <tab>": the repo (cwd basename), the
+ * branch's ticket in parens, and the terminal tab's task name. An explicit `title`
+ * wins verbatim. The ticket is a "PROJ-123" match anywhere in the branch (upper-cased),
+ * falling back to the raw branch, and the parens drop entirely off a branch; the tab
+ * suffix drops when there's no tab; "AI" is the floor when even the repo can't resolve.
+ * Each read is best-effort. `deps` injects the tab/branch reads for hermetic tests.
  */
 export const resolveTitle = async (
     explicit: string | undefined,
@@ -199,9 +200,11 @@ export const resolveTitle = async (
 ): Promise<string> => {
     if (explicit && explicit.length > 0) return explicit
     const project = basename(cwd.replace(/\/+$/, ""))
-    const tab = await deps.tab()
-    if (project && tab) return `${project} · ${tab}`
-    return buildTitle("AI", cwd, await deps.branch(cwd))
+    if (!project) return "AI"
+    const [tab, branch] = await Promise.all([deps.tab(), deps.branch(cwd)])
+    const ticket = branch ? (branch.match(/[a-z]+-\d+/i)?.[0]?.toUpperCase() ?? branch) : null
+    const base = ticket ? `${project}(${ticket})` : project
+    return tab ? `${base} · ${tab}` : base
 }
 
 /**
