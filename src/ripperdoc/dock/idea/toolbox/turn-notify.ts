@@ -145,6 +145,55 @@ export const title = (host: string, cwd: string | null | undefined, branch: stri
 }
 
 /**
+ * Whether a subagent spawned in the CURRENT turn is still in flight: scan the hook
+ * transcript backward to the last typed user prompt and return true if any
+ * `Agent`/`Task` tool_use has no matching tool_result. Backgrounded subagents
+ * re-invoke the orchestrator on completion, so an interim Stop lands here with an
+ * unresolved Agent id — suppressing the turn-end balloon until the final, all-resolved
+ * Stop. Claude only (keys off `transcript_path`); best-effort, so any read/parse
+ * failure returns false (fire the notify) rather than swallow a real turn end.
+ */
+export const subagentsPending = async (transcriptPath: string): Promise<boolean> => {
+    try {
+        const lines = (await Bun.file(transcriptPath).text()).split("\n")
+        const spawned = new Set<string>()
+        const resolved = new Set<string>()
+        for (let i = lines.length - 1; i >= 0; i--) {
+            const rawLine = lines[i]?.trim()
+            if (!rawLine) continue
+            let entry: { type?: unknown; message?: { content?: unknown } }
+            try {
+                entry = JSON.parse(rawLine)
+            } catch {
+                continue
+            }
+            const content = entry.message?.content
+            if (entry.type === "user" && typeof content === "string") {
+                break // reached the typed prompt that started this turn
+            }
+            if (!Array.isArray(content)) continue
+            for (const item of content as Array<Record<string, unknown>>) {
+                if (
+                    item.type === "tool_use" &&
+                    (item.name === "Agent" || item.name === "Task") &&
+                    typeof item.id === "string"
+                ) {
+                    spawned.add(item.id)
+                } else if (item.type === "tool_result" && typeof item.tool_use_id === "string") {
+                    resolved.add(item.tool_use_id)
+                }
+            }
+        }
+        for (const id of spawned) {
+            if (!resolved.has(id)) return true
+        }
+        return false
+    } catch {
+        return false
+    }
+}
+
+/**
  * Pop the turn-end balloon: read the reply gist and reach through the engine
  * notify(), which resolves the title (repo(ticket) · tab) from the hook's cwd.
  * No-op outside a JetBrains IDE.
@@ -154,6 +203,11 @@ const emit = async (host: string): Promise<void> => {
         return // not inside a JetBrains IDE: nothing to pop, and no error
     }
     const data = await readHookInput()
+    // Interim turn: a backgrounded subagent just returned but others are still in
+    // flight. Skip the balloon until the final Stop (every Agent tool_use resolved).
+    if (typeof data.transcript_path === "string" && (await subagentsPending(data.transcript_path))) {
+        return
+    }
     const cwd = (data.cwd as string | undefined) || process.env.PWD
     const gist = payloadGist(data)
     const body = gist || `${host} finished responding`

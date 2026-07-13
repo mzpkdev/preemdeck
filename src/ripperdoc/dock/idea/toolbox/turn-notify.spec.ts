@@ -1,6 +1,8 @@
-import { describe, expect, it } from "bun:test"
+import { afterEach, beforeEach, describe, expect, it } from "bun:test"
+import { mkdtemp, rm, writeFile } from "node:fs/promises"
+import { tmpdir } from "node:os"
 import * as path from "node:path"
-import { htmlEscape } from "./turn-notify"
+import { htmlEscape, subagentsPending } from "./turn-notify"
 
 const context = describe
 
@@ -104,5 +106,52 @@ describe("turn-notify CLI", () => {
             expect(code).toBe(0)
             expect(stdout).toContain("turn-notify")
         })
+    })
+})
+
+describe("subagentsPending (interim-turn gate)", () => {
+    let dir = ""
+    beforeEach(async () => {
+        dir = await mkdtemp(path.join(tmpdir(), "preemdeck-turnnotify-"))
+    })
+    afterEach(async () => {
+        await rm(dir, { recursive: true, force: true })
+    })
+
+    const write = async (entries: object[]): Promise<string> => {
+        const p = path.join(dir, "transcript.jsonl")
+        await writeFile(p, entries.map((e) => JSON.stringify(e)).join("\n"))
+        return p
+    }
+    const prompt = { type: "user", message: { content: "do the thing" } }
+    const spawn = (id: string): object => ({
+        type: "assistant",
+        message: { content: [{ type: "tool_use", name: "Agent", id }] }
+    })
+    const result = (id: string): object => ({
+        type: "user",
+        message: { content: [{ type: "tool_result", tool_use_id: id }] }
+    })
+    const text = { type: "assistant", message: { content: [{ type: "text" }] } }
+
+    it("is true while a spawned Agent has no result (interim turn)", async () => {
+        expect(await subagentsPending(await write([prompt, spawn("a1")]))).toBe(true)
+    })
+
+    it("is false once every Agent has resolved (final turn)", async () => {
+        const t = await write([prompt, spawn("a1"), spawn("a2"), result("a1"), result("a2")])
+        expect(await subagentsPending(t)).toBe(false)
+    })
+
+    it("is false for a turn that spawned no subagents", async () => {
+        expect(await subagentsPending(await write([prompt, text]))).toBe(false)
+    })
+
+    it("ignores agents from a prior turn (scopes to the last prompt)", async () => {
+        expect(await subagentsPending(await write([prompt, spawn("old"), prompt, text]))).toBe(false)
+    })
+
+    it("is false (fires the notify) for a missing transcript", async () => {
+        expect(await subagentsPending(path.join(dir, "nope.jsonl"))).toBe(false)
     })
 })
