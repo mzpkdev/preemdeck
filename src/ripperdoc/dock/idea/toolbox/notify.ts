@@ -1,4 +1,5 @@
 #!/usr/bin/env bun
+import { basename } from "node:path"
 import type { StandardSchemaV1 } from "cmdore"
 import { defineCommand, effect, execute } from "cmdore"
 import { isNotifyEnabled } from "../../../../common/preemdeck"
@@ -12,6 +13,8 @@ import {
     webpreviewOpenBody
 } from "./core/index"
 import { ding } from "./ding"
+import { currentTabName } from "./inject-tab-name"
+import { title as buildTitle, gitBranch } from "./turn-notify"
 
 /** One parsed `--action`: its `name`, and the `=arg` payload (`null` when bare). */
 export type Action = { name: string; arg: string | null }
@@ -180,6 +183,28 @@ export type NotifyOptions = {
 }
 
 /**
+ * The balloon title, in preference order: an explicit `title`, else "<repo> · <tab>"
+ * (the terminal tab's task name, glyph-stripped), else "<repo> · <branch>" (just
+ * "<repo>" off a branch), else the hardcoded "AI" when even the repo can't resolve.
+ * Each rung is best-effort: the tab read and git branch degrade to the next. `deps`
+ * injects the tab/branch reads for hermetic tests.
+ */
+export const resolveTitle = async (
+    explicit: string | undefined,
+    cwd: string,
+    deps: { tab: () => Promise<string | null>; branch: (cwd: string) => Promise<string | null> } = {
+        tab: currentTabName,
+        branch: gitBranch
+    }
+): Promise<string> => {
+    if (explicit && explicit.length > 0) return explicit
+    const project = basename(cwd.replace(/\/+$/, ""))
+    const tab = await deps.tab()
+    if (project && tab) return `${project} · ${tab}`
+    return buildTitle("AI", cwd, await deps.branch(cwd))
+}
+
+/**
  * Pop an in-IDE notification balloon for `message` in the running JetBrains IDE.
  * The Groovy write is wrapped in `effect()` so `--dry-run` skips the real IDE
  * call; it is best-effort and never rejects (a missing IDE or spawn error degrades
@@ -195,12 +220,12 @@ export type NotifyOptions = {
  * await notify("Deploy done", { all: true }) // a balloon in every open window of every running JetBrains product
  */
 export const notify = async (message: string, options: NotifyOptions = {}): Promise<void> => {
-    const title = options.title ?? "PreemDeck"
     const typeToken = options.typeToken ?? "info"
     const actions = options.actions ?? []
     const cwd = options.cwd ?? process.cwd()
     const all = options.all ?? false
-    const groovy = groovyFor(title, message, typeToken, actions, cwd, all)
+    const titleText = await resolveTitle(options.title, cwd)
+    const groovy = groovyFor(titleText, message, typeToken, actions, cwd, all)
     const note = "notify: could not pop notification"
     // runGroovy / runGroovyOn never reject (a missing IDE / spawn error degrades to
     // a stderr note); --dry-run flips effect off so the IDE write is skipped.
@@ -298,7 +323,13 @@ const command = defineCommand({
     description: "Pop an in-IDE notification balloon in the running JetBrains IDE.",
     arguments: [{ name: "message", description: "the balloon message", required: true }],
     options: [
-        { name: "title", arity: 1, hint: "title", description: "balloon title", defaultValue: () => "PreemDeck" },
+        {
+            name: "title",
+            arity: 1,
+            hint: "title",
+            description: "balloon title (default: <repo> · <branch>)",
+            defaultValue: () => ""
+        },
         {
             name: "type",
             arity: 1,

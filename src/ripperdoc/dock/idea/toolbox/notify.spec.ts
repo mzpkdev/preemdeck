@@ -1,6 +1,6 @@
 import { describe, expect, it } from "bun:test"
 import * as path from "node:path"
-import { groovyFor } from "./notify"
+import { groovyFor, resolveTitle } from "./notify"
 
 const context = describe
 
@@ -201,5 +201,31 @@ describe("groovyFor", () => {
         const g = groovyFor("T", "M", "error", [{ name: "open-url", arg: "https://x" }], "/p")
         expect(g).toContain("n.addAction(")
         expect(g).toContain('com.intellij.ide.BrowserUtil.browse("https://x")')
+    })
+})
+
+describe("resolveTitle", () => {
+    const deps = (
+        tab: string | null,
+        branch: string | null
+    ): { tab: () => Promise<string | null>; branch: () => Promise<string | null> } => ({
+        tab: () => Promise.resolve(tab),
+        branch: () => Promise.resolve(branch)
+    })
+
+    it("uses an explicit title verbatim", async () => {
+        expect(await resolveTitle("CI", "/Users/me/proj", deps("auth-retry", "main"))).toBe("CI")
+    })
+    it("prefers <repo> · <tab>", async () => {
+        expect(await resolveTitle(undefined, "/Users/me/proj", deps("auth-retry", "main"))).toBe("proj · auth-retry")
+    })
+    it("falls back to <repo> · <branch> when there is no tab", async () => {
+        expect(await resolveTitle(undefined, "/Users/me/proj", deps(null, "main"))).toBe("proj · main")
+    })
+    it("uses <repo> alone when there is neither tab nor branch", async () => {
+        expect(await resolveTitle(undefined, "/Users/me/proj", deps(null, null))).toBe("proj")
+    })
+    it("falls back to the hardcoded AI when even the repo cannot resolve", async () => {
+        expect(await resolveTitle(undefined, "/", deps(null, null))).toBe("AI")
     })
 })

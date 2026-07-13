@@ -13,7 +13,8 @@ meaningful result.
 Compose a one-line message (what happened, plus any action they must take), then run:
 `$HOME/.preemdeck/preemdeck-runtime "$HOME/.preemdeck/src/ripperdoc/dock/idea/toolbox/notify.ts" "<message>" --type <info|warning|error>`
 
-Use `--type warning` when they're blocked or you need input, `error` on failure, otherwise `info`.
+Use `--type warning` when they're blocked or you need input, `error` on failure, otherwise `info`. Don't pass `--title`;
+it defaults to the repo and tab.
 
 ## Output
 
