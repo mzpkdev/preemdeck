@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it } from "bun:test"
 import { mkdtemp, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import * as path from "node:path"
-import { htmlEscape, subagentsPending } from "./turn-notify"
+import { cleanGist, htmlEscape, subagentsPending } from "./turn-notify"
 
 const context = describe
 
@@ -19,6 +19,18 @@ describe("htmlEscape", () => {
 
     it("leaves plain text untouched", () => {
         expect(htmlEscape("Claude finished responding")).toBe("Claude finished responding")
+    })
+})
+
+describe("cleanGist", () => {
+    it("keeps underscores in identifiers (snake_case is not markdown)", () => {
+        expect(cleanGist("set REWORK_SPEC status")).toBe("set REWORK_SPEC status")
+    })
+    it("strips * and backtick markdown but keeps the words", () => {
+        expect(cleanGist("**Done**: edited `file_name.ts`")).toBe("Done: edited file_name.ts")
+    })
+    it("unwraps a [text](url) link to its text", () => {
+        expect(cleanGist("see [the spec](http://x/y)")).toBe("see the spec")
     })
 })
 

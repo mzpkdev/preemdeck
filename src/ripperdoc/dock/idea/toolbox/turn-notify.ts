@@ -30,7 +30,7 @@ export const htmlEscape = (s: string): string =>
  */
 export const GIST_MAX = 140
 
-const MD = /[*_`]+/g // inline emphasis / code ticks
+const MD = /[*`]+/g // markdown emphasis / code ticks — underscores kept so snake_case identifiers survive
 const LINK = /\[([^\]]+)\]\([^)]+\)/g // [text](url) -> text
 const WS = /\s+/g
 
