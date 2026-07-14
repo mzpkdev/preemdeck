@@ -8,7 +8,7 @@ import { afterEach, beforeEach, describe, expect, it, spyOn } from "bun:test"
 import { glob, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
-import { availableModes, configSlots, ModesError, main, setDirective, slotFor } from "./set-mode"
+import { availableModes, clearDirective, configSlots, ModesError, main, setDirective, slotFor } from "./set-mode"
 
 const context = describe
 
@@ -148,6 +148,27 @@ describe("set-mode", () => {
         })
     })
 
+    context("clearing the directive (none)", () => {
+        async function cfg(text: string): Promise<string> {
+            const p = join(dir, "preemdeck.json")
+            await writeFile(p, text)
+            return p
+        }
+        it("empties every slot, preserving keys + top-level keys", async () => {
+            const p = await cfg('{"directive":{"strategy":"swarm","discretion":"ask"},"other":1}')
+            expect(await clearDirective(p)).toEqual(["strategy", "discretion"])
+            expect(JSON.parse(await readFile(p, "utf8"))).toEqual({
+                directive: { strategy: "", discretion: "" },
+                other: 1
+            })
+        })
+        it("is a no-op (empty directive) when there is none", async () => {
+            const p = await cfg('{"keep":true}')
+            expect(await clearDirective(p)).toEqual([])
+            expect(JSON.parse(await readFile(p, "utf8"))).toEqual({ keep: true, directive: {} })
+        })
+    })
+
     context("when run via main", () => {
         async function setup(
             opts: { configText?: string | null } = {}
@@ -192,6 +213,26 @@ describe("set-mode", () => {
             const first = await readFile(s.cfg, "utf8")
             expect(await main(["swarm"], opts(s))).toBe(0)
             expect(await readFile(s.cfg, "utf8")).toBe(first)
+        })
+        it("clears every slot with the none sentinel", async () => {
+            const s = await setup({
+                configText: '{"directive": {"strategy": "swarm", "discretion": "ask"}, "other": 1}'
+            })
+            expect(await main(["none"], opts(s))).toBe(0)
+            expect(JSON.parse(await readFile(s.cfg, "utf8"))).toEqual({
+                directive: { strategy: "", discretion: "" },
+                other: 1
+            })
+        })
+        it("none exits 2 when the config is missing", async () => {
+            const s = await setup({ configText: null })
+            const err = captureStderr()
+            try {
+                expect(await main(["none"], opts(s))).toBe(2)
+                expect(err.text()).toContain("not found")
+            } finally {
+                err.restore()
+            }
         })
         it("exits 2 without writing on an unknown value", async () => {
             const s = await setup()

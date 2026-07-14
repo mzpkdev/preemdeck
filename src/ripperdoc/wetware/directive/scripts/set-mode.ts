@@ -5,7 +5,8 @@
  * The SOLE writer of preemdeck.json's `directive` object. <value> is validated
  * against the shipped mode skills (skills/<value>/directive.md); its slot is
  * DERIVED from scripts/modes.json (value->slot), so the value alone decides the
- * slot. preemdeck.json is found by walking up from this script; the derived slot
+ * slot. The sentinel value `none` clears every slot in the directive object (Claude
+ * default) and skips the mode/slot lookup. preemdeck.json is found by walking up from this script; the derived slot
  * must already be present in the config's `directive` object; `directive[slot]` is
  * set, every other slot/top-level key preserved, and the file rewritten atomically
  * (tmp file + rename; 2-space indent + trailing newline). Same input -> same bytes.
@@ -96,6 +97,30 @@ const writeJson = async (path: string, data: unknown): Promise<void> => {
     await rename(tmp, path)
 }
 
+/**
+ * Empty every slot in the `directive` object (set each to ""), preserving the slot
+ * keys and every other top-level key; atomic write. Returns the cleared slot names.
+ * With no directive object it's a no-op write. Backs the `none` sentinel — the inject
+ * hook then injects nothing, restoring Claude default behavior.
+ */
+export const clearDirective = async (config: string): Promise<string[]> => {
+    let data: unknown
+    try {
+        data = JSON.parse(await readFile(config, "utf8"))
+    } catch {
+        data = {}
+    }
+    if (data === null || typeof data !== "object" || Array.isArray(data)) data = {}
+    const obj = data as Record<string, unknown>
+    let field = obj[DIRECTIVE_KEY]
+    if (field === null || typeof field !== "object" || Array.isArray(field)) field = {}
+    const slots = Object.keys(field as Record<string, unknown>)
+    for (const slot of slots) (field as Record<string, unknown>)[slot] = ""
+    obj[DIRECTIVE_KEY] = field
+    await writeJson(config, obj)
+    return slots
+}
+
 /** Set `directive[slot] = value`, preserving other slots/keys; atomic write. */
 export const setDirective = async (config: string, slot: string, value: string): Promise<void> => {
     let data: unknown
@@ -129,12 +154,24 @@ export const main = async (
     const modesFile = opts.modesFile ?? MODES_FILE
 
     const modes = await availableModes(skillsDir)
-    const listing = modes.join(", ") || "none"
+    const listing = [...modes, "none"].join(", ")
     if (argv.length !== 1 || !argv[0] || argv[0].trim() === "") {
         process.stderr.write(`usage: set-mode <value>   (values: ${listing})\n`)
         return 2
     }
     const value = (argv[0] as string).trim()
+    if (value === "none") {
+        const config = await findConfig(searchStart)
+        if (config === null) {
+            process.stderr.write(`${CONFIG_NAME} not found above ${searchStart}\n`)
+            return 2
+        }
+        const cleared = await clearDirective(config)
+        process.stdout.write(
+            `${DIRECTIVE_KEY} cleared${cleared.length ? ` (${cleared.join(", ")})` : ""}  (${config})\n`
+        )
+        return 0
+    }
     if (!modes.includes(value)) {
         process.stderr.write(`unknown value "${value}"; available: ${listing}\n`)
         return 2
