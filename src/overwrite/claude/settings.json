@@ -70,6 +70,10 @@
     ],
     "defaultMode": "acceptEdits"
   },
+  "statusLine": {
+    "type": "command",
+    "command": "\"$HOME/.preemdeck/preemdeck-runtime\" \"$HOME/.preemdeck/src/ripperdoc/firmware/sys/scripts/statusline.ts\""
+  },
   "model": "opus",
   "effortLevel": "xhigh",
   "voiceEnabled": true,

@@ -21,6 +21,9 @@ preemdeck.json
 # preemdeck shipped Bun runtime (fetched by boot.sh into ~/.preemdeck/.runtime)
 .runtime/
 
+# preemdeck status-line throttle cache (written by firmware/sys statusline.ts)
+.cache/
+
 # preemdeck primitives-only plugin mirror (rebuilt from src/ripperdoc/ each install)
 .stage/
 
