@@ -1,0 +1,4 @@
+# Codex equivalent of Claude's `disable-model-invocation: true`.
+# Keeps /issue a user-only command — the model never auto-files an issue on the operator's behalf.
+policy:
+  allow_implicit_invocation: false
