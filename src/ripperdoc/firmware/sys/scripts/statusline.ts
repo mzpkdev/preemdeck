@@ -16,11 +16,11 @@
  * default stable).
  *
  * A status line renders far too often to hit the network every time, so the fetch
- * is throttled to {@link FETCH_TTL_MS} via `~/.preemdeck/.cache/statusline.json`.
- * Between fetches the cheap LOCAL head compare still runs against the cached remote
- * tip — so the badge clears the instant an update lands (HEAD catches up to the
- * cached remote) without waiting for the next fetch window. Every failure path is
- * fail-safe: print "" and never crash the bar.
+ * is throttled to {@link FETCH_TTL_MS} via `~/.preemdeck/.cache/statusline.json`. The
+ * cache is keyed on the local HEAD as well as the channel, so a checkout change (e.g.
+ * right after /sys:update) invalidates a still-fresh cache and re-fetches at once — the
+ * badge clears the moment an update lands instead of lingering until the TTL ages out.
+ * Every failure path is fail-safe: print "" and never crash the bar.
  *
  * `${CLAUDE_PLUGIN_ROOT}` is NOT available to a status-line command, so the overlay
  * settings.json wires this by absolute `$HOME/.preemdeck/...` path through the
@@ -41,19 +41,25 @@ export const UPDATE_BADGE = `${YELLOW}◈ /sys:update${RESET}`
 /** How long a fetched channel tip stays fresh — a status line renders far too often to fetch each time. */
 export const FETCH_TTL_MS = 30 * 60 * 1000
 
-/** Throttle state persisted between renders: when we last fetched, for which channel, and the tip we saw. */
-export type StatusCache = { fetchedAt: number; channel: string; remote: string }
+/** Throttle state persisted between renders: when we last fetched, for which channel, at which local HEAD, and the tip we saw. */
+export type StatusCache = { fetchedAt: number; channel: string; remote: string; local: string }
 
 /** boot.sh's channel→branch map: stable tracks the `stable` branch, edge tracks `main`. */
 export const branchForChannel = (channel: Channel): string => (channel === "edge" ? "main" : "stable")
 
-/** A cached fetch is reusable only while still within the TTL AND for the same channel. */
+/**
+ * A cached fetch is reusable only while within the TTL, for the same channel, AND at the
+ * same local HEAD. Keying on HEAD means a checkout change (e.g. right after /sys:update)
+ * invalidates a still-fresh cache, so the next render re-fetches instead of comparing the
+ * new HEAD against a tip captured at the old one.
+ */
 export const isCacheFresh = (
     cache: StatusCache | null,
     channel: string,
+    local: string,
     now: number,
     ttlMs: number = FETCH_TTL_MS
-): boolean => cache !== null && cache.channel === channel && now - cache.fetchedAt < ttlMs
+): boolean => cache !== null && cache.channel === channel && cache.local === local && now - cache.fetchedAt < ttlMs
 
 /** Something to pull ⟺ both SHAs are known and the local checkout differs from the channel tip. */
 export const hasUpdate = (localSha: string, remoteSha: string): boolean =>
@@ -76,8 +82,13 @@ const git = async (root: string, args: string[], timeoutMs: number): Promise<str
 export const readCache = async (file: string): Promise<StatusCache | null> => {
     try {
         const data = (await Bun.file(file).json()) as Partial<StatusCache>
-        if (typeof data.fetchedAt === "number" && typeof data.channel === "string" && typeof data.remote === "string") {
-            return { fetchedAt: data.fetchedAt, channel: data.channel, remote: data.remote }
+        if (
+            typeof data.fetchedAt === "number" &&
+            typeof data.channel === "string" &&
+            typeof data.remote === "string" &&
+            typeof data.local === "string"
+        ) {
+            return { fetchedAt: data.fetchedAt, channel: data.channel, remote: data.remote, local: data.local }
         }
     } catch {
         // missing / unreadable / not JSON — treat as no cache
@@ -104,26 +115,31 @@ export const computeBadge = async (root: string, channel: Channel, now: number):
     // Not a git checkout → preemdeck wasn't installed via boot.sh; nothing to check.
     if (!existsSync(join(root, ".git"))) return ""
 
+    // HEAD first: the cache is keyed on it, so a checkout change (e.g. right after
+    // /sys:update) invalidates a still-fresh cache and forces the re-fetch below.
+    const local = await git(root, ["rev-parse", "HEAD"], 2_000)
+    if (!local) return ""
+
     const branch = branchForChannel(channel)
     const cacheFile = join(root, ".cache", "statusline.json")
     const cache = await readCache(cacheFile)
 
     let remote: string | null = null
-    if (isCacheFresh(cache, channel, now)) {
+    if (isCacheFresh(cache, channel, local, now)) {
         remote = cache?.remote ?? null
     } else {
         // Mirror boot.sh's fetch (shallow, the channel branch) and read its tip.
         if ((await git(root, ["fetch", "--depth", "1", "--quiet", "origin", branch], 5_000)) !== null) {
             remote = await git(root, ["rev-parse", "FETCH_HEAD"], 2_000)
-            if (remote) await writeCache(cacheFile, { fetchedAt: now, channel, remote })
+            if (remote) await writeCache(cacheFile, { fetchedAt: now, channel, remote, local })
         }
-        // Fetch failed (offline, etc.) → fall back to a same-channel cached tip if any.
-        if (remote === null && cache?.channel === channel) remote = cache.remote
+        // Fetch failed (offline): reuse the cached tip only if the checkout is unchanged
+        // since that fetch, so we never compare against a tip taken at a different HEAD.
+        if (remote === null && cache?.channel === channel && cache.local === local) remote = cache.remote
     }
     if (!remote) return ""
 
-    const local = await git(root, ["rev-parse", "HEAD"], 2_000)
-    return render(hasUpdate(local ?? "", remote))
+    return render(hasUpdate(local, remote))
 }
 
 if (import.meta.main) {

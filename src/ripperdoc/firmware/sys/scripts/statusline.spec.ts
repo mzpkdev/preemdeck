@@ -72,16 +72,19 @@ describe("statusline", () => {
     })
 
     context("isCacheFresh", () => {
-        const cache: StatusCache = { fetchedAt: 1_000, channel: "edge", remote: "abc" }
+        const cache: StatusCache = { fetchedAt: 1_000, channel: "edge", remote: "abc", local: "head1" }
         it("is false with no cache", () => {
-            expect(isCacheFresh(null, "edge", 1_000)).toBe(false)
+            expect(isCacheFresh(null, "edge", "head1", 1_000)).toBe(false)
         })
         it("is false for a different channel", () => {
-            expect(isCacheFresh(cache, "stable", 1_000)).toBe(false)
+            expect(isCacheFresh(cache, "stable", "head1", 1_000)).toBe(false)
+        })
+        it("is false when the local HEAD changed since the fetch", () => {
+            expect(isCacheFresh(cache, "edge", "head2", 1_000)).toBe(false)
         })
         it("is true within the TTL and false past it", () => {
-            expect(isCacheFresh(cache, "edge", 1_000 + FETCH_TTL_MS - 1)).toBe(true)
-            expect(isCacheFresh(cache, "edge", 1_000 + FETCH_TTL_MS)).toBe(false)
+            expect(isCacheFresh(cache, "edge", "head1", 1_000 + FETCH_TTL_MS - 1)).toBe(true)
+            expect(isCacheFresh(cache, "edge", "head1", 1_000 + FETCH_TTL_MS)).toBe(false)
         })
     })
 
@@ -109,10 +112,15 @@ describe("statusline", () => {
             writeFileSync(bad, "{ not json")
             expect(await readCache(bad)).toBeNull()
         })
+        it("returns null for an old cache missing the local field", async () => {
+            const legacy = join(dir, "legacy.json")
+            writeFileSync(legacy, JSON.stringify({ fetchedAt: 5, channel: "edge", remote: "abc" }))
+            expect(await readCache(legacy)).toBeNull()
+        })
         it("parses a well-formed cache", async () => {
             const good = join(dir, "good.json")
-            writeFileSync(good, JSON.stringify({ fetchedAt: 5, channel: "edge", remote: "abc" }))
-            expect(await readCache(good)).toEqual({ fetchedAt: 5, channel: "edge", remote: "abc" })
+            writeFileSync(good, JSON.stringify({ fetchedAt: 5, channel: "edge", remote: "abc", local: "h" }))
+            expect(await readCache(good)).toEqual({ fetchedAt: 5, channel: "edge", remote: "abc", local: "h" })
         })
     })
 
@@ -151,22 +159,40 @@ describe("statusline", () => {
         })
 
         it("skips the fetch while the cache is fresh, comparing HEAD to the cached tip", async () => {
-            // Fresh cache with a tip that differs from HEAD → badge, no network touched.
-            seedCache(root, { fetchedAt: NOW, channel: "edge", remote: ZERO_SHA })
+            // Fresh cache AT the current HEAD, tip differs from it → badge, no network touched.
+            const head = sh(root, ["rev-parse", "HEAD"])
+            seedCache(root, { fetchedAt: NOW, channel: "edge", remote: ZERO_SHA, local: head })
             expect(await computeBadge(root, "edge", NOW + 1)).toBe(UPDATE_BADGE)
         })
 
-        it("clears the badge (without fetching) once HEAD catches up to the cached tip", async () => {
+        it("clears the badge (without fetching) when the cached tip equals HEAD", async () => {
             const head = sh(root, ["rev-parse", "HEAD"])
-            seedCache(root, { fetchedAt: NOW, channel: "edge", remote: head })
+            seedCache(root, { fetchedAt: NOW, channel: "edge", remote: head, local: head })
             expect(await computeBadge(root, "edge", NOW + 1)).toBe("")
         })
 
-        it("falls back to a same-channel cached tip when the fetch fails", async () => {
+        it("re-fetches when HEAD moved since the fetch, even within the TTL (post-update clear)", async () => {
+            // Fresh cache captured at a DIFFERENT head, claiming an update is pending. The checkout
+            // has since moved (an update), so the stale cache must NOT win: a re-fetch sees
+            // origin/main == HEAD → no badge, not the ≤30-min-stale false positive.
+            const otherHead = "deadbeefcafebabedeadbeefcafebabedeadbeef"
+            seedCache(root, { fetchedAt: NOW, channel: "edge", remote: ZERO_SHA, local: otherHead })
+            expect(await computeBadge(root, "edge", NOW)).toBe("")
+        })
+
+        it("falls back to a same-channel cached tip (same HEAD) when the fetch fails", async () => {
             rmSync(remote, { recursive: true, force: true }) // origin gone → fetch fails
-            // Stale cache (forces a fetch attempt) with a differing tip → badge from cache.
-            seedCache(root, { fetchedAt: 0, channel: "edge", remote: ZERO_SHA })
+            const head = sh(root, ["rev-parse", "HEAD"])
+            // Stale-by-TTL cache at the current HEAD with a differing tip → badge from cache.
+            seedCache(root, { fetchedAt: 0, channel: "edge", remote: ZERO_SHA, local: head })
             expect(await computeBadge(root, "edge", NOW)).toBe(UPDATE_BADGE)
+        })
+
+        it("does not fall back to a cached tip captured at a different HEAD when the fetch fails", async () => {
+            rmSync(remote, { recursive: true, force: true })
+            const otherHead = "deadbeefcafebabedeadbeefcafebabedeadbeef"
+            seedCache(root, { fetchedAt: 0, channel: "edge", remote: ZERO_SHA, local: otherHead })
+            expect(await computeBadge(root, "edge", NOW)).toBe("")
         })
 
         it("prints nothing when the fetch fails and there is no usable cache", async () => {
