@@ -184,10 +184,10 @@ describe("inject-tab-name", () => {
 
     context("currentTabName (read back from the IDE, glyph-stripped)", () => {
         const tabDeps = (
-            over: { inIdea?: boolean; pids?: number[]; title?: string | null } = {}
+            over: { inIdea?: boolean; pids?: number[]; sessions?: string[]; title?: string | null } = {}
         ): CurrentTabNameDeps => ({
             inIdea: () => over.inIdea ?? true,
-            resolveTabPids: () => Promise.resolve(over.pids ?? [111]),
+            resolveTabTargets: () => Promise.resolve({ pids: over.pids ?? [111], termSessionIds: over.sessions ?? [] }),
             readTabTitle: () => Promise.resolve(over.title ?? null)
         })
 
@@ -197,20 +197,25 @@ describe("inject-tab-name", () => {
         it("preserves a glyph-less (IDE-menu / auto) name", async () => {
             expect(await currentTabName(tabDeps({ title: "hand-named" }))).toBe("hand-named")
         })
+        it("reads a session-only tab when host pids are hidden", async () => {
+            expect(await currentTabName(tabDeps({ pids: [], sessions: ["session-42"], title: "• Linux Ready" }))).toBe(
+                "Linux Ready"
+            )
+        })
         it("is null outside a JetBrains terminal, never resolving pids", async () => {
-            let pidReads = 0
+            let targetReads = 0
             const deps: CurrentTabNameDeps = {
                 ...tabDeps({ inIdea: false }),
-                resolveTabPids: () => {
-                    pidReads++
-                    return Promise.resolve([1])
+                resolveTabTargets: () => {
+                    targetReads++
+                    return Promise.resolve({ pids: [1], termSessionIds: [] })
                 }
             }
             expect(await currentTabName(deps)).toBeNull()
-            expect(pidReads).toBe(0)
+            expect(targetReads).toBe(0)
         })
         it("is null when no pid resolves", async () => {
-            expect(await currentTabName(tabDeps({ pids: [] }))).toBeNull()
+            expect(await currentTabName(tabDeps({ pids: [], sessions: [] }))).toBeNull()
         })
         it("is null when the title can't be read", async () => {
             expect(await currentTabName(tabDeps({ title: null }))).toBeNull()

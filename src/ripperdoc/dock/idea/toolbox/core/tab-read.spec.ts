@@ -19,9 +19,16 @@
  */
 
 import { describe, expect, it } from "bun:test"
+import { IdeaError } from "./errors"
 import { GROOVY_RESULT_PENDING } from "./groovy"
 import { GROOVY_TAB_HELPERS } from "./tab-groovy"
-import { groovyReadTitleByPid, parseTitle, type ReadTabTitleDeps, readTabTitle } from "./tab-read"
+import {
+    groovyReadTitleByPid,
+    groovyReadTitleByTargets,
+    parseTitle,
+    type ReadTabTitleDeps,
+    readTabTitle
+} from "./tab-read"
 
 const context = describe
 
@@ -55,7 +62,7 @@ describe("groovyReadTitleByPid", () => {
         })
 
         it("compares the Long pid as a String via String.valueOf(pid)", () => {
-            expect(groovyReadTitleByPid([1], "/r.json")).toContain("PIDS.contains(String.valueOf(pid))")
+            expect(groovyReadTitleByPid([1], "/r.json")).toContain("pids.contains(String.valueOf(pid))")
         })
     })
 
@@ -77,7 +84,7 @@ describe("groovyReadTitleByPid", () => {
         })
 
         it("assigns result ONLY past the pid-match gate (unmatched tabs keep the marker)", () => {
-            const gate = g.indexOf("!PIDS.contains(String.valueOf(pid))) continue")
+            const gate = g.indexOf("!matchesTab(view, PIDS, SESSION_IDS)) continue")
             const assign = g.indexOf("result = JsonOutput.toJson(")
             expect(gate).toBeGreaterThan(-1)
             expect(assign).toBeGreaterThan(gate)
@@ -102,6 +109,14 @@ describe("groovyReadTitleByPid", () => {
             expect(g).toContain("def view = viewOf(c)")
             expect(g).toContain("def pid = pidOf(view)")
         })
+    })
+})
+
+describe("groovyReadTitleByTargets", () => {
+    it("matches a tab by startup TERM_SESSION_ID", () => {
+        const g = groovyReadTitleByTargets({ pids: [], termSessionIds: ["session-42"] }, "/r.json")
+        expect(g).toContain("def SESSION_IDS = ['session-42'] as Set")
+        expect(g).toContain("matchesTab(view, PIDS, SESSION_IDS)")
     })
 })
 
@@ -143,16 +158,23 @@ describe("parseTitle", () => {
  */
 type ReadCaps = {
     deps: ReadTabTitleDeps
-    calls: { resolveExecs: number; filter: number; run: number }
+    calls: { owner: number; resolveExecs: number; filter: number; run: number }
     filterArgs: string[][]
     runArgs: Array<{ note: string; execPaths: string[]; groovy: string }>
 }
 
-const makeReadDeps = (opts: { execs?: string[]; filtered?: string[]; result?: string | null } = {}): ReadCaps => {
-    const calls = { resolveExecs: 0, filter: 0, run: 0 }
+const makeReadDeps = (
+    opts: { owner?: string | null; execs?: string[]; filtered?: string[]; result?: string | null } = {}
+): ReadCaps => {
+    const calls = { owner: 0, resolveExecs: 0, filter: 0, run: 0 }
     const filterArgs: string[][] = []
     const runArgs: Array<{ note: string; execPaths: string[]; groovy: string }> = []
     const deps: ReadTabTitleDeps = {
+        resolveExecPath: async () => {
+            calls.owner++
+            if (opts.owner) return opts.owner
+            throw new IdeaError("owner unavailable")
+        },
         resolveExecPaths: async () => {
             calls.resolveExecs++
             return [...(opts.execs ?? [])]
@@ -177,6 +199,9 @@ const rejectingDeps = (
 ): ReadTabTitleDeps => {
     const boom = new Error(`${which} boom`)
     return {
+        resolveExecPath: async () => {
+            throw new IdeaError("owner unavailable")
+        },
         resolveExecPaths: async () => {
             if (which === "resolveExecPaths") throw boom
             return [WEBSTORM]
@@ -198,8 +223,27 @@ describe("readTabTitle (dispatch)", () => {
             const cap = makeReadDeps({ execs: [WEBSTORM] })
             expect(await readTabTitle([], cap.deps)).toBeNull()
             expect(cap.calls.run).toBe(0)
+            expect(cap.calls.owner).toBe(0)
             expect(cap.calls.resolveExecs).toBe(0)
             expect(cap.calls.filter).toBe(0)
+        })
+
+        it("short-circuits for empty shared targets", async () => {
+            const cap = makeReadDeps({ execs: [WEBSTORM] })
+            expect(await readTabTitle({ pids: [], termSessionIds: [] }, cap.deps)).toBeNull()
+            expect(cap.calls.owner).toBe(0)
+            expect(cap.calls.run).toBe(0)
+        })
+    })
+
+    context("the resolved Linux owner", () => {
+        it("dispatches directly without scanning running launchers", async () => {
+            const cap = makeReadDeps({ owner: WEBSTORM, execs: [PYCHARM], result: '{"title":"Linux"}' })
+            expect(await readTabTitle({ pids: [], termSessionIds: ["session-42"] }, cap.deps)).toBe("Linux")
+            expect(cap.calls.owner).toBe(1)
+            expect(cap.calls.resolveExecs).toBe(0)
+            expect(cap.runArgs[0]?.execPaths).toEqual([WEBSTORM])
+            expect(cap.runArgs[0]?.groovy).toContain("'session-42'")
         })
     })
 

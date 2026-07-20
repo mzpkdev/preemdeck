@@ -32,7 +32,7 @@ import { runInjectionHook } from "../../../../common/hook-inject"
 import { throttle } from "../../../../common/hooks"
 import { ENV, markdown } from "../../../../common/preemdeck"
 import { stripGlyph } from "../../tmux/toolbox/tmux-title"
-import { inIdea, readTabTitle, resolveTabPids } from "./core"
+import { inIdea, readTabTitle, resolveTabTargets, type TabTargets } from "./core"
 
 /** Default cadence: inject on every turn. The directive is conditional, so per-turn is cheap. Overridable via `--every`. */
 const DEFAULT_EVERY = 1
@@ -97,11 +97,11 @@ export const renderTemplate = async (argv: string[], pluginRoot: string = ENV.PL
 /** Injectable IDE seams for {@link currentTabName}; production uses core inIdea / pid / title read. */
 export type CurrentTabNameDeps = {
     inIdea: () => boolean
-    resolveTabPids: () => Promise<number[]>
-    readTabTitle: (pids: readonly number[]) => Promise<string | null>
+    resolveTabTargets: () => Promise<TabTargets>
+    readTabTitle: (targets: TabTargets) => Promise<string | null>
 }
 
-const DEFAULT_TAB_DEPS: CurrentTabNameDeps = { inIdea, resolveTabPids, readTabTitle }
+const DEFAULT_TAB_DEPS: CurrentTabNameDeps = { inIdea, resolveTabTargets, readTabTitle }
 
 /**
  * The tab's current base name: its displayed title read back from the IDE,
@@ -113,9 +113,9 @@ const DEFAULT_TAB_DEPS: CurrentTabNameDeps = { inIdea, resolveTabPids, readTabTi
 export const currentTabName = async (deps: CurrentTabNameDeps = DEFAULT_TAB_DEPS): Promise<string | null> => {
     try {
         if (!deps.inIdea()) return null
-        const pids = await deps.resolveTabPids()
-        if (pids.length === 0) return null
-        const title = await deps.readTabTitle(pids)
+        const targets = await deps.resolveTabTargets()
+        if (targets.pids.length === 0 && targets.termSessionIds.length === 0) return null
+        const title = await deps.readTabTitle(targets)
         const base = title ? stripGlyph(title) : ""
         return base.length > 0 ? base : null
     } catch {

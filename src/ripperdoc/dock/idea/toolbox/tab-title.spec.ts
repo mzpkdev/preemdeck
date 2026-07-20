@@ -18,6 +18,7 @@
 import { describe, expect, it } from "bun:test"
 import * as path from "node:path"
 import { GLYPH, windowName } from "../../tmux/toolbox/tmux-title"
+import type { TabTargets } from "./core"
 import { applyTitle, effectiveState, runRename, type TabTitleDeps, tabName } from "./tab-title"
 
 const context = describe
@@ -27,14 +28,18 @@ const env = (extra: Record<string, string>): NodeJS.ProcessEnv => extra as NodeJ
 // A fake seam set: canned inIdea/pids and the tab's current title (what readTabTitle
 // returns), plus a renameTab that records its calls.
 const fakeDeps = (
-    over: { inIdea?: boolean; pids?: number[]; current?: string | null } = {}
-): { deps: TabTitleDeps; calls: { name: string | null; pids: number[] }[] } => {
-    const calls: { name: string | null; pids: number[] }[] = []
+    over: { inIdea?: boolean; pids?: number[]; sessions?: string[]; current?: string | null } = {}
+): { deps: TabTitleDeps; calls: { name: string | null; targets: TabTargets }[] } => {
+    const calls: { name: string | null; targets: TabTargets }[] = []
     const deps: TabTitleDeps = {
         inIdea: () => over.inIdea ?? true,
-        resolveTabPids: () => Promise.resolve(over.pids ?? [111, 222]),
-        renameTab: (name, pids) => {
-            calls.push({ name, pids: [...pids] })
+        resolveTabTargets: () =>
+            Promise.resolve({ pids: over.pids ?? [111, 222], termSessionIds: over.sessions ?? [] }),
+        renameTab: (name, targets) => {
+            calls.push({
+                name,
+                targets: { pids: [...targets.pids], termSessionIds: [...targets.termSessionIds] }
+            })
             return Promise.resolve()
         },
         readTabTitle: () => Promise.resolve(over.current ?? null)
@@ -89,12 +94,24 @@ describe("tab-title", () => {
             const { deps, calls } = fakeDeps({ pids: [42, 43] })
             const result = await applyTitle("busy", env({ CLAUDE_PROJECT_DIR: "/a/proj" }), deps)
             expect(result).toBe(true)
-            expect(calls).toEqual([{ name: windowName("busy", "proj"), pids: [42, 43] }])
+            expect(calls).toEqual([
+                { name: windowName("busy", "proj"), targets: { pids: [42, 43], termSessionIds: [] } }
+            ])
+        })
+        it("renames a session-only tab when host pids are hidden", async () => {
+            const { deps, calls } = fakeDeps({ pids: [], sessions: ["session-42"] })
+            expect(await applyTitle("busy", env({ CLAUDE_PROJECT_DIR: "/a/proj" }), deps)).toBe(true)
+            expect(calls).toEqual([
+                {
+                    name: windowName("busy", "proj"),
+                    targets: { pids: [], termSessionIds: ["session-42"] }
+                }
+            ])
         })
         it("clears the title on reset (renameTab called with null)", async () => {
             const { deps, calls } = fakeDeps({ pids: [7] })
             expect(await applyTitle("reset", env({ CLAUDE_PROJECT_DIR: "/a/proj" }), deps)).toBe(true)
-            expect(calls).toEqual([{ name: null, pids: [7] }])
+            expect(calls).toEqual([{ name: null, targets: { pids: [7], termSessionIds: [] } }])
         })
         it("is a no-op for an unknown state even inside a terminal", async () => {
             const { deps, calls } = fakeDeps({})
@@ -102,7 +119,7 @@ describe("tab-title", () => {
             expect(calls.length).toBe(0)
         })
         it("is a no-op when no pid resolves on this tab's tty (empty pids)", async () => {
-            const { deps, calls } = fakeDeps({ pids: [] })
+            const { deps, calls } = fakeDeps({ pids: [], sessions: [] })
             expect(await applyTitle("idle", env({ CLAUDE_PROJECT_DIR: "/a/proj" }), deps)).toBe(false)
             expect(calls.length).toBe(0)
         })
@@ -113,19 +130,23 @@ describe("tab-title", () => {
             const { deps, calls } = fakeDeps({ pids: [9], current: windowName("idle", "tab-naming") })
             expect(await applyTitle("busy", env({ CLAUDE_PROJECT_DIR: "/a/proj" }), deps)).toBe(true)
             // ◦ tab-naming read back, stripped to "tab-naming", re-flipped to • tab-naming (NOT • proj).
-            expect(calls).toEqual([{ name: windowName("busy", "tab-naming"), pids: [9] }])
+            expect(calls).toEqual([
+                { name: windowName("busy", "tab-naming"), targets: { pids: [9], termSessionIds: [] } }
+            ])
         })
 
         it("preserves an IDE-menu name that has no glyph (just adds the glyph)", async () => {
             const { deps, calls } = fakeDeps({ pids: [9], current: "hand-named" })
             await applyTitle("busy", env({ CLAUDE_PROJECT_DIR: "/a/proj" }), deps)
-            expect(calls).toEqual([{ name: windowName("busy", "hand-named"), pids: [9] }])
+            expect(calls).toEqual([
+                { name: windowName("busy", "hand-named"), targets: { pids: [9], termSessionIds: [] } }
+            ])
         })
 
         it("falls back to the project label when the current title is null/unreadable", async () => {
             const { deps, calls } = fakeDeps({ pids: [9], current: null })
             await applyTitle("idle", env({ CLAUDE_PROJECT_DIR: "/a/proj" }), deps)
-            expect(calls).toEqual([{ name: windowName("idle", "proj"), pids: [9] }])
+            expect(calls).toEqual([{ name: windowName("idle", "proj"), targets: { pids: [9], termSessionIds: [] } }])
         })
 
         it("does NOT read the title on reset (just clears, restoring auto-naming)", async () => {
@@ -139,15 +160,16 @@ describe("tab-title", () => {
                 }
             }
             expect(await applyTitle("reset", env({ CLAUDE_PROJECT_DIR: "/a/proj" }), deps)).toBe(true)
-            expect(base.calls).toEqual([{ name: null, pids: [7] }])
+            expect(base.calls).toEqual([{ name: null, targets: { pids: [7], termSessionIds: [] } }])
             expect(reads).toBe(0)
         })
     })
 
     context("runRename — the real effect()-gated dispatch seam", () => {
         it("is a no-op that never throws for empty pids (core short-circuits before any IDE contact)", async () => {
-            await expect(runRename(null, [])).resolves.toBeUndefined()
-            await expect(runRename(windowName("busy", "proj"), [])).resolves.toBeUndefined()
+            const empty = { pids: [], termSessionIds: [] }
+            await expect(runRename(null, empty)).resolves.toBeUndefined()
+            await expect(runRename(windowName("busy", "proj"), empty)).resolves.toBeUndefined()
         })
     })
 

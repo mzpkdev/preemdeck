@@ -1,26 +1,22 @@
 /**
- * tab-pids.ts — resolve the process ids living on THIS terminal tab's tty.
+ * tab-pids.ts — resolve the identities of THIS terminal tab.
  *
- * The shell-side half of `rename-tab`: figure out which OS processes belong to
- * the tab this CLI is running in, so the Groovy half can match the one IDE
- * terminal Content whose backend process is one of them (pids are globally
- * unique, so the match is exact — see core/tab.ts).
+ * A JetBrains terminal session id survives PID namespaces, while host-visible
+ * process ids preserve the established direct-shell fallback. Returning both
+ * lets the Groovy half match one terminal Content without guessing.
  *
  * Two routes, picked by whether we sit inside tmux:
  *
- * - tmux (`$TMUX` set): the tab's login shell is the tmux client's parent, and
- *   several WebStorm tabs can mirror ONE tmux session (each attaches its own
- *   client). So target EVERY client tty attached to our session
- *   (`tmux list-clients -t <session>`), not just one — every mirroring tab
- *   should get renamed together.
+ * - tmux (`$TMUX` set): ask the host tmux server for every attached client pid.
+ *   This crosses a sandbox PID namespace without running `ps`, and preserves
+ *   mirrored tabs by returning every client attached to the current session.
  * - no tmux: the tab is a plain login shell. Target the controlling tty of the
  *   nearest ancestor that has one — our own when a human runs the CLI in the tab,
  *   or an ancestor's (the `claude`/agent process, or the login shell JediTerm
  *   spawned) when an agent runs it in a ttyless child. See {@link ownTabTty}.
  *
- * For each target tty, `ps -t <bareTty> -o pid=` lists the pids on it (the login
- * shell + any tmux client + this CLI). Their union is returned; an empty result
- * makes the CLI rename nothing (never guess).
+ * Outside tmux, `ps -t <bareTty> -o pid=` lists the pids on the resolved tty.
+ * An empty identity set makes callers touch no tab.
  */
 
 /**
@@ -29,6 +25,17 @@
  * canned `tmux`/`ps` output without spawning subprocesses.
  */
 export type RunText = (argv: string[]) => Promise<string>
+
+/** Exact identities that can select one JetBrains terminal tab. */
+export type TabTargets = { pids: number[]; termSessionIds: string[] }
+
+/** Lift the legacy pid-only input into the shared target contract and copy both arrays. */
+export const normalizeTabTargets = (value: readonly number[] | TabTargets): TabTargets => {
+    if ("pids" in value) {
+        return { pids: [...value.pids], termSessionIds: [...value.termSessionIds] }
+    }
+    return { pids: [...value], termSessionIds: [] }
+}
 
 const defaultRunText: RunText = async (argv) => {
     try {
@@ -89,59 +96,45 @@ const ownTabTty = async (run: RunText): Promise<string> => {
 }
 
 /**
- * The set of ttys whose processes belong to this tab.
- *
- * In tmux: the client ttys attached to our session — possibly several, when
- * multiple WebStorm tabs mirror the same session. Outside tmux: this process's
- * own controlling tty. Either probe degrading to empty (`run` returns `""`,
- * `ps` reports no tty as `??`) yields no targets, so the caller renames nothing.
+ * Resolve the current tab's namespace-safe session id and host-visible pids.
+ * In tmux the pids come directly from `list-clients`; outside tmux they come
+ * from the nearest ancestor tty. Invalid values are ignored and identities are
+ * deduped. Any failed probe degrades to the identities already proven.
  */
-const targetTtys = async (run: RunText): Promise<string[]> => {
-    if (process.env.TMUX) {
-        const session = (await run(["tmux", "display-message", "-p", "#{session_name}"])).trim()
-        if (session.length === 0) {
-            return []
-        }
-        const out = await run(["tmux", "list-clients", "-t", session, "-F", "#{client_tty}"])
-        return out
-            .split("\n")
-            .map((line) => line.trim())
-            .filter((line) => line.length > 0)
+export const resolveTabTargets = async (
+    run: RunText = defaultRunText,
+    env: NodeJS.ProcessEnv = process.env
+): Promise<TabTargets> => {
+    const pids = new Set<number>()
+    const termSessionIds = new Set<string>()
+    const termSessionId = env.TERM_SESSION_ID?.trim()
+    if (termSessionId) {
+        termSessionIds.add(termSessionId)
     }
-    // Not tmux: the tab's tty is the nearest ancestor's controlling tty — our own
-    // when a human runs the CLI in the tab, or an ancestor's (claude / the login
-    // shell) when an agent runs it in a ttyless child. See ownTabTty.
-    const own = await ownTabTty(run)
-    return own.length > 0 ? [own] : []
+
+    let output = ""
+    if (env.TMUX) {
+        const session = (await run(["tmux", "display-message", "-p", "#{session_name}"])).trim()
+        if (session) {
+            output = await run(["tmux", "list-clients", "-t", session, "-F", "#{client_pid}"])
+        }
+    } else {
+        const tty = await ownTabTty(run)
+        if (tty) {
+            output = await run(["ps", "-t", bareTty(tty), "-o", "pid="])
+        }
+    }
+
+    for (const line of output.split("\n")) {
+        const pid = Number.parseInt(line.trim(), 10)
+        if (Number.isInteger(pid) && pid > 0) {
+            pids.add(pid)
+        }
+    }
+
+    return { pids: [...pids], termSessionIds: [...termSessionIds] }
 }
 
-/**
- * The pids sharing this tab's tty (the login shell, plus any tmux client and
- * this CLI itself), deduped and returned as positive integers.
- *
- * The Groovy half (`groovyRenameByPid`) renames only the IDE terminal Content
- * whose backend process pid is in this set, so a precise set means a precise
- * rename. An empty result (not in a terminal, no attached client, or a failed
- * probe) makes the CLI a no-op — it renames nothing rather than guessing.
- *
- * `run` is an injectable seam for hermetic tests; production spawns real
- * `tmux`/`ps`.
- */
-export const resolveTabPids = async (run: RunText = defaultRunText): Promise<number[]> => {
-    const ttys = await targetTtys(run)
-    const pids = new Set<number>()
-    for (const tty of ttys) {
-        const bare = bareTty(tty)
-        if (bare.length === 0) {
-            continue
-        }
-        const out = await run(["ps", "-t", bare, "-o", "pid="])
-        for (const line of out.split("\n")) {
-            const pid = Number.parseInt(line.trim(), 10)
-            if (Number.isInteger(pid) && pid > 0) {
-                pids.add(pid)
-            }
-        }
-    }
-    return [...pids]
-}
+/** Legacy pid-only wrapper retained for existing callers and external imports. */
+export const resolveTabPids = async (run: RunText = defaultRunText): Promise<number[]> =>
+    (await resolveTabTargets(run)).pids

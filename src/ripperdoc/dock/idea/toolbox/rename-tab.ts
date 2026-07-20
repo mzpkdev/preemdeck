@@ -4,7 +4,7 @@ import { defineCommand, effect, execute } from "cmdore"
 // rename reads `• Name` exactly like the state hook's busy label.
 import { windowName } from "../../tmux/toolbox/tmux-title"
 import { assertIdea } from "./assert-idea"
-import { renameTab, resolveTabPids } from "./core"
+import { renameTab, resolveTabTargets, type TabTargets } from "./core"
 
 /**
  * Rename the WebStorm terminal tab THIS shell runs in — set a sticky
@@ -45,7 +45,7 @@ export const renameTabCli = async (
     // tidy is null iff name is null (tidyTabName always returns a string), so
     // branching on `tidy` below both reads as the reset check AND narrows it to string.
     const tidy = name === null ? null : tidyTabName(name)
-    const pids = await deps.resolveTabPids()
+    const targets = await deps.resolveTabTargets()
     if (verbose) {
         const what =
             tidy === null
@@ -53,10 +53,12 @@ export const renameTabCli = async (
                 : tidy.length > 0
                   ? `name=${tidy}`
                   : "no-op (name sanitized to empty)"
-        process.stderr.write(`rename-tab: ${what}, pids=[${pids.join(",")}]\n`)
+        process.stderr.write(
+            `rename-tab: ${what}, pids=[${targets.pids.join(",")}], sessions=[${targets.termSessionIds.join(",")}]\n`
+        )
     }
     if (tidy === null) {
-        await deps.renameTab(null, pids) // clear the user-defined title, restoring auto-naming
+        await deps.renameTab(null, targets) // clear the user-defined title, restoring auto-naming
         return
     }
     if (tidy.length === 0) {
@@ -65,7 +67,7 @@ export const renameTabCli = async (
     // Stamp the busy glyph (a model rename always lands mid-turn) so the tab matches
     // tab-title's •. The name lives in the tab title itself (no on-disk store);
     // tab-title reads it back, glyph-stripped, to survive the next state flip.
-    await deps.renameTab(windowName("busy", tidy), pids)
+    await deps.renameTab(windowName("busy", tidy), targets)
 }
 
 /**
@@ -100,10 +102,10 @@ export const tidyTabName = (raw: string): string => {
 
 /** Injectable seams for {@link renameTabCli}; production uses the real pid resolver + IDE dispatch. */
 export type RenameTabCliDeps = {
-    /** Resolve the pid set on this tab's tty (default: core `resolveTabPids`). */
-    resolveTabPids: () => Promise<number[]>
-    /** Rename the pid-matched tab(s) to `name`, or clear when null (default: {@link runRename}). */
-    renameTab: (name: string | null, pids: readonly number[]) => Promise<void>
+    /** Resolve the namespace-safe identity of this terminal tab. */
+    resolveTabTargets: () => Promise<TabTargets>
+    /** Rename the matched tab(s) to `name`, or clear when null (default: {@link runRename}). */
+    renameTab: (name: string | null, targets: TabTargets) => Promise<void>
 }
 
 /**
@@ -111,13 +113,13 @@ export type RenameTabCliDeps = {
  * cmdore effect() so --dry-run resolves pids but SKIPS the IDE write (mirrors
  * tab-title.ts). renameTab is itself best-effort and never throws.
  */
-export const runRename = async (name: string | null, pids: readonly number[]): Promise<void> => {
-    await effect(() => renameTab(name, pids))
+export const runRename = async (name: string | null, targets: TabTargets): Promise<void> => {
+    await effect(() => renameTab(name, targets))
 }
 
 /** Production seam set: the real pid resolver and effect()-gated rename. */
 export const DEFAULT_DEPS: RenameTabCliDeps = {
-    resolveTabPids,
+    resolveTabTargets,
     renameTab: runRename
 }
 

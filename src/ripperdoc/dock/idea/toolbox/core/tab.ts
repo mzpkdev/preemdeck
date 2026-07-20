@@ -40,8 +40,9 @@ import { type RunGroovyDeps, runGroovyOn } from "./groovy"
 // Imported from the platform barrel (like launch.ts) so the product filter and
 // launcher scan resolve to the current OS. Used only at call time inside
 // renameTab, so the index<->tab import cycle is harmless (mirrors launch.ts).
-import { filterExecsForLaunchingProduct, resolveExecPaths } from "./index"
-import { GROOVY_TAB_HELPERS } from "./tab-groovy"
+import { filterExecsForLaunchingProduct, resolveExecPath, resolveExecPaths } from "./index"
+import { GROOVY_TAB_HELPERS, GROOVY_TAB_TARGET_HELPERS } from "./tab-groovy"
+import { normalizeTabTargets, resolveTabTargets, type TabTargets } from "./tab-pids"
 
 /**
  * Wrap `value` as a SINGLE-quoted Groovy string literal, escaping `\` and `'`.
@@ -70,14 +71,16 @@ const groovyStringLiteral = (value: string): string => `'${value.replace(/\\/g, 
  * them can't trigger GString interpolation (which would mis-render the name or
  * fail to compile), and the TS template never mangles them either.
  */
-export const groovyRenameByPid = (pids: readonly number[], name: string | null): string => {
-    const pidSet = pids.map((pid) => `"${Math.trunc(pid)}"`).join(", ")
+export const groovyRenameByTargets = (targets: TabTargets, name: string | null): string => {
+    const pidSet = targets.pids.map((pid) => `"${Math.trunc(pid)}"`).join(", ")
+    const sessionSet = targets.termSessionIds.map(groovyStringLiteral).join(", ")
     const nameLiteral = name === null ? "null" : groovyStringLiteral(name)
     return `import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.project.ProjectManager
 import com.intellij.openapi.wm.ToolWindowManager
 
 ${GROOVY_TAB_HELPERS}
+${GROOVY_TAB_TARGET_HELPERS}
 def doChange = { title, Closure body ->
     def fn = ({ st -> body(st); return kotlin.Unit.INSTANCE } as kotlin.jvm.functions.Function1)
     title.getClass().getMethod("change", kotlin.jvm.functions.Function1).invoke(title, fn)
@@ -85,6 +88,7 @@ def doChange = { title, Closure body ->
 def setStr = { st, String setter, Object val -> st.getClass().getMethod(setter, String).invoke(st, [val] as Object[]) }
 
 def PIDS = [${pidSet}] as Set
+def SESSION_IDS = [${sessionSet}] as Set
 def NAME = ${nameLiteral}
 
 ApplicationManager.getApplication().invokeLater({
@@ -97,8 +101,7 @@ ApplicationManager.getApplication().invokeLater({
                     try {
                         def view = viewOf(c)
                         if (view == null) return
-                        def pid = pidOf(view)
-                        if (pid == null || !PIDS.contains(String.valueOf(pid))) return
+                        if (!matchesTab(view, PIDS, SESSION_IDS)) return
                         def title = inv(view, "getTitle")
                         if (title == null) return
                         doChange(title) { st -> setStr(st, "setUserDefinedTitle", NAME) }
@@ -111,12 +114,22 @@ ApplicationManager.getApplication().invokeLater({
 `
 }
 
+/** Legacy PID-only builder retained for existing imports. */
+export const groovyRenameByPid = (pids: readonly number[], name: string | null): string =>
+    groovyRenameByTargets({ pids: [...pids], termSessionIds: [] }, name)
+
 /** Seams for {@link renameTab}: the runGroovyOn deps, plus the launcher-scan + product-filter seams. */
 export type RenameTabDeps = RunGroovyDeps & {
+    /** Resolve the current tab identity when no explicit input is supplied. */
+    resolveTabTargets?: () => Promise<TabTargets>
+    /** Resolve the owning launcher directly on Linux. */
+    resolveExecPath?: () => Promise<string>
     /** Resolve every running JetBrains launcher (default: platform `resolveExecPaths`). */
     resolveExecPaths?: () => Promise<string[]>
     /** Narrow launchers to the launching product (default: platform `filterExecsForLaunchingProduct`). */
     filterExecsForLaunchingProduct?: (execPaths: Iterable<string>, bundleId?: string) => string[]
+    /** Dispatch seam for hermetic tests. */
+    runGroovyOn?: typeof runGroovyOn
 }
 
 /**
@@ -138,18 +151,36 @@ export type RenameTabDeps = RunGroovyDeps & {
  * `deps` forwards the runGroovyOn seams (launch / reapLater / writeTemp / warn)
  * and an optional launcher-scan seam for hermetic tests.
  */
-export const renameTab = async (
+export function renameTab(name: string | null, pids?: readonly number[], deps?: RenameTabDeps): Promise<void>
+export function renameTab(name: string | null, targets?: TabTargets, deps?: RenameTabDeps): Promise<void>
+export async function renameTab(
     name: string | null,
-    pids: readonly number[],
+    input?: readonly number[] | TabTargets,
     deps: RenameTabDeps = {}
-): Promise<void> => {
-    if (pids.length === 0) {
+): Promise<void> {
+    const selected = input ? normalizeTabTargets(input) : await (deps.resolveTabTargets ?? resolveTabTargets)()
+    if (selected.pids.length === 0 && selected.termSessionIds.length === 0) {
         return
     }
-    const { resolveExecPaths: resolveExecPathsDep, filterExecsForLaunchingProduct: filterExecsDep, ...runDeps } = deps
-    const resolve = resolveExecPathsDep ?? resolveExecPaths
-    const filterExecs = filterExecsDep ?? filterExecsForLaunchingProduct
-    const groovy = groovyRenameByPid(pids, name)
-    const execPaths = filterExecs(await resolve())
-    await runGroovyOn(groovy, "rename-tab: could not rename tab", execPaths, runDeps)
+    const {
+        resolveTabTargets: _resolveTargets,
+        resolveExecPath: resolveExecPathDep,
+        resolveExecPaths: resolveExecPathsDep,
+        filterExecsForLaunchingProduct: filterExecsDep,
+        runGroovyOn: runGroovyOnDep,
+        ...runDeps
+    } = deps
+    const owner =
+        process.platform === "linux" || resolveExecPathDep
+            ? await (resolveExecPathDep ?? resolveExecPath)().catch(() => null)
+            : null
+    const execPaths = owner
+        ? [owner]
+        : (filterExecsDep ?? filterExecsForLaunchingProduct)(await (resolveExecPathsDep ?? resolveExecPaths)())
+    await (runGroovyOnDep ?? runGroovyOn)(
+        groovyRenameByTargets(selected, name),
+        "rename-tab: could not rename tab",
+        execPaths,
+        runDeps
+    )
 }

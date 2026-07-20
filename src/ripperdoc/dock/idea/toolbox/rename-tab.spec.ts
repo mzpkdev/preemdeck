@@ -17,22 +17,27 @@ import { mkdtemp, rm } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import * as path from "node:path"
 import { windowName } from "../../tmux/toolbox/tmux-title"
+import type { TabTargets } from "./core"
 import { type RenameTabCliDeps, renameTabCli, tidyTabName } from "./rename-tab"
 
 const context = describe
 
 // A fake seam set: canned pids and a recorder for the rename calls.
 const fakeDeps = (
-    over: { pids?: number[] } = {}
+    over: Partial<TabTargets> = {}
 ): {
     deps: RenameTabCliDeps
-    calls: { rename: { name: string | null; pids: number[] }[] }
+    calls: { rename: { name: string | null; targets: TabTargets }[] }
 } => {
-    const calls = { rename: [] as { name: string | null; pids: number[] }[] }
+    const calls = { rename: [] as { name: string | null; targets: TabTargets }[] }
     const deps: RenameTabCliDeps = {
-        resolveTabPids: () => Promise.resolve(over.pids ?? [111, 222]),
-        renameTab: (name, pids) => {
-            calls.rename.push({ name, pids: [...pids] })
+        resolveTabTargets: () =>
+            Promise.resolve({ pids: over.pids ?? [111, 222], termSessionIds: over.termSessionIds ?? ["session-1"] }),
+        renameTab: (name, targets) => {
+            calls.rename.push({
+                name,
+                targets: { pids: [...targets.pids], termSessionIds: [...targets.termSessionIds] }
+            })
             return Promise.resolve()
         }
     }
@@ -105,19 +110,29 @@ describe("renameTabCli (unit, DI seams)", () => {
         const { deps, calls } = fakeDeps({ pids: [42] })
         await renameTabCli("PR Review!", false, deps)
         // the tab title itself is the store; displayed with the busy glyph via windowName
-        expect(calls.rename).toEqual([{ name: windowName("busy", "PR Review"), pids: [42] }])
+        expect(calls.rename).toEqual([
+            {
+                name: windowName("busy", "PR Review"),
+                targets: { pids: [42], termSessionIds: ["session-1"] }
+            }
+        ])
     })
 
     it("still dispatches the rename when no pid resolves (the real renameTab no-ops on [])", async () => {
         const { deps, calls } = fakeDeps({ pids: [] })
         await renameTabCli("Tab Naming", false, deps)
-        expect(calls.rename).toEqual([{ name: windowName("busy", "Tab Naming"), pids: [] }])
+        expect(calls.rename).toEqual([
+            {
+                name: windowName("busy", "Tab Naming"),
+                targets: { pids: [], termSessionIds: ["session-1"] }
+            }
+        ])
     })
 
     it("reset (null) clears the title (restores auto-naming)", async () => {
         const { deps, calls } = fakeDeps({ pids: [7] })
         await renameTabCli(null, false, deps)
-        expect(calls.rename).toEqual([{ name: null, pids: [7] }])
+        expect(calls.rename).toEqual([{ name: null, targets: { pids: [7], termSessionIds: ["session-1"] } }])
     })
 
     it("is a full no-op for a name that sanitizes to empty (no rename)", async () => {
@@ -145,6 +160,7 @@ describe("rename-tab CLI (e2e, subprocess)", () => {
             const { code, stderr } = await run(["--dry-run", "--verbose", "PR review"])
             expect(code).toBe(0)
             expect(stderr).toContain("name=PR Review")
+            expect(stderr).toContain("sessions=[")
         })
 
         it.each([

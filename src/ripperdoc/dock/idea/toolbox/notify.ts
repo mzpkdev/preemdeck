@@ -227,16 +227,19 @@ export const notify = async (message: string, options: NotifyOptions = {}): Prom
     const actions = options.actions ?? []
     const cwd = options.cwd ?? process.cwd()
     const all = options.all ?? false
-    const titleText = await resolveTitle(options.title, cwd)
-    const groovy = groovyFor(titleText, message, typeToken, actions, cwd, all)
     const note = "notify: could not pop notification"
+    // Title resolution reads the live terminal tab before building and dispatching
+    // the Groovy. Keep that whole IDE-dependent path behind one effect gate so a
+    // dry-run cannot contact the IDE merely to calculate a title.
     // runGroovy / runGroovyOn never reject (a missing IDE / spawn error degrades to
-    // a stderr note); --dry-run flips effect off so the IDE write is skipped.
+    // a stderr note); --dry-run flips effect off so this path is skipped.
     // The balloon and the OS ding (moved here from dock/os) fire together, so one
     // idea notification both shows and sounds; the ding is gated by preemdeck.json
     // notify.sound and is best-effort (ding() never throws, dry-run skips its spawn).
     await Promise.all([
         effect(async () => {
+            const titleText = await resolveTitle(options.title, cwd)
+            const groovy = groovyFor(titleText, message, typeToken, actions, cwd, all)
             if (all) {
                 // Broadcast: one balloon per running JetBrains IDE. Discovery degrades to
                 // [] on any probe failure; an empty set (or the non-broadcast path) falls

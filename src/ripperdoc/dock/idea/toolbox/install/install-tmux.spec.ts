@@ -48,12 +48,16 @@ afterEach(() => {
 })
 
 // Spawn the CLI as a real subprocess against a throwaway $HOME.
-const run = async (args: string[], home: string): Promise<{ code: number; stdout: string; stderr: string }> => {
+const run = async (
+    args: string[],
+    home: string,
+    environment: Record<string, string> = {}
+): Promise<{ code: number; stdout: string; stderr: string }> => {
     const subprocess = Bun.spawn([process.execPath, join(import.meta.dir, "install-tmux.ts"), ...args], {
         stdin: "ignore",
         stdout: "pipe",
         stderr: "pipe",
-        env: { ...process.env, HOME: home }
+        env: { ...process.env, HOME: home, XDG_CONFIG_HOME: "", ...environment }
     })
     const [stdout, stderr] = await Promise.all([
         new Response(subprocess.stdout).text(),
@@ -84,6 +88,9 @@ describe("install-tmux", () => {
         })
         it("is XDG ~/.config elsewhere", () => {
             expect(jetbrainsRoot("linux", "/home/me")).toBe("/home/me/.config/JetBrains")
+        })
+        it("honors an explicit XDG_CONFIG_HOME on Linux", () => {
+            expect(jetbrainsRoot("linux", "/home/me", "/cfg")).toBe("/cfg/JetBrains")
         })
     })
 
@@ -233,6 +240,21 @@ describe("install-tmux", () => {
             const { code, stderr } = await run(["--force"], home)
             expect(code).toBe(0)
             expect(stderr).toContain("no JetBrains config dirs")
+        })
+
+        it("discovers and updates configs under XDG_CONFIG_HOME", async () => {
+            const home = mkTemp()
+            const xdg = join(home, "custom-config")
+            const root = jetbrainsRoot("linux", home, xdg)
+            const optionsDir = join(root, "WebStorm2025.1", "options")
+            const file = join(optionsDir, "terminal.xml")
+            mkdirSync(optionsDir, { recursive: true })
+            writeFileSync(file, SEED)
+
+            const applied = await run(["--force"], home, { XDG_CONFIG_HOME: xdg })
+            expect(applied.code).toBe(0)
+            expect(readFileSync(file, "utf8")).toContain("ideamux")
+            expect(applied.stderr).toContain(file)
         })
     })
 })

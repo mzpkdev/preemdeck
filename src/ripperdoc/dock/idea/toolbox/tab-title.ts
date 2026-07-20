@@ -41,7 +41,7 @@ import { isNotifyEnabled } from "../../../../common/preemdeck"
 // Reuse the glyph + name logic from tmux-title so the tab label matches the tmux
 // window verbatim (e.g. `• preemdeck`) — the glyph/name logic is NOT duplicated here.
 import { GLYPH, projectLabel, stripGlyph, windowName } from "../../tmux/toolbox/tmux-title"
-import { inIdea, readTabTitle, renameTab, resolveTabPids } from "./core"
+import { inIdea, readTabTitle, renameTab, resolveTabTargets, type TabTargets } from "./core"
 // The Notification event is overloaded: it fires for real permission gates AND for
 // Claude's idle "waiting for your input" ping. isIdleNotification tells them apart
 // (shared with permission-notify); readHookInput is the fail-safe stdin parser.
@@ -70,12 +70,12 @@ export const tabName = (state: string, project: string): { name: string | null }
 export type TabTitleDeps = {
     /** True when this terminal was launched by a JetBrains IDE (default: core inIdea). */
     inIdea: () => boolean
-    /** Resolve the pid set on this tab's tty (default: core resolveTabPids). */
-    resolveTabPids: () => Promise<number[]>
-    /** Rename the pid-matched tab(s) to `name`, or clear when null (default: {@link runRename}). */
-    renameTab: (name: string | null, pids: readonly number[]) => Promise<void>
-    /** Read the pid-matched tab's current displayed title, or null (default: core readTabTitle). */
-    readTabTitle: (pids: readonly number[]) => Promise<string | null>
+    /** Resolve the namespace-safe identity of this terminal tab. */
+    resolveTabTargets: () => Promise<TabTargets>
+    /** Rename the matched tab(s) to `name`, or clear when null (default: {@link runRename}). */
+    renameTab: (name: string | null, targets: TabTargets) => Promise<void>
+    /** Read the matched tab's current displayed title, or null (default: core readTabTitle). */
+    readTabTitle: (targets: TabTargets) => Promise<string | null>
 }
 
 /**
@@ -84,14 +84,14 @@ export type TabTitleDeps = {
  * rename-tab.ts — core/tab.ts leaves the --dry-run gate to the caller). renameTab
  * is itself best-effort and never throws.
  */
-export const runRename = async (name: string | null, pids: readonly number[]): Promise<void> => {
-    await effect(() => renameTab(name, pids))
+export const runRename = async (name: string | null, targets: TabTargets): Promise<void> => {
+    await effect(() => renameTab(name, targets))
 }
 
 /** Production seam set: the real IDE gate, pid resolver, effect()-gated rename, and title read-back. */
 export const DEFAULT_DEPS: TabTitleDeps = {
     inIdea,
-    resolveTabPids,
+    resolveTabTargets,
     renameTab: runRename,
     readTabTitle
 }
@@ -117,19 +117,19 @@ export const applyTitle = async (
     if (!deps.inIdea()) {
         return false // not inside a JetBrains terminal — nothing to rename
     }
-    const pids = await deps.resolveTabPids()
-    if (pids.length === 0) {
-        return false // no pid on this tab's tty — rename nothing rather than guess
+    const targets = await deps.resolveTabTargets()
+    if (targets.pids.length === 0 && targets.termSessionIds.length === 0) {
+        return false // no exact identity for this tab — rename nothing rather than guess
     }
     // Recover the base from the tab's current title (glyph-stripped) so a rename-tab
     // or IDE-menu name survives the flip; fall back to the project label. Only a glyph
     // state reads the title — reset just clears, an unknown state no-ops.
-    const base = state in GLYPH ? stripGlyph((await deps.readTabTitle(pids)) ?? "") || projectLabel(env) : ""
+    const base = state in GLYPH ? stripGlyph((await deps.readTabTitle(targets)) ?? "") || projectLabel(env) : ""
     const target = tabName(state, base)
     if (target === null) {
         return false // unknown state
     }
-    await deps.renameTab(target.name, pids)
+    await deps.renameTab(target.name, targets)
     return true
 }
 
@@ -166,7 +166,8 @@ const command = defineCommand({
             if (!(await isNotifyEnabled("ideaTab"))) {
                 return // user disabled WebStorm tab titles via preemdeck.json notify.ideaTab
             }
-            await applyTitle(await effectiveState(typeof state === "string" ? state : ""))
+            const selected = await effectiveState(typeof state === "string" ? state : "")
+            await effect(() => applyTitle(selected))
         } catch {
             // swallow: no IDE, a foreign env, or a dispatch error must not disrupt the host
         }

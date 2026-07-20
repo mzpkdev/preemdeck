@@ -7,13 +7,15 @@
  * untruncated executable path; the `comm` field in `/proc/<pid>/stat` is capped
  * at 15 chars, so it is NOT used) and the `PPid:` line of `/proc/<pid>/status`.
  *
- * inIdea() and resolveLogDir() are not implemented yet (the JetBrains log tree
- * lives under a different, XDG-based path on Linux); they still throw
- * NotImplementedError.
+ * When PID namespaces hide the IDE ancestry, resolveExecPath() falls back to
+ * GNOME's inherited GIO_LAUNCHED_DESKTOP_FILE and its desktop Exec entry. Logs
+ * resolve under the XDG cache root for the owning product.
  */
 
 import { readdir, readFile, readlink } from "node:fs/promises"
-import { IdeaError, NotImplementedError } from "./errors"
+import { homedir } from "node:os"
+import { join } from "node:path"
+import { IdeaError } from "./errors"
 // IDE launcher basenames + the shared dedupe filter are platform-neutral; share
 // the single source of truth with macOS (index.ts loads both per-OS modules, so
 // this adds no extra cost).
@@ -59,10 +61,44 @@ const defaultProcProbe: ProcProbe = async (pid) => {
     return { ppid, exe }
 }
 
-/** True when this terminal was launched by a JetBrains IDE — unimplemented on Linux. */
-export const inIdea = (): boolean => {
-    throw new NotImplementedError("inIdea is not implemented for Linux yet")
+/** True when this terminal was launched by JetBrains' JediTerm terminal. */
+export const inIdea = (env: NodeJS.ProcessEnv = process.env): boolean => env.TERMINAL_EMULATOR === "JetBrains-JediTerm"
+
+/** Parse the launcher token from a freedesktop `Exec=` entry. */
+export const parseDesktopExec = (text: string): string | null => {
+    const value = text.match(/^Exec\s*=\s*(.+)$/m)?.[1]?.trim()
+    if (!value) return null
+    const token = value
+        .match(/^"([^"]+)"|^(\S+)/)
+        ?.slice(1)
+        .find((part): part is string => Boolean(part))
+    return token?.startsWith("/") ? token : null
 }
+
+const PRODUCT_PREFIX_BY_BINARY: Readonly<Record<string, string>> = {
+    webstorm: "WebStorm",
+    pycharm: "PyCharm",
+    idea: "IntelliJIdea",
+    goland: "GoLand",
+    phpstorm: "PhpStorm",
+    rubymine: "RubyMine",
+    clion: "CLion",
+    rider: "Rider",
+    datagrip: "DataGrip",
+    rustrover: "RustRover"
+}
+
+const basename = (path: string): string => path.slice(path.lastIndexOf("/") + 1).toLowerCase()
+
+const productNameFromExec = (exec: string): string => {
+    const product = PRODUCT_PREFIX_BY_BINARY[basename(exec)]
+    if (!product) throw new IdeaError(`unknown JetBrains launcher: ${exec}`)
+    return product
+}
+
+export type DesktopReader = (path: string, encoding: "utf8") => Promise<string>
+
+const defaultDesktopReader: DesktopReader = async (path, encoding) => await readFile(path, encoding)
 
 /**
  * Absolute path to the JetBrains IDE binary this process is running inside.
@@ -77,7 +113,9 @@ export const inIdea = (): boolean => {
  */
 export const resolveExecPath = async (
     probe: ProcProbe = defaultProcProbe,
-    startPid: number = process.pid
+    startPid: number = process.pid,
+    env: NodeJS.ProcessEnv = process.env,
+    readDesktop: DesktopReader = defaultDesktopReader
 ): Promise<string> => {
     let pid = startPid
     for (let i = 0; i < 16; i++) {
@@ -88,7 +126,7 @@ export const resolveExecPath = async (
         }
         const { ppid, exe } = entry
         // basename: everything after the last "/".
-        const base = exe.slice(exe.lastIndexOf("/") + 1)
+        const base = basename(exe)
         if (IDE_BINARIES.has(base)) {
             return exe
         }
@@ -97,7 +135,14 @@ export const resolveExecPath = async (
             break
         }
     }
-    throw new IdeaError("no JetBrains IDE in the process ancestry")
+
+    const desktopFile = env.GIO_LAUNCHED_DESKTOP_FILE
+    const desktopText = desktopFile ? await readDesktop(desktopFile, "utf8").catch(() => "") : ""
+    const desktopExec = parseDesktopExec(desktopText)
+    if (desktopExec !== null && IDE_BINARIES.has(basename(desktopExec))) {
+        return desktopExec
+    }
+    throw new IdeaError("no owning JetBrains IDE launcher found")
 }
 
 /**
@@ -140,23 +185,38 @@ export const resolveExecPaths = async (list: ProcList = defaultProcList): Promis
 }
 
 /**
- * Narrow running launchers to the launching product — a stub on Linux.
- *
- * The macOS sibling keys off `__CFBundleIdentifier`, which is a macOS-only env
- * var; Linux has no equivalent, so there is nothing to filter on. Returns the
- * full set (a fresh array copy), matching the macOS fall-back behavior, so
- * `rename-tab`'s dispatch still reaches every running launcher. `bundleId` is
- * accepted for signature parity and ignored.
+ * Narrow running launchers to the product named by GNOME's desktop-file path.
+ * Falls back to the full set when owner metadata is missing or no launcher
+ * matches, preserving the shared best-effort dispatch contract.
  */
-export const filterExecsForLaunchingProduct = (execPaths: Iterable<string>, _bundleId?: string): string[] => {
-    return [...execPaths]
+export const filterExecsForLaunchingProduct = (
+    execPaths: Iterable<string>,
+    owner: string = process.env.GIO_LAUNCHED_DESKTOP_FILE ?? ""
+): string[] => {
+    const all = [...execPaths]
+    const ownerName = basename(owner)
+    const product = [...IDE_BINARIES].find((binary) => ownerName.includes(binary))
+    if (product === undefined) return all
+    const matched = all.filter((exec) => basename(exec) === product)
+    return matched.length > 0 ? matched : all
 }
 
 /**
- * Log dir of the IDE this process is running inside — unimplemented on Linux.
- * Typed `Promise<string>` to match the async macOS surface, but throws
- * SYNCHRONOUSLY (before any promise is created).
+ * Log dir of the owning IDE's newest product version under the XDG cache root.
  */
-export const resolveLogDir = (): Promise<string> => {
-    throw new NotImplementedError("resolveLogDir is not implemented for Linux yet")
+export const resolveLogDir = async (
+    resolveExec: () => string | Promise<string> = () => resolveExecPath(),
+    env: NodeJS.ProcessEnv = process.env
+): Promise<string> => {
+    const product = productNameFromExec(await resolveExec())
+    const cacheRoot = env.XDG_CACHE_HOME || join(env.HOME || homedir(), ".cache")
+    const root = join(cacheRoot, "JetBrains")
+    const entries = await readdir(root, { withFileTypes: true }).catch(() => [])
+    const candidates = entries
+        .filter((entry) => entry.isDirectory() && entry.name.startsWith(product))
+        .map((entry) => entry.name)
+        .sort((a, b) => b.localeCompare(a, undefined, { numeric: true }))
+    const newest = candidates[0]
+    if (newest === undefined) throw new IdeaError(`no ${product} log directory under ${root}`)
+    return join(root, newest, "log")
 }

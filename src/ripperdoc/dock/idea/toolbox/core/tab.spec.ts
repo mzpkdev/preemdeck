@@ -16,7 +16,7 @@
 import { afterEach, describe, expect, it } from "bun:test"
 import { IdeaError, NotImplementedError } from "./errors"
 import { filterExecsForLaunchingProduct } from "./idea-mac"
-import { groovyRenameByPid, type RenameTabDeps, renameTab } from "./tab"
+import { groovyRenameByPid, groovyRenameByTargets, type RenameTabDeps, renameTab } from "./tab"
 
 const context = describe
 
@@ -84,7 +84,7 @@ describe("groovyRenameByPid", () => {
         })
 
         it("compares the Long pid as a String via String.valueOf(pid)", () => {
-            expect(groovyRenameByPid([1], "x")).toContain("PIDS.contains(String.valueOf(pid))")
+            expect(groovyRenameByPid([1], "x")).toContain("pids.contains(String.valueOf(pid))")
         })
     })
 
@@ -105,6 +105,19 @@ describe("groovyRenameByPid", () => {
     })
 })
 
+describe("groovyRenameByTargets", () => {
+    it("matches a sandboxed tab by startup TERM_SESSION_ID", () => {
+        const g = groovyRenameByTargets({ pids: [], termSessionIds: ["session-42"] }, "Linux")
+        expect(g).toContain("def SESSION_IDS = ['session-42'] as Set")
+        expect(g).toContain("matchesTab(view, PIDS, SESSION_IDS)")
+    })
+
+    it("escapes session ids as inert single-quoted literals", () => {
+        const g = groovyRenameByTargets({ pids: [], termSessionIds: ["x'y\\z"] }, "Linux")
+        expect(g).toContain("def SESSION_IDS = ['x\\'y\\\\z'] as Set")
+    })
+})
+
 /**
  * Capture renameTab's dispatch: injected RenameTabDeps record the launcher scan,
  * every launch (with the per-product resolveExec target), the written script,
@@ -112,21 +125,26 @@ describe("groovyRenameByPid", () => {
  * given error, exercising the swallow path.
  */
 const makeDeps = (
-    opts: { execs?: string[]; raises?: unknown } = {}
+    opts: { execs?: string[]; owner?: string | null; raises?: unknown } = {}
 ): {
     deps: RenameTabDeps
     scripts: string[]
     launched: Array<{ args: string[]; wait: boolean; execPath: string | undefined }>
     reaped: string[][]
     warned: string[]
-    counts: { resolve: number }
+    counts: { owner: number; resolve: number }
 } => {
     const scripts: string[] = []
     const launched: Array<{ args: string[]; wait: boolean; execPath: string | undefined }> = []
     const reaped: string[][] = []
     const warned: string[] = []
-    const counts = { resolve: 0 }
+    const counts = { owner: 0, resolve: 0 }
     const deps: RenameTabDeps = {
+        resolveExecPath: async () => {
+            counts.owner++
+            if (opts.owner) return opts.owner
+            throw new IdeaError("owner unavailable")
+        },
         resolveExecPaths: async () => {
             counts.resolve++
             return [...(opts.execs ?? [])]
@@ -168,7 +186,25 @@ describe("renameTab (dispatch)", () => {
         const cap = makeDeps({ execs: [WEBSTORM] })
         await renameTab("anything", [], cap.deps)
         expect(cap.counts.resolve).toBe(0) // returns before even resolving launchers
+        expect(cap.counts.owner).toBe(0)
         expect(cap.launched.length).toBe(0)
+    })
+
+    it("is a no-op on empty shared targets", async () => {
+        const cap = makeDeps({ execs: [WEBSTORM] })
+        await renameTab("anything", { pids: [], termSessionIds: [] }, cap.deps)
+        expect(cap.counts.owner).toBe(0)
+        expect(cap.counts.resolve).toBe(0)
+        expect(cap.launched).toEqual([])
+    })
+
+    it("prefers the resolved Linux owner without scanning running launchers", async () => {
+        const cap = makeDeps({ owner: WEBSTORM, execs: [PYCHARM] })
+        await renameTab("Linux", { pids: [], termSessionIds: ["session-42"] }, cap.deps)
+        expect(cap.counts.owner).toBe(1)
+        expect(cap.counts.resolve).toBe(0)
+        expect(cap.launched.map((launch) => launch.execPath)).toEqual([WEBSTORM])
+        expect(cap.scripts[0]).toContain("'session-42'")
     })
 
     it("dispatches the pid script to the launcher of the launching product only", async () => {

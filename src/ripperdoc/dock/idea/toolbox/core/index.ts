@@ -102,10 +102,23 @@ export { focusProjectWindow, openInProject, previewUrl, setPreview, webpreviewOp
 /** Deferred temp cleanup for the toolbox's fire-and-forget (no-wait) modes. */
 export { reapLater } from "./reap"
 /** Rename the terminal tab this shell runs in: the Groovy builder + the pid-matched dispatcher. */
-export { groovyRenameByPid, renameTab } from "./tab"
+export { groovyRenameByPid, groovyRenameByTargets, renameTab } from "./tab"
 /** Read whether this shell's terminal tab is focused in the IDE: the Groovy builder, the parser, and the fail-open reader. */
-export { groovyFocusByPid, isTabFocused, parseFocus, type TabFocus, UNDETERMINED } from "./tab-focus"
+export {
+    groovyFocusByPid,
+    groovyFocusByTargets,
+    isTabFocused,
+    parseFocus,
+    type TabFocus,
+    UNDETERMINED
+} from "./tab-focus"
 /** Resolve the pid set on this tab's tty (the shell-side half of rename-tab). */
-export { resolveTabPids } from "./tab-pids"
+export { normalizeTabTargets, resolveTabPids, resolveTabTargets, type TabTargets } from "./tab-pids"
 /** Read this shell's terminal tab's current displayed title from the IDE: the Groovy builder, the parser, and the fail-open reader. */
-export { groovyReadTitleByPid, parseTitle, type ReadTabTitleDeps, readTabTitle } from "./tab-read"
+export {
+    groovyReadTitleByPid,
+    groovyReadTitleByTargets,
+    parseTitle,
+    type ReadTabTitleDeps,
+    readTabTitle
+} from "./tab-read"

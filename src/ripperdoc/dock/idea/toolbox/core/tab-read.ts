@@ -26,8 +26,9 @@
  */
 
 import { escapeGroovy, GROOVY_RESULT_PENDING, type RunGroovyForResultDeps, runGroovyForResult } from "./groovy"
-import { filterExecsForLaunchingProduct, resolveExecPaths } from "./index"
-import { GROOVY_TAB_HELPERS } from "./tab-groovy"
+import { filterExecsForLaunchingProduct, resolveExecPath, resolveExecPaths } from "./index"
+import { GROOVY_TAB_HELPERS, GROOVY_TAB_TARGET_HELPERS } from "./tab-groovy"
+import { normalizeTabTargets, type TabTargets } from "./tab-pids"
 
 /**
  * Build the one-shot Groovy that finds the terminal Content whose backend pid is in
@@ -47,8 +48,11 @@ import { GROOVY_TAB_HELPERS } from "./tab-groovy"
  * `JsonOutput.toJson` so any character in the title (quotes, backslashes) is
  * escaped: `{"pid":<long>,"title":<string>}`.
  */
-export const groovyReadTitleByPid = (pids: readonly number[], resultPath: string): string => {
-    const pidSet = pids.map((pid) => `"${Math.trunc(pid)}"`).join(", ")
+const groovySingleQuoted = (value: string): string => `'${value.replace(/\\/g, "\\\\").replace(/'/g, "\\'")}'`
+
+export const groovyReadTitleByTargets = (targets: TabTargets, resultPath: string): string => {
+    const pidSet = targets.pids.map((pid) => `"${Math.trunc(pid)}"`).join(", ")
+    const sessionSet = targets.termSessionIds.map(groovySingleQuoted).join(", ")
     const out = escapeGroovy(resultPath)
     return `import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.project.ProjectManager
@@ -56,9 +60,11 @@ import com.intellij.openapi.wm.ToolWindowManager
 import groovy.json.JsonOutput
 
 ${GROOVY_TAB_HELPERS}
+${GROOVY_TAB_TARGET_HELPERS}
 
 def OUT = "${out}"
 def PIDS = [${pidSet}] as Set
+def SESSION_IDS = [${sessionSet}] as Set
 try { new File(OUT).text = '${GROOVY_RESULT_PENDING}' } catch (Throwable t) {}
 
 ApplicationManager.getApplication().invokeLater({
@@ -73,7 +79,7 @@ ApplicationManager.getApplication().invokeLater({
                         def view = viewOf(c)
                         if (view == null) continue
                         def pid = pidOf(view)
-                        if (pid == null || !PIDS.contains(String.valueOf(pid))) continue
+                        if (!matchesTab(view, PIDS, SESSION_IDS)) continue
                         result = JsonOutput.toJson([pid: String.valueOf(pid), title: String.valueOf(c.getDisplayName())])
                     } catch (Throwable t) {}
                 }
@@ -86,6 +92,10 @@ ApplicationManager.getApplication().invokeLater({
 } as Runnable)
 `
 }
+
+/** Legacy PID-only builder retained for existing imports. */
+export const groovyReadTitleByPid = (pids: readonly number[], resultPath: string): string =>
+    groovyReadTitleByTargets({ pids: [...pids], termSessionIds: [] }, resultPath)
 
 /**
  * Parse the title JSON the Groovy wrote — fail-open on anything unexpected.
@@ -109,6 +119,8 @@ export const parseTitle = (text: string | null): string | null => {
 
 /** Injectable seams for {@link readTabTitle}; production uses the real launcher scan + result round-trip. */
 export type ReadTabTitleDeps = {
+    /** Resolve the owning launcher directly on Linux. */
+    resolveExecPath?: () => Promise<string>
     /** Resolve every running JetBrains launcher (default: platform resolveExecPaths). */
     resolveExecPaths?: () => Promise<string[]>
     /** Narrow launchers to the launching product (default: platform filterExecsForLaunchingProduct). */
@@ -136,17 +148,27 @@ export type ReadTabTitleDeps = {
  * caught and degrades to null. `deps` injects every IDE-contact seam for hermetic
  * tests.
  */
-export const readTabTitle = async (pids: readonly number[], deps: ReadTabTitleDeps = {}): Promise<string | null> => {
+export const readTabTitle = async (
+    input: readonly number[] | TabTargets,
+    deps: ReadTabTitleDeps = {}
+): Promise<string | null> => {
     try {
-        if (pids.length === 0) {
+        const targets = normalizeTabTargets(input)
+        if (targets.pids.length === 0 && targets.termSessionIds.length === 0) {
             return null
         }
-        const resolveExecs = deps.resolveExecPaths ?? resolveExecPaths
-        const filterExecs = deps.filterExecsForLaunchingProduct ?? filterExecsForLaunchingProduct
         const runForResult = deps.runGroovyForResult ?? runGroovyForResult
-        const execPaths = filterExecs(await resolveExecs())
+        const owner =
+            process.platform === "linux" || deps.resolveExecPath
+                ? await (deps.resolveExecPath ?? resolveExecPath)().catch(() => null)
+                : null
+        const execPaths = owner
+            ? [owner]
+            : (deps.filterExecsForLaunchingProduct ?? filterExecsForLaunchingProduct)(
+                  await (deps.resolveExecPaths ?? resolveExecPaths)()
+              )
         const text = await runForResult(
-            (resultPath) => groovyReadTitleByPid(pids, resultPath),
+            (resultPath) => groovyReadTitleByTargets(targets, resultPath),
             "tab-read: could not read tab title",
             execPaths
         )

@@ -36,11 +36,11 @@ export const PRODUCT_DIR_RE =
 export const isProductDir = (name: string): boolean => PRODUCT_DIR_RE.test(name)
 
 /** The JetBrains per-user config root for this platform: macOS "Application Support", else XDG `~/.config`. */
-export const jetbrainsRoot = (platform: string, home: string): string => {
+export const jetbrainsRoot = (platform: string, home: string, xdgConfigHome?: string): string => {
     if (platform === "darwin") {
         return join(home, "Library", "Application Support", "JetBrains")
     }
-    return join(home, ".config", "JetBrains")
+    return join(xdgConfigHome || join(home, ".config"), "JetBrains")
 }
 
 type DirLister = (root: string) => Promise<string[]>
@@ -200,7 +200,7 @@ const command = defineCommand({
     ],
     run: async ({ restore, force }) => {
         const home = process.env.HOME ?? homedir()
-        const root = jetbrainsRoot(process.platform, home)
+        const root = jetbrainsRoot(process.platform, home, process.env.XDG_CONFIG_HOME)
         const shellPath = ideamuxPath()
 
         if (!restore && !force) {

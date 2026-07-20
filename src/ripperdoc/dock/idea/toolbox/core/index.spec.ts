@@ -7,14 +7,9 @@ const context = describe
 
 describe("core", () => {
     context("linux module", () => {
-        // resolveExecPath is implemented (its /proc ancestry walk is covered in
-        // idea-linux.spec.ts); inIdea and resolveLogDir are not yet, so they still
-        // throw NotImplementedError.
-        it("inIdea throws NotImplementedError", () => {
-            expect(() => ideaLinux.inIdea()).toThrow("not implemented for Linux")
-        })
-        it("resolveLogDir throws NotImplementedError", () => {
-            expect(() => ideaLinux.resolveLogDir()).toThrow("not implemented for Linux")
+        it("detects JediTerm from inherited metadata", () => {
+            expect(ideaLinux.inIdea({ TERMINAL_EMULATOR: "JetBrains-JediTerm" })).toBe(true)
+            expect(ideaLinux.inIdea({})).toBe(false)
         })
     })
 
@@ -30,6 +25,15 @@ describe("core", () => {
                 "resolveExecPath",
                 "resolveExecPaths",
                 "resolveLogDir",
+                "resolveTabPids",
+                "resolveTabTargets",
+                "normalizeTabTargets",
+                "groovyRenameByPid",
+                "groovyRenameByTargets",
+                "groovyReadTitleByPid",
+                "groovyReadTitleByTargets",
+                "groovyFocusByPid",
+                "groovyFocusByTargets",
                 "launch",
                 "reapLater",
                 "setPreview",
@@ -54,8 +58,14 @@ describe("core", () => {
                     else process.env.__CFBundleIdentifier = saved
                 }
             } else {
-                // linux: the stub backs the public API, so detection throws.
-                expect(() => core.inIdea()).toThrow("not implemented for Linux")
+                const saved = process.env.TERMINAL_EMULATOR
+                try {
+                    process.env.TERMINAL_EMULATOR = "JetBrains-JediTerm"
+                    expect(core.inIdea()).toBe(true)
+                } finally {
+                    if (saved === undefined) delete process.env.TERMINAL_EMULATOR
+                    else process.env.TERMINAL_EMULATOR = saved
+                }
             }
         })
     })

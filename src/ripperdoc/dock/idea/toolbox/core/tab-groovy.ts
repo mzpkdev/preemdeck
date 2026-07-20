@@ -27,6 +27,12 @@
  *   `TerminalSessionsManager.getSession(id)` -> `delegate.ttyConnector.connector
  *   .myProcess` (or `huntProcess`) -> `.pid()` (a Long), null on any miss.
  *
+ * {@link GROOVY_TAB_TARGET_HELPERS} adds the namespace-safe identity layer:
+ * `termSessionIdOf(view)` reads the startup environment inherited by the
+ * terminal, and `matchesTab(view, pids, sessions)` accepts either exact pid or
+ * exact `TERM_SESSION_ID`. It depends on `inv` and `pidOf`, so scripts splice it
+ * after {@link GROOVY_TAB_HELPERS}.
+ *
  * The preamble carries NO imports; the composing script must import
  * `com.intellij.openapi.application.ApplicationManager` (used by `pidOf`) itself —
  * both callers already do, alongside the ProjectManager/ToolWindowManager they
@@ -80,4 +86,22 @@ def pidOf = { view ->
         def proc = (cur instanceof java.lang.Process) ? cur : huntProcess(backend)
         return proc?.pid()
     } catch (Throwable t) { return null }
+}`
+
+/**
+ * Shared tab-identity helpers for every rename, read, and focus script.
+ * The pid branch accepts the current string representation and a native Long,
+ * preserving existing builders while keeping the matcher reusable.
+ */
+export const GROOVY_TAB_TARGET_HELPERS = `def termSessionIdOf = { view ->
+    def deferred = inv(view, 'getStartupOptionsDeferred')
+    def options = inv(deferred, 'getCompleted')
+    def variables = inv(options, 'getEnvVariables')
+    return variables?.get('TERM_SESSION_ID')
+}
+def matchesTab = { view, pids, sessions ->
+    def pid = pidOf(view)
+    def session = termSessionIdOf(view)
+    return (pid != null && (pids.contains(pid) || pids.contains(String.valueOf(pid)))) ||
+        (session != null && sessions.contains(String.valueOf(session)))
 }`

@@ -20,8 +20,16 @@
  */
 
 import { describe, expect, it } from "bun:test"
+import { IdeaError } from "./errors"
 import { GROOVY_RESULT_PENDING } from "./groovy"
-import { groovyFocusByPid, type IsTabFocusedDeps, isTabFocused, parseFocus, UNDETERMINED } from "./tab-focus"
+import {
+    groovyFocusByPid,
+    groovyFocusByTargets,
+    type IsTabFocusedDeps,
+    isTabFocused,
+    parseFocus,
+    UNDETERMINED
+} from "./tab-focus"
 import { GROOVY_TAB_HELPERS } from "./tab-groovy"
 
 const context = describe
@@ -57,7 +65,7 @@ describe("groovyFocusByPid", () => {
         })
 
         it("compares the Long pid as a String via String.valueOf(pid)", () => {
-            expect(groovyFocusByPid([1], "/r.json")).toContain("PIDS.contains(String.valueOf(pid))")
+            expect(groovyFocusByPid([1], "/r.json")).toContain("pids.contains(String.valueOf(pid))")
         })
     })
 
@@ -80,7 +88,7 @@ describe("groovyFocusByPid", () => {
         })
 
         it("assigns result ONLY past the pid-match gate (unmatched tabs keep the marker)", () => {
-            const gate = g.indexOf("!PIDS.contains(String.valueOf(pid))) continue")
+            const gate = g.indexOf("!matchesTab(view, PIDS, SESSION_IDS)) continue")
             const assign = g.indexOf("result = '{\"pid\":'")
             expect(gate).toBeGreaterThan(-1)
             expect(assign).toBeGreaterThan(gate) // result is set after the continue-gate, never before
@@ -121,6 +129,14 @@ describe("groovyFocusByPid", () => {
             expect(g).toContain("def view = viewOf(c)")
             expect(g).toContain("def pid = pidOf(view)")
         })
+    })
+})
+
+describe("groovyFocusByTargets", () => {
+    it("matches a tab by startup TERM_SESSION_ID", () => {
+        const g = groovyFocusByTargets({ pids: [], termSessionIds: ["session-42"] }, "/r.json")
+        expect(g).toContain("def SESSION_IDS = ['session-42'] as Set")
+        expect(g).toContain("matchesTab(view, PIDS, SESSION_IDS)")
     })
 })
 
@@ -191,18 +207,23 @@ describe("parseFocus", () => {
  */
 type FocusCaps = {
     deps: IsTabFocusedDeps
-    calls: { resolvePids: number; resolveExecs: number; filter: number; run: number }
+    calls: { owner: number; resolvePids: number; resolveExecs: number; filter: number; run: number }
     filterArgs: string[][]
     runArgs: Array<{ note: string; execPaths: string[]; groovy: string }>
 }
 
 const makeFocusDeps = (
-    opts: { pids?: number[]; execs?: string[]; filtered?: string[]; result?: string | null } = {}
+    opts: { owner?: string | null; pids?: number[]; execs?: string[]; filtered?: string[]; result?: string | null } = {}
 ): FocusCaps => {
-    const calls = { resolvePids: 0, resolveExecs: 0, filter: 0, run: 0 }
+    const calls = { owner: 0, resolvePids: 0, resolveExecs: 0, filter: 0, run: 0 }
     const filterArgs: string[][] = []
     const runArgs: Array<{ note: string; execPaths: string[]; groovy: string }> = []
     const deps: IsTabFocusedDeps = {
+        resolveExecPath: async () => {
+            calls.owner++
+            if (opts.owner) return opts.owner
+            throw new IdeaError("owner unavailable")
+        },
         resolveTabPids: async () => {
             calls.resolvePids++
             return [...(opts.pids ?? [])]
@@ -231,6 +252,9 @@ const rejectingDeps = (
 ): IsTabFocusedDeps => {
     const boom = new Error(`${which} boom`)
     return {
+        resolveExecPath: async () => {
+            throw new IdeaError("owner unavailable")
+        },
         resolveTabPids: async () => {
             if (which === "resolveTabPids") throw boom
             return [123]
@@ -257,8 +281,16 @@ describe("isTabFocused (dispatch)", () => {
             expect(await isTabFocused(undefined, cap.deps)).toEqual(UNDETERMINED)
             expect(cap.calls.resolvePids).toBe(1)
             expect(cap.calls.run).toBe(0) // no round-trip dispatched
+            expect(cap.calls.owner).toBe(0)
             expect(cap.calls.resolveExecs).toBe(0)
             expect(cap.calls.filter).toBe(0)
+        })
+
+        it("short-circuits on explicit empty shared targets", async () => {
+            const cap = makeFocusDeps({ execs: [WEBSTORM] })
+            expect(await isTabFocused({ pids: [], termSessionIds: [] }, cap.deps)).toEqual(UNDETERMINED)
+            expect(cap.calls.owner).toBe(0)
+            expect(cap.calls.run).toBe(0)
         })
 
         it("short-circuits on an explicit empty pid array without even resolving pids", async () => {
@@ -266,6 +298,17 @@ describe("isTabFocused (dispatch)", () => {
             expect(await isTabFocused([], cap.deps)).toEqual(UNDETERMINED)
             expect(cap.calls.resolvePids).toBe(0) // `pids ?? resolve()` skips the resolver
             expect(cap.calls.run).toBe(0)
+        })
+    })
+
+    context("the resolved Linux owner", () => {
+        it("dispatches session-aware focus directly without scanning", async () => {
+            const cap = makeFocusDeps({ owner: WEBSTORM, execs: [PYCHARM], result: null })
+            await isTabFocused({ pids: [], termSessionIds: ["session-42"] }, cap.deps)
+            expect(cap.calls.owner).toBe(1)
+            expect(cap.calls.resolveExecs).toBe(0)
+            expect(cap.runArgs[0]?.execPaths).toEqual([WEBSTORM])
+            expect(cap.runArgs[0]?.groovy).toContain("'session-42'")
         })
     })
 

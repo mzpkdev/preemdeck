@@ -12,7 +12,7 @@
  */
 
 import { describe, expect, it } from "bun:test"
-import { GROOVY_TAB_HELPERS } from "./tab-groovy"
+import { GROOVY_TAB_HELPERS, GROOVY_TAB_TARGET_HELPERS } from "./tab-groovy"
 
 const context = describe
 
@@ -67,5 +67,32 @@ describe("GROOVY_TAB_HELPERS", () => {
             expect(GROOVY_TAB_HELPERS.startsWith("\n")).toBe(false)
             expect(GROOVY_TAB_HELPERS.endsWith("\n")).toBe(false)
         })
+    })
+})
+
+describe("GROOVY_TAB_TARGET_HELPERS", () => {
+    it("reads TERM_SESSION_ID from the terminal startup environment", () => {
+        expect(GROOVY_TAB_TARGET_HELPERS).toContain("getStartupOptionsDeferred")
+        expect(GROOVY_TAB_TARGET_HELPERS).toContain("getCompleted")
+        expect(GROOVY_TAB_TARGET_HELPERS).toContain("getEnvVariables")
+        expect(GROOVY_TAB_TARGET_HELPERS).toContain("variables?.get('TERM_SESSION_ID')")
+    })
+
+    it("matches either exact pid representation or startup session id", () => {
+        expect(GROOVY_TAB_TARGET_HELPERS).toContain("pids.contains(pid)")
+        expect(GROOVY_TAB_TARGET_HELPERS).toContain("pids.contains(String.valueOf(pid))")
+        expect(GROOVY_TAB_TARGET_HELPERS).toContain("sessions.contains(String.valueOf(session))")
+    })
+
+    it("does not contain a catch-all match", () => {
+        expect(GROOVY_TAB_TARGET_HELPERS).toContain("pid != null")
+        expect(GROOVY_TAB_TARGET_HELPERS).toContain("session != null")
+        expect(GROOVY_TAB_TARGET_HELPERS).not.toContain("return true")
+    })
+
+    it("composes cleanly after the reflection helpers", () => {
+        expect(GROOVY_TAB_TARGET_HELPERS.startsWith("def termSessionIdOf = {")).toBe(true)
+        expect(GROOVY_TAB_TARGET_HELPERS.endsWith("}")).toBe(true)
+        expect(`${GROOVY_TAB_HELPERS}\n${GROOVY_TAB_TARGET_HELPERS}`).toContain("def matchesTab = {")
     })
 })

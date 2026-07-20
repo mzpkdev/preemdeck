@@ -1,7 +1,14 @@
 #!/usr/bin/env bun
 import { defineCommand, effect, execute } from "cmdore"
 import { assertIdea } from "./assert-idea"
-import { isTabFocused, type TabFocus, UNDETERMINED } from "./core"
+import { isTabFocused, resolveTabTargets, type TabFocus, type TabTargets, UNDETERMINED } from "./core"
+
+export type TabFocusedCliDeps = {
+    resolveTabTargets: () => Promise<TabTargets>
+    isTabFocused: (targets: TabTargets) => Promise<TabFocus>
+}
+
+const DEFAULT_DEPS: TabFocusedCliDeps = { resolveTabTargets, isTabFocused }
 
 /**
  * Print whether the terminal tab THIS shell runs in is currently focused in the
@@ -22,10 +29,11 @@ import { isTabFocused, type TabFocus, UNDETERMINED } from "./core"
  * // exit 0 + {"focused":true,...} when this tab is the focused one
  * tab-focused && notify "done"   // only notify when you're NOT looking here: use `|| notify`
  */
-export const tabFocusedCli = async (verbose = false): Promise<TabFocus> => {
+export const tabFocusedCli = async (verbose = false, deps: TabFocusedCliDeps = DEFAULT_DEPS): Promise<TabFocus> => {
+    const targets = await deps.resolveTabTargets()
     // --dry-run disables effect(), so the IDE read is skipped and we report UNDETERMINED.
     // effect() is typed Promise<unknown>; it returns exactly isTabFocused's result live, else undefined.
-    const result = ((await effect(() => isTabFocused())) as TabFocus | undefined) ?? UNDETERMINED
+    const result = ((await effect(() => deps.isTabFocused(targets))) as TabFocus | undefined) ?? UNDETERMINED
     process.stdout.write(`${JSON.stringify(result)}\n`)
     if (verbose) {
         process.stderr.write(

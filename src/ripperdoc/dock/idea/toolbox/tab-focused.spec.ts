@@ -52,6 +52,15 @@ describe("tab-focused CLI", () => {
             expect(JSON.parse(stdout.trim())).toEqual(UNDETERMINED)
         })
 
+        it("accepts a session-only tab identity without contacting the IDE", async () => {
+            const { code, stdout } = await run(["--dry-run"], {
+                TERM_SESSION_ID: "session-42",
+                TMUX: ""
+            })
+            expect(code).toBe(1)
+            expect(stdout).toBe(VERDICT_LINE)
+        })
+
         it("stays silent on stderr without --verbose", async () => {
             const { stderr } = await run(["--dry-run"])
             expect(stderr).toBe("")

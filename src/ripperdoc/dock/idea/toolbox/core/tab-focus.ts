@@ -37,9 +37,9 @@
  */
 
 import { escapeGroovy, GROOVY_RESULT_PENDING, type RunGroovyForResultDeps, runGroovyForResult } from "./groovy"
-import { filterExecsForLaunchingProduct, resolveExecPaths } from "./index"
-import { GROOVY_TAB_HELPERS } from "./tab-groovy"
-import { resolveTabPids } from "./tab-pids"
+import { filterExecsForLaunchingProduct, resolveExecPath, resolveExecPaths } from "./index"
+import { GROOVY_TAB_HELPERS, GROOVY_TAB_TARGET_HELPERS } from "./tab-groovy"
+import { normalizeTabTargets, resolveTabPids, resolveTabTargets, type TabTargets } from "./tab-pids"
 
 /**
  * The focus reading for this tab: the conjunction verdict plus the three raw
@@ -87,8 +87,11 @@ export const UNDETERMINED: TabFocus = {
  * stale/foreign tab. The JSON is `{"pid":<long>,"tabSelected":<bool>,
  * "toolWindowActive":<bool>,"frameFocused":<bool>}`.
  */
-export const groovyFocusByPid = (pids: readonly number[], resultPath: string): string => {
-    const pidSet = pids.map((pid) => `"${Math.trunc(pid)}"`).join(", ")
+const groovySingleQuoted = (value: string): string => `'${value.replace(/\\/g, "\\\\").replace(/'/g, "\\'")}'`
+
+export const groovyFocusByTargets = (targets: TabTargets, resultPath: string): string => {
+    const pidSet = targets.pids.map((pid) => `"${Math.trunc(pid)}"`).join(", ")
+    const sessionSet = targets.termSessionIds.map(groovySingleQuoted).join(", ")
     const out = escapeGroovy(resultPath)
     return `import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.project.ProjectManager
@@ -96,9 +99,11 @@ import com.intellij.openapi.wm.ToolWindowManager
 import com.intellij.openapi.wm.WindowManager
 
 ${GROOVY_TAB_HELPERS}
+${GROOVY_TAB_TARGET_HELPERS}
 
 def OUT = "${out}"
 def PIDS = [${pidSet}] as Set
+def SESSION_IDS = [${sessionSet}] as Set
 try { new File(OUT).text = '${GROOVY_RESULT_PENDING}' } catch (Throwable t) {}
 
 ApplicationManager.getApplication().invokeLater({
@@ -115,7 +120,7 @@ ApplicationManager.getApplication().invokeLater({
                         def view = viewOf(c)
                         if (view == null) continue
                         def pid = pidOf(view)
-                        if (pid == null || !PIDS.contains(String.valueOf(pid))) continue
+                        if (!matchesTab(view, PIDS, SESSION_IDS)) continue
                         def tabSelected = (c == selected)
                         def toolWindowActive = tw.isActive()
                         def frameFocused = (frame == null) ? false : frame.isFocused()
@@ -131,6 +136,10 @@ ApplicationManager.getApplication().invokeLater({
 } as Runnable)
 `
 }
+
+/** Legacy PID-only builder retained for existing imports. */
+export const groovyFocusByPid = (pids: readonly number[], resultPath: string): string =>
+    groovyFocusByTargets({ pids: [...pids], termSessionIds: [] }, resultPath)
 
 /**
  * Parse the focus JSON the Groovy wrote — fail-open on anything unexpected.
@@ -162,8 +171,12 @@ export const parseFocus = (text: string | null): TabFocus => {
 
 /** Injectable seams for {@link isTabFocused}; production uses the real pid resolver, launcher scan, and result round-trip. */
 export type IsTabFocusedDeps = {
+    /** Resolve the shared tab identity when no explicit input is supplied. */
+    resolveTabTargets?: () => Promise<TabTargets>
     /** Resolve the pid set on this tab's tty (default: core resolveTabPids). */
     resolveTabPids?: () => Promise<number[]>
+    /** Resolve the owning launcher directly on Linux. */
+    resolveExecPath?: () => Promise<string>
     /** Resolve every running JetBrains launcher (default: platform resolveExecPaths). */
     resolveExecPaths?: () => Promise<string[]>
     /** Narrow launchers to the launching product (default: platform filterExecsForLaunchingProduct). */
@@ -192,20 +205,36 @@ export type IsTabFocusedDeps = {
  * is caught and degrades to {@link UNDETERMINED}. `deps` injects every IDE-contact
  * seam for hermetic tests.
  */
-export const isTabFocused = async (pids?: readonly number[], deps: IsTabFocusedDeps = {}): Promise<TabFocus> => {
+export function isTabFocused(pids?: readonly number[], deps?: IsTabFocusedDeps): Promise<TabFocus>
+export function isTabFocused(targets?: TabTargets, deps?: IsTabFocusedDeps): Promise<TabFocus>
+export async function isTabFocused(
+    input?: readonly number[] | TabTargets,
+    deps: IsTabFocusedDeps = {}
+): Promise<TabFocus> {
     try {
-        const resolvePids = deps.resolveTabPids ?? resolveTabPids
-        const resolveExecs = deps.resolveExecPaths ?? resolveExecPaths
-        const filterExecs = deps.filterExecsForLaunchingProduct ?? filterExecsForLaunchingProduct
         const runForResult = deps.runGroovyForResult ?? runGroovyForResult
 
-        const pidList = pids ?? (await resolvePids())
-        if (pidList.length === 0) {
+        const targets = input
+            ? normalizeTabTargets(input)
+            : deps.resolveTabTargets
+              ? await deps.resolveTabTargets()
+              : deps.resolveTabPids
+                ? normalizeTabTargets(await (deps.resolveTabPids ?? resolveTabPids)())
+                : await resolveTabTargets()
+        if (targets.pids.length === 0 && targets.termSessionIds.length === 0) {
             return UNDETERMINED
         }
-        const execPaths = filterExecs(await resolveExecs())
+        const owner =
+            process.platform === "linux" || deps.resolveExecPath
+                ? await (deps.resolveExecPath ?? resolveExecPath)().catch(() => null)
+                : null
+        const execPaths = owner
+            ? [owner]
+            : (deps.filterExecsForLaunchingProduct ?? filterExecsForLaunchingProduct)(
+                  await (deps.resolveExecPaths ?? resolveExecPaths)()
+              )
         const text = await runForResult(
-            (resultPath) => groovyFocusByPid(pidList, resultPath),
+            (resultPath) => groovyFocusByTargets(targets, resultPath),
             "tab-focused: could not read focus state",
             execPaths
         )

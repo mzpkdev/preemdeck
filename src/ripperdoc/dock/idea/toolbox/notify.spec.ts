@@ -31,6 +31,20 @@ describe("notify CLI", () => {
             expect(stderr).toBe("")
         })
 
+        it("does not contact the IDE under --dry-run with inherited Linux tab identity", async () => {
+            const started = performance.now()
+            const { code, stdout, stderr } = await run(["--dry-run", "build finished"], {
+                PREEMDECK_FORCE_IN_IDEA: "",
+                TERMINAL_EMULATOR: "JetBrains-JediTerm",
+                TERM_SESSION_ID: "linux-session-42"
+            })
+
+            expect(code).toBe(0)
+            expect(stdout).toBe("")
+            expect(stderr).toBe("")
+            expect(performance.now() - started).toBeLessThan(1_000)
+        })
+
         it("threads --title and exits 0 under --dry-run", async () => {
             const { code, stdout } = await run(["--dry-run", "--title", "CI", "tests failed"])
             expect(code).toBe(0)
