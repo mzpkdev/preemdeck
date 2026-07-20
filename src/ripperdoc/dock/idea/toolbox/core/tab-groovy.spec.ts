@@ -40,6 +40,16 @@ describe("GROOVY_TAB_HELPERS", () => {
         })
     })
 
+    context("inv reaches public methods on package-private implementations", () => {
+        it("makes the reflected method accessible before invoking it", () => {
+            const accessible = GROOVY_TAB_HELPERS.indexOf("method.setAccessible(true)")
+            const invoked = GROOVY_TAB_HELPERS.indexOf("return method.invoke(obj)")
+
+            expect(accessible).toBeGreaterThan(-1)
+            expect(invoked).toBeGreaterThan(accessible)
+        })
+    })
+
     context("pidOf walks the proven session -> backend -> process chain", () => {
         it.each([
             'fieldDeep(view, "sessionFuture")',

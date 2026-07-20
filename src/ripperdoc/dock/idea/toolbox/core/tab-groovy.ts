@@ -12,7 +12,9 @@
  * {@link GROOVY_TAB_HELPERS} is a preamble of `def`-bound Groovy closures,
  * emitted verbatim into a script AFTER its imports and BEFORE its body:
  *
- * - `inv(obj, name)` — call a no-arg method by name, null on any failure.
+ * - `inv(obj, name)` — call an accessible no-arg method by name, null on any
+ *   failure. `setAccessible(true)` is required when a public method is declared
+ *   on a package-private implementation such as `CompletableDeferredImpl`.
  * - `fieldDeep(obj, nm)` — read a (possibly inherited) declared field, null-safe.
  * - `allFields(obj)` — every declared field up the superclass chain.
  * - `enclosing(obj)` — the synthetic `this$0` outer instance of an inner class.
@@ -50,7 +52,14 @@
  * via `pidOf(viewOf(content))` and, when they also need the view (tab.ts, for the
  * title), keep the `viewOf(content)` result.
  */
-export const GROOVY_TAB_HELPERS = `def inv = { obj, name -> try { return obj?.getClass()?.getMethod(name)?.invoke(obj) } catch (Throwable t) { return null } }
+export const GROOVY_TAB_HELPERS = `def inv = { obj, name ->
+    try {
+        def method = obj?.getClass()?.getMethod(name)
+        if (method == null) return null
+        method.setAccessible(true)
+        return method.invoke(obj)
+    } catch (Throwable t) { return null }
+}
 def fieldDeep = { obj, String nm -> if (obj == null) return null; def c = obj.getClass(); while (c != null && c != Object.class) { try { def f = c.getDeclaredField(nm); f.setAccessible(true); return f.get(obj) } catch (Throwable t) {}; c = c.getSuperclass() }; return null }
 def allFields = { obj -> def res = []; def c = obj.getClass(); while (c != null && c != Object.class) { res.addAll(c.getDeclaredFields() as List); c = c.getSuperclass() }; return res }
 def enclosing = { obj -> try { def f = obj.getClass().getDeclaredField('this$0'); f.setAccessible(true); return f.get(obj) } catch (Throwable t) { return null } }
