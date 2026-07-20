@@ -6,9 +6,10 @@ description: |
   these", "show me the diff", "review this edit/suggestion side by side"), present a code
   SNIPPET / SUGGESTION inline or MERGE one into a file ("show this snippet", "drop this
   suggestion in the editor", "merge this in", "3-way merge"), or NOTIFY them in-IDE ("notify
-  me", "pop a notification", "let me know when it's done", "toast/balloon"). Covers every
-  CLI tool: open-file, open-url, open-inline, diff-file, diff-inline, merge-file, merge-inline,
-  read-logs, notify, rename-tab, in-idea.
+  me", "pop a notification", "let me know when it's done", "toast/balloon"), or show a
+  blocking HTML DIALOG and collect its result. Covers every CLI tool: open-file, open-url,
+  open-inline, html-dialog, diff-file, diff-inline, merge-file, merge-inline, read-logs,
+  notify, rename-tab, in-idea.
 user-invocable: true
 allowed-tools: [Bash]
 ---
@@ -16,8 +17,8 @@ allowed-tools: [Bash]
 # idea:using
 
 A manual for the **idea toolbox** — a set of small CLIs that drive the _currently running_ JetBrains IDE from the
-terminal: open files/URLs, show diffs, present code suggestions, run 3-way merges, tail the IDE log, and pop
-notification balloons.
+terminal: open files/URLs, show blocking HTML dialogs, present code suggestions, run diffs/3-way merges, tail the IDE
+log, and pop notification balloons.
 
 ## Hard requirement: a live JetBrains terminal
 
@@ -87,6 +88,7 @@ Pick the tool from what the user asked for:
 | -------------------------------------------------------------------------- | ----------------- |
 | "open `<file>` in the IDE", "jump to line N", "pull up `app.ts`"           | `open-file.ts`    |
 | "open `<url>`", "preview localhost:3000", "show that page in the IDE"      | `open-url.ts`     |
+| "show this HTML as a modal", "collect a result in IDEA"                    | `html-dialog.ts`  |
 | "show me this snippet/string", "open this text", "render this markdown"    | `open-inline.ts`  |
 | "diff these two files", "show the diff", "review this change side by side" | `diff-file.ts`    |
 | "diff this old vs new text", "compare these two snippets"                  | `diff-inline.ts`  |
@@ -150,6 +152,33 @@ Open `url` in the IDE's embedded JCEF web-preview tab. Fire-and-forget (there's 
 ```bash
 "$HOME/.preemdeck/preemdeck-runtime" "$TB/open-url.ts" http://localhost:3000              # preview a local dev server
 "$HOME/.preemdeck/preemdeck-runtime" "$TB/open-url.ts" https://example.com --title docs   # custom tab label
+```
+
+## html-dialog.ts — show a blocking HTML modal and collect JSON
+
+```
+html-dialog (--html <markup> | --html-file <path> | --url <loopback-url>)
+            [--title <title>] [--width <px>] [--height <px>] [--timeout-ms <ms>] [options]
+```
+
+Render trusted HTML in a native `DialogWrapper` backed by JCEF. Inline markup, an HTML file, and an HTTP(S) loopback URL
+are supported; non-loopback URLs are rejected. The page completes the call through the injected API:
+
+```js
+window.preemdeckDialog.submit({ choice: "mcp" });
+window.preemdeckDialog.cancel();
+```
+
+The CLI blocks and prints exactly one JSON result: `submitted` with a JSON value, `cancelled`, `timeout`, or
+`unavailable` (`not-in-idea`, `jcef-unsupported`, or `jcef-load-failed`). Submitted/cancelled exit `0`; runtime
+unavailable and timeout exit `1`; malformed options exit `2`. Under `--dry-run`, it validates the source and prints an
+`unavailable/dry-run` result without touching the IDE.
+
+```bash
+"$HOME/.preemdeck/preemdeck-runtime" "$TB/html-dialog.ts" \
+  --html-file /tmp/question.html --title "PreemDeck Questionnaire"
+"$HOME/.preemdeck/preemdeck-runtime" "$TB/html-dialog.ts" \
+  --url http://127.0.0.1:5173/question --width 520 --height 360
 ```
 
 ## open-inline.ts — open a string in the IDE

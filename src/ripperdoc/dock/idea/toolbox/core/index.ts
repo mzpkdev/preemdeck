@@ -92,6 +92,24 @@ export {
     runGroovyForResult,
     runGroovyOn
 } from "./groovy"
+/** Render trusted HTML in a native JCEF modal and round-trip a typed page result. */
+export {
+    DEFAULT_HTML_DIALOG_HEIGHT,
+    DEFAULT_HTML_DIALOG_TIMEOUT_MS,
+    DEFAULT_HTML_DIALOG_TITLE,
+    DEFAULT_HTML_DIALOG_WIDTH,
+    groovyHtmlDialog,
+    type HtmlDialogDeps,
+    type HtmlDialogOptions,
+    type HtmlDialogResult,
+    type HtmlDialogSource,
+    type HtmlDialogUnavailableReason,
+    type JsonValue,
+    normalizeHtmlDialogOptions,
+    parseHtmlDialogResult,
+    showHtmlDialog,
+    validateHtmlDialogUrl
+} from "./html-dialog"
 /**
  * Cross-platform launch (resolves resolveExecPath lazily at call time — see
  * launch.ts — so the static import cycle with this module is import-safe).
