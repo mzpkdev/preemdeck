@@ -56,12 +56,19 @@ describe("ding", () => {
     })
 
     context("dingLinux — first installed player wins", () => {
+        it("tries the portable Linux fallback chain in order", () => {
+            expect(LINUX_CANDIDATES).toEqual([
+                ["canberra-gtk-play", "--id", "bell"],
+                ["pw-play", "/usr/share/sounds/freedesktop/stereo/bell.oga"],
+                ["paplay", "/usr/share/sounds/freedesktop/stereo/bell.oga"],
+                ["aplay", "-q", "/usr/share/sounds/alsa/Front_Center.wav"]
+            ])
+        })
         it("uses the first player that succeeds", async () => {
             const f = fakeRun((cmd) => cmd[0] === "paplay")
             expect(await dingLinux(f.run)).toBe("paplay")
             const tried = f.calls.map((c) => c[0])
-            expect(tried[0]).toBe("canberra-gtk-play")
-            expect(tried).not.toContain("aplay")
+            expect(tried).toEqual(["canberra-gtk-play", "pw-play", "paplay"])
         })
         it("is null when no player works (all candidates tried)", async () => {
             const f = fakeRun(() => false)

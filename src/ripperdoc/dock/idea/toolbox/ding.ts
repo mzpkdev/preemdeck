@@ -26,8 +26,8 @@ const MACOS_SOUND = "/System/Library/Sounds/Glass.aiff"
  */
 export const LINUX_CANDIDATES: string[][] = [
     ["canberra-gtk-play", "--id", "bell"],
+    ["pw-play", "/usr/share/sounds/freedesktop/stereo/bell.oga"],
     ["paplay", "/usr/share/sounds/freedesktop/stereo/bell.oga"],
-    ["paplay", "/usr/share/sounds/freedesktop/stereo/complete.oga"],
     ["aplay", "-q", "/usr/share/sounds/alsa/Front_Center.wav"]
 ]
 
